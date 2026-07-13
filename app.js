@@ -23,6 +23,7 @@ const state = {
   activePhotoId: null,
   projectCode: "",
   projectName: "프로젝트A",
+  serverHealth: null,
   syncDirty: false,
   syncing: false,
   lastSyncedAt: null,
@@ -158,6 +159,7 @@ loadState();
 render();
 showLocationReadiness();
 captureInitialPosition();
+refreshServerHealth();
 
 map.on("click", (event) => {
   if (state.pointEditMode) {
@@ -1354,8 +1356,28 @@ function renderProjectState() {
   }
   els.projectName.value = state.projectName || "프로젝트A";
   els.projectCode.value = state.projectCode || "";
-  els.projectBadge.textContent = state.projectCode || "로컬";
-  els.projectBadge.classList.toggle("is-live", Boolean(state.projectCode));
+  els.projectBadge.textContent = state.projectCode || getStorageBadgeLabel();
+  els.projectBadge.classList.toggle("is-live", Boolean(state.projectCode || state.serverHealth?.storage === "tidb"));
+}
+
+function getStorageBadgeLabel() {
+  if (state.serverHealth?.storage === "tidb" && state.serverHealth?.files === "cloudflare-r2") {
+    return "서버";
+  }
+  if (state.serverHealth?.storage === "tidb") {
+    return "서버";
+  }
+  return "로컬";
+}
+
+async function refreshServerHealth() {
+  try {
+    state.serverHealth = await requestJson("/api/health");
+    renderProjectState();
+  } catch {
+    state.serverHealth = null;
+    renderProjectState();
+  }
 }
 
 function setProjectStatus(message) {
