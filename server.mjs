@@ -58,6 +58,11 @@ const server = createServer(async (request, response) => {
 });
 
 async function handleApi(request, response, url) {
+  if (request.method === "GET" && url.pathname.startsWith("/api/files/")) {
+    await serveR2File(request, response, url);
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/health") {
     sendJson(response, 200, {
       ok: true,
@@ -246,7 +251,38 @@ async function uploadDataUrlToR2(code, photo) {
     }),
   );
 
-  return r2Config.publicBaseUrl ? `${r2Config.publicBaseUrl}/${key}` : key;
+  if (r2Config.publicBaseUrl) {
+    return `${r2Config.publicBaseUrl}/${key}`;
+  }
+  return `/api/files/${key.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+async function serveR2File(request, response, url) {
+  if (!isR2Configured()) {
+    sendJson(response, 404, { error: "r2_not_configured" });
+    return;
+  }
+
+  const key = decodeURIComponent(url.pathname.replace(/^\/api\/files\//, ""));
+  if (!key || key.includes("..") || key.startsWith("/")) {
+    sendJson(response, 400, { error: "invalid_file_key" });
+    return;
+  }
+
+  const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const client = await getS3Client();
+  const object = await client.send(
+    new GetObjectCommand({
+      Bucket: r2Config.bucket,
+      Key: key,
+    }),
+  );
+
+  response.writeHead(200, {
+    "Content-Type": object.ContentType || "application/octet-stream",
+    "Cache-Control": "public, max-age=31536000, immutable",
+  });
+  object.Body.pipe(response);
 }
 
 async function getProjectFromDatabase(code) {
