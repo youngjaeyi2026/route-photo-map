@@ -714,11 +714,6 @@ label[for="photoInput"] {
   font-weight: 800;
 }
 
-.data-actions #syncProjectBtn {
-  color: var(--green-dark);
-  background: #eaf4ee;
-}
-
 .photo-list > .status-text,
 .history-list > .status-text {
   white-space: nowrap;
@@ -1755,7 +1750,7 @@ label[for="photoInput"] {
 
 @media (max-width: 460px) {
   .milestone-actions {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .photo-item {
