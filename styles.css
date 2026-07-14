@@ -688,6 +688,11 @@ label[for="photoInput"] {
   padding-right: 52px;
 }
 
+.password-field input::-ms-reveal,
+.password-field input::-ms-clear {
+  display: none;
+}
+
 .auth-controls button {
   color: #285b86;
   background: #eaf3fb;
