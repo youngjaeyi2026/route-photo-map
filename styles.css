@@ -660,9 +660,32 @@ label[for="photoInput"] {
   font-weight: 800;
 }
 
+.password-field {
+  position: relative;
+  min-width: 0;
+}
+
+.password-field button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 44px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  color: #285b86;
+  background: #eef6f1;
+  font-size: 11px;
+}
+
 .auth-controls input {
   padding: 0 10px;
   background: #ffffff;
+}
+
+.password-field input {
+  width: 100%;
+  padding-right: 52px;
 }
 
 .auth-controls button {
@@ -670,7 +693,7 @@ label[for="photoInput"] {
   background: #eaf3fb;
 }
 
-.auth-controls button:first-of-type {
+#authLoginBtn {
   grid-column: 1 / -1;
 }
 

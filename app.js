@@ -1613,7 +1613,10 @@ function setupAuthPanel() {
     </div>
     <div class="auth-controls">
       <input id="authEmail" type="email" placeholder="이메일" autocomplete="email" />
-      <input id="authPassword" type="password" placeholder="비밀번호" autocomplete="current-password" />
+      <div id="authPasswordWrap" class="password-field">
+        <input id="authPassword" type="password" placeholder="비밀번호" autocomplete="current-password" />
+        <button id="authPasswordToggle" type="button" aria-label="비밀번호 보기">보기</button>
+      </div>
       <button id="authLoginBtn" type="button">로그인 / 자동가입</button>
       <button id="authLogoutBtn" type="button" hidden>로그아웃</button>
     </div>
@@ -1625,7 +1628,9 @@ function setupAuthPanel() {
     section,
     badge: section.querySelector("#authBadge"),
     email: section.querySelector("#authEmail"),
+    passwordWrap: section.querySelector("#authPasswordWrap"),
     password: section.querySelector("#authPassword"),
+    passwordToggle: section.querySelector("#authPasswordToggle"),
     loginBtn: section.querySelector("#authLoginBtn"),
     logoutBtn: section.querySelector("#authLogoutBtn"),
     status: section.querySelector("#authStatus"),
@@ -1633,6 +1638,7 @@ function setupAuthPanel() {
   };
   authEls.loginBtn.addEventListener("click", loginWithPassword);
   authEls.logoutBtn.addEventListener("click", logout);
+  authEls.passwordToggle.addEventListener("click", togglePasswordVisibility);
 }
 
 async function refreshAuth() {
@@ -1660,13 +1666,20 @@ function renderAuthPanel() {
   authEls.badge.textContent = user ? "로그인" : "비로그인";
   authEls.badge.classList.toggle("is-live", Boolean(user));
   authEls.email.hidden = Boolean(user);
-  authEls.password.hidden = Boolean(user);
+  authEls.passwordWrap.hidden = Boolean(user);
   authEls.loginBtn.hidden = Boolean(user);
   authEls.logoutBtn.hidden = !user;
   authEls.status.textContent = user
     ? `${user.email} 계정으로 로그인했습니다.`
     : "로그인하면 내 프로젝트 목록을 불러올 수 있습니다.";
   renderMyProjectList();
+}
+
+function togglePasswordVisibility() {
+  const visible = authEls.password.type === "text";
+  authEls.password.type = visible ? "password" : "text";
+  authEls.passwordToggle.textContent = visible ? "보기" : "숨김";
+  authEls.passwordToggle.setAttribute("aria-label", visible ? "비밀번호 보기" : "비밀번호 숨기기");
 }
 
 async function loginWithPassword() {
