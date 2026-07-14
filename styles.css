@@ -403,7 +403,7 @@ h2 {
 
 .utility-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -562,6 +562,9 @@ h2 {
 }
 
 .status-message {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
   padding: 8px 10px;
   border: 1px solid #f2c9c2;
   border-radius: 8px;
@@ -646,8 +649,46 @@ h2 {
   font-weight: 800;
 }
 
-#syncProjectBtn,
 #createProjectBtn {
+  color: var(--green-dark);
+  background: #eaf4ee;
+}
+
+.project-primary-action {
+  width: 100%;
+}
+
+.data-management {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.data-management h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.data-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.data-actions button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: #ffffff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.data-actions #syncProjectBtn {
   color: var(--green-dark);
   background: #eaf4ee;
 }
@@ -888,13 +929,15 @@ h2 {
 }
 
 .destination-follow-status {
-  min-height: 34px;
+  display: flex;
+  align-items: center;
+  min-height: 42px;
   margin: 6px 0 12px;
   padding: 8px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid #f2c9c2;
   border-radius: 8px;
-  color: var(--green-dark);
-  background: #f3f8f4;
+  color: #8a3328;
+  background: #fff1ee;
   font-size: 12px;
   font-weight: 800;
   line-height: 1.45;
@@ -1536,6 +1579,28 @@ h2 {
     min-height: 32px;
     padding: 0 10px;
     font-size: 13px;
+  }
+
+  .data-management {
+    gap: 6px;
+    padding-bottom: 8px;
+  }
+
+  .data-management h3 {
+    font-size: 12px;
+  }
+
+  .data-actions {
+    gap: 6px;
+  }
+
+  .data-actions button {
+    min-height: 30px;
+    font-size: 11px;
+  }
+
+  .status-message {
+    min-height: 42px;
   }
 
   .status-strip > div {
