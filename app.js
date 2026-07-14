@@ -1347,7 +1347,24 @@ function deleteSession(sessionId) {
 }
 
 async function createServerProject() {
+  const hasCurrentData =
+    state.points.length > 0 ||
+    state.photos.length > 0 ||
+    state.milestones.length > 0 ||
+    state.sessions.length > 0;
+  if (hasCurrentData) {
+    const ok = window.confirm(
+      "새 프로젝트를 시작할까요?\n\n현재 화면의 거리, 위치점, 사진, 목적지, 저장된 기록이 새 프로젝트 기준으로 초기화됩니다.",
+    );
+    if (!ok) {
+      return;
+    }
+  }
+  if (state.tracking) {
+    stopTracking({ save: false, clearCurrent: false });
+  }
   const name = els.projectName.value.trim() || "프로젝트A";
+  resetForNewProject();
   setProjectStatus("프로젝트를 만들고 있습니다.");
   try {
     const project = await requestJson("/api/projects", {
@@ -1361,6 +1378,33 @@ async function createServerProject() {
   } catch {
     setProjectStatus("프로젝트를 만들지 못했습니다. 서버 연결을 확인해 주세요.");
   }
+}
+
+function resetForNewProject() {
+  state.points = [];
+  state.photos = [];
+  state.milestones = [];
+  state.sessions = [];
+  state.primarySessionId = null;
+  state.continuingSessionId = null;
+  state.selectedPosition = state.initialPosition || null;
+  state.activeStartedAt = null;
+  state.destinationFollow = false;
+  state.activeDestinationId = null;
+  state.arrivedPinIds = new Set();
+  state.undoRouteEdit = null;
+  state.selectedPointIndex = null;
+  state.lastRoutePointIndex = null;
+  state.segmentStartIndex = null;
+  state.segmentEndIndex = null;
+  state.pointAddMode = false;
+  stopDestinationPositionWatcher();
+  if (state.initialPosition) {
+    currentMarker.setLatLng([state.initialPosition.lat, state.initialPosition.lng]);
+  }
+  persist();
+  render();
+  setStatus("새 프로젝트가 시작됩니다. 현재 화면의 기록 정보를 초기화했습니다.", "warning");
 }
 
 async function openServerProject(code) {
