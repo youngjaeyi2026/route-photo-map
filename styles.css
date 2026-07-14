@@ -339,7 +339,7 @@ h2 {
   border: 1px solid transparent;
   border-radius: 8px;
   font: inherit;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 1.1;
   text-align: center;
@@ -742,6 +742,7 @@ label[for="photoInput"] {
   background: #ffffff;
   color: var(--ink);
   font: inherit;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -935,6 +936,7 @@ label[for="photoInput"] {
   background: #ffffff;
   color: var(--ink);
   font: inherit;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -1590,6 +1592,11 @@ label[for="photoInput"] {
     font-size: 11px;
   }
 
+  .section-toggle {
+    min-height: 26px;
+    font-size: 12px;
+  }
+
   .project-controls input {
     min-height: 32px;
     padding: 0 9px;
@@ -1642,7 +1649,7 @@ label[for="photoInput"] {
   }
 
   .action-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
@@ -1652,7 +1659,7 @@ label[for="photoInput"] {
     min-height: 30px;
     gap: 6px;
     padding: 0 8px;
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .utility-row {
@@ -1685,7 +1692,7 @@ label[for="photoInput"] {
   .photo-tools select,
   .photo-tools button {
     min-height: 32px;
-    font-size: 13px;
+    font-size: 12px;
   }
 
 .photo-tools button {
@@ -1718,7 +1725,7 @@ label[for="photoInput"] {
   .overlay-controls button,
   .overlay-controls input {
     min-height: 30px;
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .milestone-list,
@@ -1742,7 +1749,7 @@ label[for="photoInput"] {
   .overlay-item span,
   .pin-list-actions button,
   .overlay-item button {
-    font-size: 11px;
+    font-size: 12px;
   }
 }
 
