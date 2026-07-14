@@ -31,6 +31,8 @@ const state = {
   lastSyncError: "",
   user: null,
   myProjects: [],
+  shareLinks: [],
+  shareView: null,
   recordPanelOpen: true,
   pointEditPanelOpen: false,
   milestonePanelOpen: true,
@@ -160,9 +162,11 @@ let lastFollowMapMoveAt = 0;
 let lastLiveStatusAt = 0;
 let destinationWatcherId = null;
 let authEls = {};
+let shareEls = {};
 
 loadState();
 setupAuthPanel();
+setupSharePanel();
 render();
 showLocationReadiness();
 captureInitialPosition();
@@ -334,8 +338,11 @@ if (state.wakeLockEnabled) {
   }
 });
 
+const shareToken = getShareTokenFromPath();
 const urlProjectCode = new URLSearchParams(window.location.search).get("project");
-if (urlProjectCode) {
+if (shareToken) {
+  openShareView(shareToken);
+} else if (urlProjectCode) {
   openServerProject(urlProjectCode);
 }
 
@@ -1381,6 +1388,7 @@ async function createServerProject() {
     await syncProjectState("create");
     if (state.user) {
       await loadMyProjects();
+      await loadProjectShares();
     }
     setProjectStatus(`공유 코드 ${project.code} 프로젝트를 만들었습니다.`);
   } catch {
@@ -1429,6 +1437,7 @@ async function openServerProject(code) {
     updateProjectUrl(project.code);
     persist();
     render();
+    loadProjectShares();
     fitToData();
     setProjectStatus(`${project.code} 기록을 불러왔습니다.`);
   } catch {
@@ -1522,8 +1531,12 @@ function applyProject(project) {
 function applyProjectMeta(project) {
   state.projectCode = project.code || "";
   state.projectName = project.name || "프로젝트A";
-  persist();
+  state.shareLinks = [];
+  if (!state.shareView) {
+    persist();
+  }
   renderProjectState();
+  renderSharePanel();
 }
 
 function renderProjectState() {
@@ -1651,6 +1664,7 @@ async function refreshAuth() {
     renderAuthPanel();
     if (state.user) {
       await loadMyProjects();
+      await loadProjectShares();
     }
   } catch {
     state.user = null;
@@ -1699,6 +1713,7 @@ async function loginWithPassword() {
     authEls.password.value = "";
     renderAuthPanel();
     await loadMyProjects();
+    await loadProjectShares();
     setStatus("로그인했습니다. 내 프로젝트 목록을 불러왔습니다.", "success");
   } catch (error) {
     const message =
@@ -1767,6 +1782,231 @@ function renderMyProjectList() {
     item.append(body, button);
     authEls.list.append(item);
   });
+}
+
+function setupSharePanel() {
+  const authSection = document.querySelector("#authSection");
+  const projectSection = document.querySelector(".project-section");
+  const anchor = authSection || projectSection;
+  if (!anchor || document.querySelector("#shareSection")) {
+    return;
+  }
+
+  const section = document.createElement("section");
+  section.id = "shareSection";
+  section.className = "panel-section share-section";
+  section.innerHTML = `
+    <div class="section-title">
+      <h2>공유 링크</h2>
+      <span id="shareBadge" class="badge">보기 전용</span>
+    </div>
+    <div class="share-controls">
+      <select id="shareExpiry" aria-label="공유 만료 기간">
+        <option value="1d">1일</option>
+        <option value="7d" selected>7일</option>
+        <option value="30d">30일</option>
+        <option value="none">만료 없음</option>
+      </select>
+      <button id="shareCreateBtn" type="button">공유 링크 만들기</button>
+    </div>
+    <p id="shareStatus" class="status-text">로그인 후 프로젝트를 저장하면 공유 링크를 만들 수 있습니다.</p>
+    <div id="shareList" class="share-list"></div>
+  `;
+  anchor.after(section);
+  shareEls = {
+    section,
+    badge: section.querySelector("#shareBadge"),
+    expiry: section.querySelector("#shareExpiry"),
+    createBtn: section.querySelector("#shareCreateBtn"),
+    status: section.querySelector("#shareStatus"),
+    list: section.querySelector("#shareList"),
+  };
+  shareEls.createBtn.addEventListener("click", createShareLink);
+}
+
+async function loadProjectShares() {
+  if (!state.projectCode || !state.user || state.shareView) {
+    state.shareLinks = [];
+    renderSharePanel();
+    return;
+  }
+  try {
+    const result = await requestJson(`/api/projects/${encodeURIComponent(state.projectCode)}/share`);
+    state.shareLinks = Array.isArray(result.shares) ? result.shares : [];
+  } catch {
+    state.shareLinks = [];
+  }
+  renderSharePanel();
+}
+
+async function createShareLink() {
+  if (!state.user) {
+    shareEls.status.textContent = "로그인 후 공유 링크를 만들 수 있습니다.";
+    return;
+  }
+  if (!state.projectCode) {
+    shareEls.status.textContent = "먼저 새 프로젝트를 만들거나 프로젝트를 불러와 주세요.";
+    return;
+  }
+  await syncProjectState("share");
+  try {
+    const share = await requestJson(`/api/projects/${encodeURIComponent(state.projectCode)}/share`, {
+      method: "POST",
+      body: JSON.stringify({ expiresIn: shareEls.expiry.value }),
+    });
+    state.shareLinks = [share, ...state.shareLinks.filter((item) => item.token !== share.token)];
+    renderSharePanel();
+    await copyShareUrl(share.token);
+    shareEls.status.textContent = "공유 링크를 만들고 복사했습니다.";
+  } catch {
+    shareEls.status.textContent = "공유 링크를 만들지 못했습니다. 로그인과 서버 상태를 확인해 주세요.";
+  }
+}
+
+async function stopShareLink(token) {
+  if (!state.projectCode || !token) {
+    return;
+  }
+  const ok = window.confirm("공유 링크를 중지할까요?\n\n받은 사람은 더 이상 이 링크로 볼 수 없습니다.");
+  if (!ok) {
+    return;
+  }
+  try {
+    await requestJson(`/api/projects/${encodeURIComponent(state.projectCode)}/share/${encodeURIComponent(token)}`, {
+      method: "DELETE",
+    });
+    state.shareLinks = state.shareLinks.map((share) =>
+      share.token === token ? { ...share, active: false, updatedAt: new Date().toISOString() } : share,
+    );
+    renderSharePanel();
+    shareEls.status.textContent = "공유 링크를 중지했습니다.";
+  } catch {
+    shareEls.status.textContent = "공유 링크를 중지하지 못했습니다.";
+  }
+}
+
+async function updateShareExpiry(token) {
+  if (!state.projectCode || !token) {
+    return;
+  }
+  try {
+    const share = await requestJson(`/api/projects/${encodeURIComponent(state.projectCode)}/share/${encodeURIComponent(token)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ expiresIn: shareEls.expiry.value }),
+    });
+    state.shareLinks = state.shareLinks.map((item) => (item.token === token ? share : item));
+    renderSharePanel();
+    shareEls.status.textContent = "공유 만료 기간을 변경했습니다.";
+  } catch {
+    shareEls.status.textContent = "공유 만료 기간을 변경하지 못했습니다.";
+  }
+}
+
+async function copyShareUrl(token) {
+  const url = `${window.location.origin}/view/${token}`;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    window.prompt("공유 링크를 복사해 주세요.", url);
+  }
+}
+
+function renderSharePanel() {
+  if (!shareEls.section) {
+    return;
+  }
+  const isShareView = Boolean(state.shareView);
+  shareEls.section.hidden = isShareView;
+  if (isShareView) {
+    return;
+  }
+  const canShare = Boolean(state.user && state.projectCode);
+  shareEls.createBtn.disabled = !canShare;
+  shareEls.expiry.disabled = !canShare;
+  shareEls.badge.textContent = state.shareLinks.some(isClientShareActive) ? "공유 중" : "보기 전용";
+  shareEls.badge.classList.toggle("is-live", state.shareLinks.some(isClientShareActive));
+  if (!state.user) {
+    shareEls.status.textContent = "로그인 후 프로젝트를 저장하면 공유 링크를 만들 수 있습니다.";
+  } else if (!state.projectCode) {
+    shareEls.status.textContent = "프로젝트를 만들거나 불러오면 공유 링크를 만들 수 있습니다.";
+  } else if (state.shareLinks.length === 0) {
+    shareEls.status.textContent = "공유 기간을 선택한 뒤 보기 전용 링크를 만들 수 있습니다.";
+  }
+
+  shareEls.list.innerHTML = "";
+  state.shareLinks.slice(0, 5).forEach((share) => {
+    const item = document.createElement("article");
+    item.className = "share-item";
+    const body = document.createElement("div");
+    const title = document.createElement("strong");
+    const meta = document.createElement("span");
+    title.textContent = isClientShareActive(share) ? "공유 링크" : "중지/만료된 링크";
+    meta.textContent = getShareMetaText(share);
+    body.append(title, meta);
+
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.textContent = "복사";
+    copyButton.disabled = !isClientShareActive(share);
+    copyButton.addEventListener("click", () => copyShareUrl(share.token));
+
+    const stopButton = document.createElement("button");
+    stopButton.type = "button";
+    stopButton.textContent = "중지";
+    stopButton.disabled = !isClientShareActive(share);
+    stopButton.addEventListener("click", () => stopShareLink(share.token));
+
+    const updateButton = document.createElement("button");
+    updateButton.type = "button";
+    updateButton.textContent = "변경";
+    updateButton.disabled = !share.active;
+    updateButton.addEventListener("click", () => updateShareExpiry(share.token));
+
+    item.append(body, copyButton, updateButton, stopButton);
+    shareEls.list.append(item);
+  });
+}
+
+async function openShareView(token) {
+  setProjectStatus("공유 링크를 여는 중입니다.");
+  try {
+    const result = await requestJson(`/api/share/${encodeURIComponent(token)}`);
+    state.shareView = result.share;
+    applyProject(result.project);
+    document.body.classList.add("is-share-view");
+    render();
+    fitToData();
+    setProjectStatus("보기 전용 공유 링크입니다. 수정과 저장은 제한됩니다.");
+  } catch {
+    document.body.classList.add("is-share-view");
+    setProjectStatus("공유 링크가 만료되었거나 중지되었습니다.");
+  }
+}
+
+function getShareTokenFromPath() {
+  const match = window.location.pathname.match(/^\/view\/([A-Za-z0-9_-]+)$/);
+  return match ? match[1] : "";
+}
+
+function isClientShareActive(share) {
+  if (!share || share.active === false) {
+    return false;
+  }
+  return !share.expiresAt || new Date(share.expiresAt).getTime() > Date.now();
+}
+
+function getShareMetaText(share) {
+  if (!share.active) {
+    return "공유 중지됨";
+  }
+  if (!share.expiresAt) {
+    return "만료 없음";
+  }
+  const expiresAt = new Date(share.expiresAt).getTime();
+  if (expiresAt <= Date.now()) {
+    return "만료됨";
+  }
+  return `${formatDate(share.expiresAt)}까지`;
 }
 
 async function handleWakeLockToggle(event) {
@@ -1869,6 +2109,7 @@ function render() {
   renderPanelVisibility();
   renderSessions();
   renderProjectState();
+  renderSharePanel();
 }
 
 function toggleRecordPanel() {

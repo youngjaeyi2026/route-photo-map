@@ -28,6 +28,12 @@ const r2Config = {
   secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
   publicBaseUrl: (process.env.R2_PUBLIC_BASE_URL || "").replace(/\/+$/, ""),
 };
+const shareExpiryOptions = new Map([
+  ["1d", 1000 * 60 * 60 * 24],
+  ["7d", 1000 * 60 * 60 * 24 * 7],
+  ["30d", 1000 * 60 * 60 * 24 * 30],
+  ["none", null],
+]);
 
 mkdirSync(dataDir, { recursive: true });
 
@@ -113,10 +119,87 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  const shareViewMatch = url.pathname.match(/^\/api\/share\/([A-Za-z0-9_-]+)$/);
+  if (shareViewMatch && request.method === "GET") {
+    const sharedProject = await getSharedProject(shareViewMatch[1]);
+    if (!sharedProject) {
+      sendJson(response, 404, { error: "share_not_found" });
+      return;
+    }
+    sendJson(response, 200, sharedProject);
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/projects") {
     const body = await readJsonBody(request);
     const project = await createProject(body?.name || "프로젝트A", currentUser);
     sendJson(response, 201, project);
+    return;
+  }
+
+  const projectShareMatch = url.pathname.match(/^\/api\/projects\/([A-Z0-9-]+)\/share(?:\/([A-Za-z0-9_-]+))?$/);
+  if (projectShareMatch && request.method === "GET") {
+    const code = normalizeProjectCode(projectShareMatch[1]);
+    const project = await getProject(code);
+    if (!project) {
+      sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    if (!canManageProject(currentUser, project)) {
+      sendJson(response, 401, { error: "login_required" });
+      return;
+    }
+    sendJson(response, 200, { shares: await listProjectShares(code) });
+    return;
+  }
+
+  if (projectShareMatch && request.method === "POST") {
+    const code = normalizeProjectCode(projectShareMatch[1]);
+    const project = await getProject(code);
+    if (!project) {
+      sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    if (!canManageProject(currentUser, project)) {
+      sendJson(response, 401, { error: "login_required" });
+      return;
+    }
+    const body = await readJsonBody(request);
+    sendJson(response, 201, await createShareLink(project, currentUser, body?.expiresIn || "7d"));
+    return;
+  }
+
+  if (projectShareMatch && request.method === "DELETE") {
+    const code = normalizeProjectCode(projectShareMatch[1]);
+    const token = projectShareMatch[2] || "";
+    const project = await getProject(code);
+    if (!project) {
+      sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    if (!canManageProject(currentUser, project)) {
+      sendJson(response, 401, { error: "login_required" });
+      return;
+    }
+    await deactivateShareLink(code, token);
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
+  if (projectShareMatch && request.method === "PATCH") {
+    const code = normalizeProjectCode(projectShareMatch[1]);
+    const token = projectShareMatch[2] || "";
+    const project = await getProject(code);
+    if (!project) {
+      sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    if (!canManageProject(currentUser, project)) {
+      sendJson(response, 401, { error: "login_required" });
+      return;
+    }
+    const body = await readJsonBody(request);
+    sendJson(response, 200, await updateShareLinkExpiry(code, token, body?.expiresIn || "7d"));
     return;
   }
 
@@ -224,6 +307,102 @@ async function saveProjectState(code, body, user = null) {
   }
 
   return prepared;
+}
+
+async function createShareLink(project, user, expiresIn) {
+  const now = new Date().toISOString();
+  const token = generateShareToken();
+  const duration = shareExpiryOptions.has(expiresIn) ? shareExpiryOptions.get(expiresIn) : shareExpiryOptions.get("7d");
+  const share = {
+    token,
+    projectCode: project.code,
+    ownerUserId: user?.id || project.ownerUserId || null,
+    expiresAt: duration === null ? null : new Date(Date.now() + duration).toISOString(),
+    active: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (databaseUrl) {
+    await upsertShareLink(share);
+  } else {
+    const db = readProjectsFile();
+    db.shareLinks = Array.isArray(db.shareLinks) ? db.shareLinks : [];
+    db.shareLinks.unshift(share);
+    writeProjectsFile(db);
+  }
+  return share;
+}
+
+async function listProjectShares(code) {
+  if (databaseUrl) {
+    return listProjectSharesFromDatabase(code);
+  }
+  const db = readProjectsFile();
+  return (db.shareLinks || []).filter((share) => share.projectCode === code).map(normalizeShareLink);
+}
+
+async function deactivateShareLink(code, token) {
+  if (!token) {
+    return;
+  }
+  if (databaseUrl) {
+    const pool = await getMysqlPool();
+    await ensureDatabase();
+    await pool.execute(
+      "UPDATE share_links SET active = 0, updated_at = ? WHERE project_code = ? AND token = ?",
+      [toMysqlDate(new Date().toISOString()), code, token],
+    );
+    return;
+  }
+  const db = readProjectsFile();
+  db.shareLinks = (db.shareLinks || []).map((share) =>
+    share.projectCode === code && share.token === token
+      ? { ...share, active: false, updatedAt: new Date().toISOString() }
+      : share,
+  );
+  writeProjectsFile(db);
+}
+
+async function updateShareLinkExpiry(code, token, expiresIn) {
+  const duration = shareExpiryOptions.has(expiresIn) ? shareExpiryOptions.get(expiresIn) : shareExpiryOptions.get("7d");
+  const expiresAt = duration === null ? null : new Date(Date.now() + duration).toISOString();
+  const updatedAt = new Date().toISOString();
+  if (databaseUrl) {
+    const pool = await getMysqlPool();
+    await ensureDatabase();
+    await pool.execute(
+      "UPDATE share_links SET expires_at = ?, active = 1, updated_at = ? WHERE project_code = ? AND token = ?",
+      [expiresAt ? toMysqlDate(expiresAt) : null, toMysqlDate(updatedAt), code, token],
+    );
+    return (await getShareLink(token)) || { token, projectCode: code, expiresAt, active: true, updatedAt };
+  }
+  const db = readProjectsFile();
+  let updated = null;
+  db.shareLinks = (db.shareLinks || []).map((share) => {
+    if (share.projectCode === code && share.token === token) {
+      updated = { ...share, expiresAt, active: true, updatedAt };
+      return updated;
+    }
+    return share;
+  });
+  writeProjectsFile(db);
+  return normalizeShareLink(updated);
+}
+
+async function getSharedProject(token) {
+  const share = await getShareLink(token);
+  if (!isShareActive(share)) {
+    return null;
+  }
+  const project = await getProject(share.projectCode);
+  if (!project) {
+    return null;
+  }
+  return {
+    share,
+    project,
+  };
 }
 
 async function prepareProjectPayload(code, project) {
@@ -403,6 +582,19 @@ async function ensureDatabase() {
       INDEX idx_projects_updated_at (updated_at)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   `);
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS share_links (
+      token VARCHAR(96) PRIMARY KEY,
+      project_code VARCHAR(24) NOT NULL,
+      owner_user_id VARCHAR(64) NULL,
+      expires_at DATETIME(3) NULL,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      INDEX idx_share_links_project_code (project_code),
+      INDEX idx_share_links_expires_at (expires_at)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
   await ensureColumn("projects", "owner_user_id", "VARCHAR(64) NULL");
 }
 
@@ -448,6 +640,62 @@ function rowToProject(row) {
     primarySessionId: row.primary_session_id || null,
     lastState: parseJson(row.last_state_json, null),
   };
+}
+
+async function upsertShareLink(share) {
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  await pool.execute(
+    `INSERT INTO share_links
+      (token, project_code, owner_user_id, expires_at, active, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+      expires_at = VALUES(expires_at),
+      active = VALUES(active),
+      updated_at = VALUES(updated_at)`,
+    [
+      share.token,
+      share.projectCode,
+      share.ownerUserId || null,
+      share.expiresAt ? toMysqlDate(share.expiresAt) : null,
+      share.active ? 1 : 0,
+      toMysqlDate(share.createdAt || new Date().toISOString()),
+      toMysqlDate(share.updatedAt || new Date().toISOString()),
+    ],
+  );
+}
+
+async function getShareLink(token) {
+  if (databaseUrl) {
+    const pool = await getMysqlPool();
+    await ensureDatabase();
+    const [rows] = await pool.execute("SELECT * FROM share_links WHERE token = ? LIMIT 1", [token]);
+    return rows.length ? rowToShareLink(rows[0]) : null;
+  }
+  const db = readProjectsFile();
+  return normalizeShareLink((db.shareLinks || []).find((share) => share.token === token));
+}
+
+async function listProjectSharesFromDatabase(code) {
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  const [rows] = await pool.execute(
+    "SELECT * FROM share_links WHERE project_code = ? ORDER BY created_at DESC LIMIT 20",
+    [code],
+  );
+  return rows.map(rowToShareLink);
+}
+
+function rowToShareLink(row) {
+  return normalizeShareLink({
+    token: row.token,
+    projectCode: row.project_code,
+    ownerUserId: row.owner_user_id || null,
+    expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
+    active: Boolean(row.active),
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  });
 }
 
 async function loginOrRegister(emailValue, passwordValue) {
@@ -565,6 +813,45 @@ function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function canManageProject(user, project) {
+  if (!databaseUrl) {
+    return true;
+  }
+  if (!user) {
+    return false;
+  }
+  return user.role === "admin" || !project.ownerUserId || project.ownerUserId === user.id;
+}
+
+function generateShareToken() {
+  return randomBytes(18).toString("base64url");
+}
+
+function normalizeShareLink(share) {
+  if (!share) {
+    return null;
+  }
+  return {
+    token: share.token,
+    projectCode: share.projectCode,
+    ownerUserId: share.ownerUserId || null,
+    expiresAt: share.expiresAt || null,
+    active: share.active !== false,
+    createdAt: share.createdAt || new Date().toISOString(),
+    updatedAt: share.updatedAt || share.createdAt || new Date().toISOString(),
+  };
+}
+
+function isShareActive(share) {
+  if (!share || share.active === false) {
+    return false;
+  }
+  if (!share.expiresAt) {
+    return true;
+  }
+  return new Date(share.expiresAt).getTime() > Date.now();
+}
+
 function hashPassword(password) {
   const salt = randomBytes(16).toString("hex");
   const hash = scryptSync(String(password), salt, 64).toString("hex");
@@ -630,13 +917,16 @@ async function ensureColumn(table, column, definition) {
 
 function readProjectsFile() {
   if (!existsSync(projectsPath)) {
-    return { projects: [] };
+    return { projects: [], shareLinks: [] };
   }
   try {
     const parsed = JSON.parse(readFileSync(projectsPath, "utf8"));
-    return { projects: Array.isArray(parsed.projects) ? parsed.projects : [] };
+    return {
+      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+      shareLinks: Array.isArray(parsed.shareLinks) ? parsed.shareLinks : [],
+    };
   } catch {
-    return { projects: [] };
+    return { projects: [], shareLinks: [] };
   }
 }
 
@@ -663,7 +953,9 @@ function normalizeProjectCode(value) {
 function serveStatic(url, response) {
   const pathname = decodeURIComponent(url.pathname);
   const requestedPath =
-    pathname === "/" ? "index.html" : normalize(pathname).replace(/^[/\\]+/, "").replace(/^(\.\.[/\\])+/, "");
+    pathname === "/" || pathname.startsWith("/view/")
+      ? "index.html"
+      : normalize(pathname).replace(/^[/\\]+/, "").replace(/^(\.\.[/\\])+/, "");
   const filePath = join(root, requestedPath);
 
   if (!filePath.startsWith(root) || !existsSync(filePath)) {

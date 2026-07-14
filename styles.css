@@ -752,6 +752,87 @@ label[for="photoInput"] {
   font-weight: 800;
 }
 
+.share-section {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.share-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 8px;
+}
+
+.share-controls select,
+.share-controls button,
+.share-item button {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.share-controls button {
+  color: #285b86;
+  background: #eaf3fb;
+}
+
+.share-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.share-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.share-item div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.share-item strong,
+.share-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-item strong {
+  font-size: 12px;
+}
+
+.share-item span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.is-share-view .auth-section,
+.is-share-view .share-section,
+.is-share-view .record-section,
+.is-share-view .point-edit-section,
+.is-share-view .overlay-section,
+.is-share-view .settings-section,
+.is-share-view .project-controls,
+.is-share-view .photo-actions button:not(:first-child),
+.is-share-view #photoModalMemoBtn,
+.is-share-view #photoModalTagBtn {
+  display: none !important;
+}
+
 .project-controls input {
   min-width: 0;
   min-height: 36px;
