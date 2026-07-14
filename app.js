@@ -154,6 +154,9 @@ const milestoneLayer = L.layerGroup().addTo(map);
 const projectOverlayLayer = L.layerGroup().addTo(map);
 const pointLayer = L.layerGroup().addTo(map);
 let programmaticMapMove = false;
+let lastFollowMapMoveAt = 0;
+let lastLiveStatusAt = 0;
+let destinationWatcherId = null;
 
 loadState();
 render();
@@ -342,6 +345,7 @@ function startTracking() {
   }
 
   state.tracking = true;
+  stopDestinationPositionWatcher();
   state.paused = false;
   state.recordPanelOpen = true;
   state.autoFollow = true;
@@ -364,7 +368,8 @@ function startTracking() {
         return;
       }
       const arrived = addPointFromCoords(position.coords, position.timestamp);
-      if (arrived === false) {
+      if (arrived === false && Date.now() - lastLiveStatusAt > 8000) {
+        lastLiveStatusAt = Date.now();
         setStatus("이동 경로를 기록하고 있습니다.");
       }
     },
@@ -414,6 +419,9 @@ function stopTracking(options = {}) {
     syncProjectState("completed");
   }
   render();
+  if (state.destinationFollow) {
+    startDestinationPositionWatcher();
+  }
   if (clearCurrent) {
     setStatus("기록을 저장하고 현재 화면을 초기화했습니다.");
     return;
@@ -452,6 +460,43 @@ function pollCurrentPosition() {
       timeout: 12000,
     },
   );
+}
+
+function startDestinationPositionWatcher() {
+  if (destinationWatcherId !== null || state.tracking || !state.destinationFollow || !navigator.geolocation) {
+    return;
+  }
+  destinationWatcherId = navigator.geolocation.watchPosition(
+    (position) => {
+      const point = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: Math.round(position.coords.accuracy || 0),
+        timestamp: position.timestamp,
+      };
+      state.selectedPosition = point;
+      currentMarker.setLatLng([point.lat, point.lng]);
+      renderDestinationFollowStatus(point);
+      followLatestPoint(point);
+      checkDestinationArrival(point);
+      persist();
+    },
+    () => {},
+    {
+      enableHighAccuracy: true,
+      maximumAge: 2000,
+      timeout: 15000,
+    },
+  );
+}
+
+function stopDestinationPositionWatcher() {
+  if (destinationWatcherId === null || !navigator.geolocation) {
+    destinationWatcherId = null;
+    return;
+  }
+  navigator.geolocation.clearWatch(destinationWatcherId);
+  destinationWatcherId = null;
 }
 
 function togglePauseTracking() {
@@ -505,9 +550,22 @@ function addPointFromCoords(coords, timestamp = Date.now()) {
   state.points.push(nextPoint);
   state.selectedPosition = nextPoint;
   persist();
-  render();
+  renderRouteProgress(nextPoint);
   followLatestPoint(nextPoint);
   return checkDestinationArrival(nextPoint);
+}
+
+function renderRouteProgress(point = getLatestPosition()) {
+  routeLine.setLatLngs(getRoutePathPoints(state.points).map((item) => [item.lat, item.lng]));
+  if (point) {
+    currentMarker.setLatLng([point.lat, point.lng]);
+  }
+  renderStats();
+  renderDestinationFollowStatus(point);
+  renderTrackingState();
+  if (state.pointEditMode) {
+    renderPointEditing();
+  }
 }
 
 function checkDestinationArrival(point) {
@@ -521,6 +579,7 @@ function checkDestinationArrival(point) {
   }
   if (!target) {
     state.destinationFollow = false;
+    stopDestinationPositionWatcher();
     renderDestinationFollowStatus(point);
     return false;
   }
@@ -543,6 +602,7 @@ function checkDestinationArrival(point) {
   } else {
     state.destinationFollow = false;
     state.activeDestinationId = null;
+    stopDestinationPositionWatcher();
     persist();
     renderDestinationFollowStatus(point);
     setStatus(`${target.name} 도착. 모든 목적지에 도착했습니다.`);
@@ -554,6 +614,11 @@ function followLatestPoint(point) {
   if ((!state.tracking && !state.destinationFollow) || state.paused || !state.autoFollow || !point) {
     return;
   }
+  const now = Date.now();
+  if (now - lastFollowMapMoveAt < 1200) {
+    return;
+  }
+  lastFollowMapMoveAt = now;
   const zoom = Math.max(map.getZoom(), 17);
   setMapView([point.lat, point.lng], zoom);
 }
@@ -1735,6 +1800,13 @@ function renderPointEditing() {
     return;
   }
 
+  if (state.destinationFollow) {
+    if (els.pointEditHint) {
+      els.pointEditHint.textContent = "답사 따라가기 중에는 지도 속도를 위해 위치점 표시를 잠시 줄입니다.";
+    }
+    return;
+  }
+
   const visibleIndexes = getEditablePointIndexes();
   visibleIndexes.forEach((index) => {
     const point = state.points[index];
@@ -2748,6 +2820,7 @@ async function selectDestination(pinId) {
   if (state.destinationFollow && state.activeDestinationId === pinId) {
     state.destinationFollow = false;
     state.activeDestinationId = null;
+    stopDestinationPositionWatcher();
     persist();
     render();
     setStatus(`${pin.name} 목적지 따라가기를 종료했습니다.`);
@@ -2761,6 +2834,7 @@ async function selectDestination(pinId) {
   state.autoFollow = true;
   persist();
   render();
+  startDestinationPositionWatcher();
   setStatus(`${pin.name} 목적지를 따라갑니다. 현재 위치를 확인하는 중입니다.`);
   const position = await locateCurrentPosition({ status: false });
   if (position) {
@@ -2792,6 +2866,7 @@ async function toggleDestinationFollow() {
   if (state.destinationFollow) {
     state.destinationFollow = false;
     state.activeDestinationId = null;
+    stopDestinationPositionWatcher();
     persist();
     render();
     setStatus("답사 따라가기를 종료했습니다.");
@@ -2807,6 +2882,7 @@ async function toggleDestinationFollow() {
   state.autoFollow = true;
   persist();
   render();
+  startDestinationPositionWatcher();
   setStatus(`${target.name} 목적지를 따라갑니다. 현재 위치를 확인하는 중입니다.`);
   const position = await locateCurrentPosition({ status: false });
   if (position) {
@@ -2917,6 +2993,7 @@ function deleteMapPin(pinId) {
     activateNextDestination();
     if (!state.activeDestinationId) {
       state.destinationFollow = false;
+      stopDestinationPositionWatcher();
     }
   }
   persist();
