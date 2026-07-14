@@ -29,6 +29,8 @@ const state = {
   lastSyncedAt: null,
   lastSyncFailedAt: null,
   lastSyncError: "",
+  user: null,
+  myProjects: [],
   recordPanelOpen: true,
   pointEditPanelOpen: false,
   milestonePanelOpen: true,
@@ -157,12 +159,15 @@ let programmaticMapMove = false;
 let lastFollowMapMoveAt = 0;
 let lastLiveStatusAt = 0;
 let destinationWatcherId = null;
+let authEls = {};
 
 loadState();
+setupAuthPanel();
 render();
 showLocationReadiness();
 captureInitialPosition();
 refreshServerHealth();
+refreshAuth();
 
 map.on("click", (event) => {
   if (state.pointEditMode) {
@@ -1374,6 +1379,9 @@ async function createServerProject() {
     applyProject(project);
     updateProjectUrl(project.code);
     await syncProjectState("create");
+    if (state.user) {
+      await loadMyProjects();
+    }
     setProjectStatus(`공유 코드 ${project.code} 프로젝트를 만들었습니다.`);
   } catch {
     setProjectStatus("프로젝트를 만들지 못했습니다. 서버 연결을 확인해 주세요.");
@@ -1460,6 +1468,9 @@ async function syncProjectState(reason = "manual") {
     state.lastSyncFailedAt = null;
     state.lastSyncError = "";
     persist();
+    if (state.user && reason !== "auto-retry") {
+      loadMyProjects();
+    }
     setProjectStatus(`${formatDate(Date.now())} 서버에 저장했습니다. 다른 기기에서는 불러오기를 눌러 확인하세요.`);
     return true;
   } catch (error) {
@@ -1565,6 +1576,7 @@ function normalizeProjectCode(value) {
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
     ...options,
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       ...(options.headers || {}),
@@ -1583,6 +1595,165 @@ async function requestJson(url, options = {}) {
     throw error;
   }
   return response.json();
+}
+
+function setupAuthPanel() {
+  const projectSection = document.querySelector(".project-section");
+  if (!projectSection || document.querySelector("#authSection")) {
+    return;
+  }
+
+  const section = document.createElement("section");
+  section.id = "authSection";
+  section.className = "panel-section auth-section";
+  section.innerHTML = `
+    <div class="section-title">
+      <h2>로그인</h2>
+      <span id="authBadge" class="badge">비로그인</span>
+    </div>
+    <div class="auth-controls">
+      <input id="authEmail" type="email" placeholder="이메일" autocomplete="email" />
+      <input id="authPassword" type="password" placeholder="비밀번호" autocomplete="current-password" />
+      <button id="authLoginBtn" type="button">로그인 / 자동가입</button>
+      <button id="authLogoutBtn" type="button" hidden>로그아웃</button>
+    </div>
+    <p id="authStatus" class="status-text">로그인하면 내 프로젝트 목록을 불러올 수 있습니다.</p>
+    <div id="myProjectList" class="my-project-list"></div>
+  `;
+  projectSection.after(section);
+  authEls = {
+    section,
+    badge: section.querySelector("#authBadge"),
+    email: section.querySelector("#authEmail"),
+    password: section.querySelector("#authPassword"),
+    loginBtn: section.querySelector("#authLoginBtn"),
+    logoutBtn: section.querySelector("#authLogoutBtn"),
+    status: section.querySelector("#authStatus"),
+    list: section.querySelector("#myProjectList"),
+  };
+  authEls.loginBtn.addEventListener("click", loginWithPassword);
+  authEls.logoutBtn.addEventListener("click", logout);
+}
+
+async function refreshAuth() {
+  if (!authEls.section) {
+    return;
+  }
+  try {
+    const result = await requestJson("/api/auth/me");
+    state.user = result.user || null;
+    renderAuthPanel();
+    if (state.user) {
+      await loadMyProjects();
+    }
+  } catch {
+    state.user = null;
+    renderAuthPanel();
+  }
+}
+
+function renderAuthPanel() {
+  if (!authEls.section) {
+    return;
+  }
+  const user = state.user;
+  authEls.badge.textContent = user ? "로그인" : "비로그인";
+  authEls.badge.classList.toggle("is-live", Boolean(user));
+  authEls.email.hidden = Boolean(user);
+  authEls.password.hidden = Boolean(user);
+  authEls.loginBtn.hidden = Boolean(user);
+  authEls.logoutBtn.hidden = !user;
+  authEls.status.textContent = user
+    ? `${user.email} 계정으로 로그인했습니다.`
+    : "로그인하면 내 프로젝트 목록을 불러올 수 있습니다.";
+  renderMyProjectList();
+}
+
+async function loginWithPassword() {
+  const email = authEls.email.value.trim();
+  const password = authEls.password.value;
+  if (!email || password.length < 6) {
+    authEls.status.textContent = "이메일과 6자 이상 비밀번호를 입력해 주세요.";
+    return;
+  }
+  authEls.status.textContent = "로그인 중입니다.";
+  try {
+    const result = await requestJson("/api/auth/session", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    state.user = result.user;
+    authEls.password.value = "";
+    renderAuthPanel();
+    await loadMyProjects();
+    setStatus("로그인했습니다. 내 프로젝트 목록을 불러왔습니다.", "success");
+  } catch (error) {
+    const message =
+      error?.payload?.error === "account_disabled"
+        ? "비활성화된 계정입니다."
+        : "로그인에 실패했습니다. 이메일 또는 비밀번호를 확인해 주세요.";
+    authEls.status.textContent = message;
+  }
+}
+
+async function logout() {
+  try {
+    await requestJson("/api/auth/session", { method: "DELETE" });
+  } catch {}
+  state.user = null;
+  state.myProjects = [];
+  renderAuthPanel();
+  setStatus("로그아웃했습니다.", "info");
+}
+
+async function loadMyProjects() {
+  if (!state.user) {
+    state.myProjects = [];
+    renderMyProjectList();
+    return;
+  }
+  try {
+    const result = await requestJson("/api/my/projects");
+    state.myProjects = Array.isArray(result.projects) ? result.projects : [];
+    renderMyProjectList();
+  } catch {
+    state.myProjects = [];
+    renderMyProjectList();
+    authEls.status.textContent = "내 프로젝트 목록을 불러오지 못했습니다.";
+  }
+}
+
+function renderMyProjectList() {
+  if (!authEls.list) {
+    return;
+  }
+  authEls.list.innerHTML = "";
+  if (!state.user) {
+    return;
+  }
+  if (state.myProjects.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "status-text";
+    empty.textContent = "아직 내 프로젝트가 없습니다.";
+    authEls.list.append(empty);
+    return;
+  }
+  state.myProjects.forEach((project) => {
+    const item = document.createElement("article");
+    item.className = "my-project-item";
+    const body = document.createElement("div");
+    const title = document.createElement("strong");
+    const meta = document.createElement("span");
+    title.textContent = project.name || "프로젝트";
+    meta.textContent = `${project.code} · ${formatDate(project.updatedAt || Date.now())}`;
+    body.append(title, meta);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "열기";
+    button.addEventListener("click", () => openServerProject(project.code));
+    item.append(body, button);
+    authEls.list.append(item);
+  });
 }
 
 async function handleWakeLockToggle(event) {
