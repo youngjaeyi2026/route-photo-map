@@ -40,6 +40,7 @@ const shareExpiryOptions = new Map([
   ["30d", 1000 * 60 * 60 * 24 * 30],
   ["none", null],
 ]);
+const minPasswordLength = Number(process.env.MIN_PASSWORD_LENGTH || 4);
 
 mkdirSync(dataDir, { recursive: true });
 
@@ -163,6 +164,26 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  const projectShareDeleteMatch = url.pathname.match(
+    /^\/api\/projects\/([A-Z0-9-]+)\/share\/([A-Za-z0-9_-]+)\/delete$/,
+  );
+  if (projectShareDeleteMatch && request.method === "DELETE") {
+    const code = normalizeProjectCode(projectShareDeleteMatch[1]);
+    const token = projectShareDeleteMatch[2] || "";
+    const project = await getProject(code);
+    if (!project) {
+      sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    if (!canManageProject(currentUser, project)) {
+      sendJson(response, 401, { error: "login_required" });
+      return;
+    }
+    await removeShareLink(code, token);
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
   const shareViewMatch = url.pathname.match(/^\/api\/share\/([A-Za-z0-9_-]+)$/);
   if (shareViewMatch && request.method === "GET") {
     const sharedProject = await getSharedProject(shareViewMatch[1]);
@@ -267,6 +288,22 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (projectMatch && request.method === "DELETE") {
+    const code = normalizeProjectCode(projectMatch[1]);
+    const project = await getProject(code);
+    if (!project) {
+      sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    if (!canManageProject(currentUser, project)) {
+      sendJson(response, 401, { error: "login_required" });
+      return;
+    }
+    await deleteProject(code);
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
   sendJson(response, 404, { error: "not_found" });
 }
 
@@ -303,6 +340,20 @@ async function getProject(code) {
   }
   const db = readProjectsFile();
   return db.projects.find((project) => project.code === code) || null;
+}
+
+async function deleteProject(code) {
+  if (databaseUrl) {
+    const pool = await getMysqlPool();
+    await ensureDatabase();
+    await pool.execute("DELETE FROM share_links WHERE project_code = ?", [code]);
+    await pool.execute("DELETE FROM projects WHERE code = ?", [code]);
+    return;
+  }
+  const db = readProjectsFile();
+  db.projects = (db.projects || []).filter((project) => project.code !== code);
+  db.shareLinks = (db.shareLinks || []).filter((share) => share.projectCode !== code);
+  writeProjectsFile(db);
 }
 
 async function saveProjectState(code, body, user = null) {
@@ -405,6 +456,21 @@ async function deactivateShareLink(code, token) {
       ? { ...share, active: false, updatedAt: new Date().toISOString() }
       : share,
   );
+  writeProjectsFile(db);
+}
+
+async function removeShareLink(code, token) {
+  if (!token) {
+    return;
+  }
+  if (databaseUrl) {
+    const pool = await getMysqlPool();
+    await ensureDatabase();
+    await pool.execute("DELETE FROM share_links WHERE project_code = ? AND token = ?", [code, token]);
+    return;
+  }
+  const db = readProjectsFile();
+  db.shareLinks = (db.shareLinks || []).filter((share) => !(share.projectCode === code && share.token === token));
   writeProjectsFile(db);
 }
 
@@ -748,7 +814,7 @@ async function loginOrRegister(emailValue, passwordValue) {
   }
   const email = normalizeEmail(emailValue);
   const password = String(passwordValue || "");
-  if (!email || password.length < 6) {
+  if (!email || password.length < minPasswordLength) {
     return { ok: false, status: 400, error: "invalid_credentials" };
   }
 
@@ -915,7 +981,7 @@ async function resetUserPassword(userId, passwordValue) {
     return { ok: false, status: 503, error: "database_required" };
   }
   const temporaryPassword = String(passwordValue || "").trim() || generateTemporaryPassword();
-  if (temporaryPassword.length < 6) {
+  if (temporaryPassword.length < minPasswordLength) {
     return { ok: false, status: 400, error: "invalid_password" };
   }
   const pool = await getMysqlPool();

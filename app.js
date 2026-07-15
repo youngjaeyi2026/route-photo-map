@@ -34,6 +34,8 @@ const state = {
   shareLinks: [],
   shareView: null,
   adminUsers: [],
+  adminPanelOpen: false,
+  sharePanelOpen: false,
   recordPanelOpen: true,
   pointEditPanelOpen: false,
   milestonePanelOpen: true,
@@ -167,6 +169,7 @@ let shareEls = {};
 
 loadState();
 setupAuthPanel();
+setupAdminPanel();
 setupSharePanel();
 render();
 showLocationReadiness();
@@ -1626,7 +1629,7 @@ function setupAuthPanel() {
       <span id="authBadge" class="badge">비로그인</span>
     </div>
     <div class="auth-controls">
-      <input id="authEmail" type="email" placeholder="이메일" autocomplete="email" />
+      <input id="authEmail" type="text" placeholder="아이디" autocomplete="username" />
       <div id="authPasswordWrap" class="password-field">
         <input id="authPassword" type="password" placeholder="비밀번호" autocomplete="current-password" />
         <button id="authPasswordToggle" type="button" aria-label="비밀번호 보기">보기</button>
@@ -1636,14 +1639,6 @@ function setupAuthPanel() {
     </div>
     <p id="authStatus" class="status-text">로그인하면 내 프로젝트 목록을 불러올 수 있습니다.</p>
     <div id="myProjectList" class="my-project-list"></div>
-    <div id="adminPanel" class="admin-panel" hidden>
-      <div class="section-title">
-        <h3>사용자 관리</h3>
-        <button id="adminRefreshBtn" type="button">새로고침</button>
-      </div>
-      <p id="adminStatus" class="status-text">사용자 목록을 확인할 수 있습니다.</p>
-      <div id="adminUserList" class="admin-user-list"></div>
-    </div>
   `;
   projectSection.before(section);
   authEls = {
@@ -1657,14 +1652,42 @@ function setupAuthPanel() {
     logoutBtn: section.querySelector("#authLogoutBtn"),
     status: section.querySelector("#authStatus"),
     list: section.querySelector("#myProjectList"),
-    adminPanel: section.querySelector("#adminPanel"),
-    adminRefreshBtn: section.querySelector("#adminRefreshBtn"),
-    adminStatus: section.querySelector("#adminStatus"),
-    adminUserList: section.querySelector("#adminUserList"),
   };
   authEls.loginBtn.addEventListener("click", loginWithPassword);
   authEls.logoutBtn.addEventListener("click", logout);
   authEls.passwordToggle.addEventListener("click", togglePasswordVisibility);
+}
+
+function setupAdminPanel() {
+  const settingsSection = document.querySelector(".settings-section");
+  if (!settingsSection || document.querySelector("#adminPanel")) {
+    return;
+  }
+  const panel = document.createElement("div");
+  panel.id = "adminPanel";
+  panel.className = "admin-panel is-collapsed";
+  panel.hidden = true;
+  panel.innerHTML = `
+    <div class="section-title">
+      <h3>사용자 관리</h3>
+      <button id="adminToggleBtn" class="section-toggle" type="button">펼치기</button>
+    </div>
+    <div id="adminBody" class="collapsible-body">
+      <div class="admin-toolbar">
+        <p id="adminStatus" class="status-text">사용자 목록을 확인할 수 있습니다.</p>
+        <button id="adminRefreshBtn" type="button">새로고침</button>
+      </div>
+      <div id="adminUserList" class="admin-user-list"></div>
+    </div>
+  `;
+  const dataManagement = settingsSection.querySelector(".data-management");
+  settingsSection.insertBefore(panel, dataManagement || settingsSection.children[1] || null);
+  authEls.adminPanel = panel;
+  authEls.adminToggleBtn = panel.querySelector("#adminToggleBtn");
+  authEls.adminStatus = panel.querySelector("#adminStatus");
+  authEls.adminRefreshBtn = panel.querySelector("#adminRefreshBtn");
+  authEls.adminUserList = panel.querySelector("#adminUserList");
+  authEls.adminToggleBtn.addEventListener("click", toggleAdminPanel);
   authEls.adminRefreshBtn.addEventListener("click", loadAdminUsers);
 }
 
@@ -1700,13 +1723,28 @@ function renderAuthPanel() {
   authEls.logoutBtn.hidden = !user;
   authEls.status.textContent = user
     ? `${user.email} 계정으로 로그인했습니다.${user.role === "admin" ? " 관리자 권한입니다." : ""}`
-    : "로그인하면 내 프로젝트 목록을 불러올 수 있습니다.";
-  authEls.adminPanel.hidden = user?.role !== "admin";
+    : "아이디와 비밀번호로 로그인하면 내 프로젝트 목록을 불러올 수 있습니다.";
+  if (authEls.adminPanel) {
+    authEls.adminPanel.hidden = user?.role !== "admin";
+    authEls.adminPanel.classList.toggle("is-collapsed", !state.adminPanelOpen);
+  }
+  if (authEls.adminToggleBtn) {
+    authEls.adminToggleBtn.textContent = state.adminPanelOpen ? "숨기기" : "펼치기";
+  }
   if (user?.role !== "admin") {
     state.adminUsers = [];
   }
   renderAdminUserList();
   renderMyProjectList();
+}
+
+function toggleAdminPanel() {
+  state.adminPanelOpen = !state.adminPanelOpen;
+  persist();
+  renderAuthPanel();
+  if (state.adminPanelOpen) {
+    loadAdminUsers();
+  }
 }
 
 function togglePasswordVisibility() {
@@ -1719,8 +1757,8 @@ function togglePasswordVisibility() {
 async function loginWithPassword() {
   const email = authEls.email.value.trim();
   const password = authEls.password.value;
-  if (!email || password.length < 6) {
-    authEls.status.textContent = "이메일과 6자 이상 비밀번호를 입력해 주세요.";
+  if (!email || password.length < 4) {
+    authEls.status.textContent = "아이디와 4자 이상 비밀번호를 입력해 주세요.";
     return;
   }
   authEls.status.textContent = "로그인 중입니다.";
@@ -1740,7 +1778,7 @@ async function loginWithPassword() {
     const message =
       error?.payload?.error === "account_disabled"
         ? "비활성화된 계정입니다."
-        : "로그인에 실패했습니다. 이메일 또는 비밀번호를 확인해 주세요.";
+        : "로그인에 실패했습니다. 아이디 또는 비밀번호를 확인해 주세요.";
     authEls.status.textContent = message;
   }
 }
@@ -1859,7 +1897,7 @@ async function resetAdminUserPassword(user) {
     window.prompt("새 비밀번호입니다. 사용자에게 전달해 주세요.", result.temporaryPassword);
     authEls.adminStatus.textContent = "비밀번호를 초기화했습니다.";
   } catch {
-    authEls.adminStatus.textContent = "비밀번호를 초기화하지 못했습니다. 6자 이상으로 입력해 주세요.";
+    authEls.adminStatus.textContent = "비밀번호를 초기화하지 못했습니다. 4자 이상으로 입력해 주세요.";
   }
 }
 
@@ -1904,13 +1942,48 @@ function renderMyProjectList() {
     title.textContent = project.name || "프로젝트";
     meta.textContent = `${project.code} · ${formatDate(getProjectRecordDisplayTime(project))}`;
     body.append(title, meta);
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = "열기";
-    button.addEventListener("click", () => openServerProject(project.code));
-    item.append(body, button);
+    const actions = document.createElement("div");
+    actions.className = "my-project-actions";
+    const openButton = document.createElement("button");
+    openButton.type = "button";
+    openButton.textContent = "열기";
+    openButton.addEventListener("click", () => openServerProject(project.code));
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.textContent = "삭제";
+    deleteButton.addEventListener("click", () => deleteMyProject(project));
+    actions.append(openButton, deleteButton);
+    item.append(body, actions);
     authEls.list.append(item);
   });
+}
+
+async function deleteMyProject(project) {
+  const ok = window.confirm(
+    `${project.name || "프로젝트"} (${project.code}) 프로젝트를 삭제할까요?\n\n저장된 기록과 공유 링크가 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`,
+  );
+  if (!ok) {
+    return;
+  }
+  try {
+    await requestJson(`/api/projects/${encodeURIComponent(project.code)}`, { method: "DELETE" });
+    state.myProjects = state.myProjects.filter((item) => item.code !== project.code);
+    if (state.projectCode === project.code) {
+      state.projectCode = "";
+      state.points = [];
+      state.photos = [];
+      state.milestones = [];
+      state.sessions = [];
+      state.primarySessionId = null;
+      state.shareLinks = [];
+      persist();
+      render();
+    }
+    renderMyProjectList();
+    setStatus("프로젝트를 삭제했습니다.", "info");
+  } catch {
+    setStatus("프로젝트를 삭제하지 못했습니다. 로그인과 권한을 확인해 주세요.", "warning");
+  }
 }
 
 function getProjectRecordDisplayTime(project) {
@@ -1920,9 +1993,10 @@ function getProjectRecordDisplayTime(project) {
 }
 
 function setupSharePanel() {
+  const historySection = document.querySelector(".history-section");
   const timelineSection = document.querySelector(".timeline-section");
   const projectSection = document.querySelector(".project-section");
-  const anchor = timelineSection || projectSection;
+  const anchor = historySection || timelineSection || projectSection;
   if (!anchor || document.querySelector("#shareSection")) {
     return;
   }
@@ -1933,30 +2007,37 @@ function setupSharePanel() {
   section.innerHTML = `
     <div class="section-title">
       <h2>공유 링크</h2>
-      <span id="shareBadge" class="badge">보기 전용</span>
+      <div class="section-title-actions">
+        <span id="shareBadge" class="badge">보기 전용</span>
+        <button id="shareToggleBtn" class="section-toggle" type="button">펼치기</button>
+      </div>
     </div>
-    <div class="share-controls">
-      <select id="shareExpiry" aria-label="공유 만료 기간">
-        <option value="1d">1일</option>
-        <option value="7d" selected>7일</option>
-        <option value="30d">30일</option>
-        <option value="none">만료 없음</option>
-      </select>
-      <button id="shareCreateBtn" type="button">공유 링크 만들기</button>
+    <div id="shareBody" class="collapsible-body">
+      <div class="share-controls">
+        <select id="shareExpiry" aria-label="공유 만료 기간">
+          <option value="1d">1일</option>
+          <option value="7d" selected>7일</option>
+          <option value="30d">30일</option>
+          <option value="none">만료 없음</option>
+        </select>
+        <button id="shareCreateBtn" type="button">공유 링크 만들기</button>
+      </div>
+      <p id="shareStatus" class="status-text">로그인 후 프로젝트를 저장하면 공유 링크를 만들 수 있습니다.</p>
+      <div id="shareList" class="share-list"></div>
     </div>
-    <p id="shareStatus" class="status-text">로그인 후 프로젝트를 저장하면 공유 링크를 만들 수 있습니다.</p>
-    <div id="shareList" class="share-list"></div>
   `;
   anchor.after(section);
   shareEls = {
     section,
     badge: section.querySelector("#shareBadge"),
+    toggleBtn: section.querySelector("#shareToggleBtn"),
     expiry: section.querySelector("#shareExpiry"),
     createBtn: section.querySelector("#shareCreateBtn"),
     status: section.querySelector("#shareStatus"),
     list: section.querySelector("#shareList"),
   };
   shareEls.createBtn.addEventListener("click", createShareLink);
+  shareEls.toggleBtn.addEventListener("click", toggleSharePanel);
 }
 
 async function loadProjectShares() {
@@ -2020,6 +2101,27 @@ async function stopShareLink(token) {
   }
 }
 
+async function deleteShareLink(token) {
+  if (!state.projectCode || !token) {
+    return;
+  }
+  const ok = window.confirm("공유 링크를 삭제할까요?\n\n목록에서 완전히 사라지며, 받은 사람도 더 이상 이 링크로 볼 수 없습니다.");
+  if (!ok) {
+    return;
+  }
+  try {
+    await requestJson(
+      `/api/projects/${encodeURIComponent(state.projectCode)}/share/${encodeURIComponent(token)}/delete`,
+      { method: "DELETE" },
+    );
+    state.shareLinks = state.shareLinks.filter((share) => share.token !== token);
+    renderSharePanel();
+    shareEls.status.textContent = "공유 링크를 삭제했습니다.";
+  } catch {
+    shareEls.status.textContent = "공유 링크를 삭제하지 못했습니다.";
+  }
+}
+
 async function updateShareExpiry(token) {
   if (!state.projectCode || !token) {
     return;
@@ -2056,6 +2158,8 @@ function renderSharePanel() {
     return;
   }
   const canShare = Boolean(state.user && state.projectCode);
+  shareEls.section.classList.toggle("is-collapsed", !state.sharePanelOpen);
+  shareEls.toggleBtn.textContent = state.sharePanelOpen ? "숨기기" : "펼치기";
   shareEls.createBtn.disabled = !canShare;
   shareEls.expiry.disabled = !canShare;
   shareEls.badge.textContent = state.shareLinks.some(isClientShareActive) ? "공유 중" : "보기 전용";
@@ -2069,7 +2173,7 @@ function renderSharePanel() {
   }
 
   shareEls.list.innerHTML = "";
-  state.shareLinks.slice(0, 5).forEach((share) => {
+  state.shareLinks.forEach((share) => {
     const item = document.createElement("article");
     item.className = "share-item";
     const body = document.createElement("div");
@@ -2097,9 +2201,20 @@ function renderSharePanel() {
     updateButton.disabled = !share.active;
     updateButton.addEventListener("click", () => updateShareExpiry(share.token));
 
-    item.append(body, copyButton, updateButton, stopButton);
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.textContent = "삭제";
+    deleteButton.addEventListener("click", () => deleteShareLink(share.token));
+
+    item.append(body, copyButton, updateButton, stopButton, deleteButton);
     shareEls.list.append(item);
   });
+}
+
+function toggleSharePanel() {
+  state.sharePanelOpen = !state.sharePanelOpen;
+  persist();
+  renderSharePanel();
 }
 
 async function openShareView(token) {
@@ -4204,6 +4319,8 @@ function getPersistPayload() {
     selectedPosition: state.selectedPosition,
     initialPosition: state.initialPosition,
     activeStartedAt: state.activeStartedAt,
+    adminPanelOpen: state.adminPanelOpen,
+    sharePanelOpen: state.sharePanelOpen,
     recordPanelOpen: state.recordPanelOpen,
     pointEditPanelOpen: state.pointEditPanelOpen,
     milestonePanelOpen: state.milestonePanelOpen,
@@ -4268,6 +4385,8 @@ function loadState() {
     state.selectedPosition = saved.selectedPosition || state.points.at(-1) || null;
     state.initialPosition = saved.initialPosition || null;
     state.activeStartedAt = saved.activeStartedAt || null;
+    state.adminPanelOpen = Boolean(saved.adminPanelOpen);
+    state.sharePanelOpen = Boolean(saved.sharePanelOpen);
     state.recordPanelOpen = saved.recordPanelOpen !== false;
     state.pointEditPanelOpen = Boolean(saved.pointEditPanelOpen);
     state.pointEditMode = state.pointEditPanelOpen;
@@ -4298,6 +4417,8 @@ function loadState() {
     state.selectedPosition = null;
     state.initialPosition = null;
     state.activeStartedAt = null;
+    state.adminPanelOpen = false;
+    state.sharePanelOpen = false;
     state.recordPanelOpen = true;
     state.pointEditPanelOpen = false;
     state.pointEditMode = false;
