@@ -753,6 +753,77 @@ label[for="photoInput"] {
   font-weight: 800;
 }
 
+.admin-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-panel h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.admin-panel .section-title button,
+.admin-user-actions button {
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #ffffff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-user-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.admin-user-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.admin-user-item.is-disabled {
+  opacity: 0.68;
+}
+
+.admin-user-item strong,
+.admin-user-item span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-user-item strong {
+  font-size: 13px;
+}
+
+.admin-user-item span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-user-actions {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  gap: 6px;
+}
+
 .share-section {
   border-top: 1px solid var(--line);
   padding-top: 12px;

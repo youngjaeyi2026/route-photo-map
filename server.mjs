@@ -21,6 +21,12 @@ const maxBodyBytes = Number(process.env.MAX_BODY_BYTES || 120 * 1024 * 1024);
 const databaseUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.TIDB_DATABASE_URL || "";
 const sessionCookieName = "rpm_session";
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 30;
+const defaultAdminEmails = new Set(
+  (process.env.ADMIN_EMAILS || "youngjaeyi2018@gmail.com")
+    .split(",")
+    .map((email) => normalizeEmail(email))
+    .filter(Boolean),
+);
 const r2Config = {
   bucket: process.env.R2_BUCKET || "",
   endpoint: process.env.R2_ENDPOINT || "",
@@ -116,6 +122,44 @@ async function handleApi(request, response, url) {
       return;
     }
     sendJson(response, 200, { projects: await listUserProjects(currentUser) });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/users") {
+    if (!requireAdmin(currentUser, response)) {
+      return;
+    }
+    sendJson(response, 200, { users: await listAdminUsers() });
+    return;
+  }
+
+  const adminUserStatusMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/status$/);
+  if (adminUserStatusMatch && request.method === "PATCH") {
+    if (!requireAdmin(currentUser, response)) {
+      return;
+    }
+    const body = await readJsonBody(request);
+    const result = await updateUserStatus(adminUserStatusMatch[1], body?.status, currentUser.id);
+    if (!result.ok) {
+      sendJson(response, result.status || 400, { error: result.error });
+      return;
+    }
+    sendJson(response, 200, { user: result.user });
+    return;
+  }
+
+  const adminUserPasswordMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/password$/);
+  if (adminUserPasswordMatch && request.method === "POST") {
+    if (!requireAdmin(currentUser, response)) {
+      return;
+    }
+    const body = await readJsonBody(request);
+    const result = await resetUserPassword(adminUserPasswordMatch[1], body?.password);
+    if (!result.ok) {
+      sendJson(response, result.status || 400, { error: result.error });
+      return;
+    }
+    sendJson(response, 200, { user: result.user, temporaryPassword: result.temporaryPassword });
     return;
   }
 
@@ -721,13 +765,17 @@ async function loginOrRegister(emailValue, passwordValue) {
     if (!verifyPassword(password, user.password_hash)) {
       return { ok: false, status: 401, error: "invalid_credentials" };
     }
+    if (isAdminEmail(user.email) && user.role !== "admin") {
+      user.role = "admin";
+      await pool.execute("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
+    }
   } else {
     user = {
       id: `U-${randomBytes(12).toString("hex")}`,
       email,
       password_hash: hashPassword(password),
       status: "active",
-      role: "user",
+      role: isAdminEmail(email) ? "admin" : "user",
       created_at: toMysqlDate(now),
       last_login_at: null,
     };
@@ -768,7 +816,14 @@ async function getCurrentUser(request) {
     [sessionId],
   );
   const user = rows[0] || null;
-  return user?.status === "active" ? user : null;
+  if (!user || user.status !== "active") {
+    return null;
+  }
+  if (isAdminEmail(user.email) && user.role !== "admin") {
+    user.role = "admin";
+    await pool.execute("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
+  }
+  return user;
 }
 
 async function deleteSession(sessionId) {
@@ -797,6 +852,108 @@ async function listUserProjects(user) {
   return rows.map(rowToProject);
 }
 
+async function listAdminUsers() {
+  if (!databaseUrl) {
+    return [];
+  }
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  const [rows] = await pool.execute(
+    `SELECT users.id,
+            users.email,
+            users.status,
+            users.role,
+            users.created_at,
+            users.last_login_at,
+            COUNT(projects.code) AS project_count
+       FROM users
+       LEFT JOIN projects ON projects.owner_user_id = users.id
+      GROUP BY users.id, users.email, users.status, users.role, users.created_at, users.last_login_at
+      ORDER BY users.created_at DESC
+      LIMIT 200`,
+  );
+  return rows.map(rowToAdminUser);
+}
+
+async function updateUserStatus(userId, statusValue, currentUserId) {
+  if (!databaseUrl) {
+    return { ok: false, status: 503, error: "database_required" };
+  }
+  const status = statusValue === "disabled" ? "disabled" : statusValue === "active" ? "active" : "";
+  if (!status) {
+    return { ok: false, status: 400, error: "invalid_status" };
+  }
+  if (userId === currentUserId && status === "disabled") {
+    return { ok: false, status: 400, error: "cannot_disable_self" };
+  }
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  await pool.execute("UPDATE users SET status = ? WHERE id = ?", [status, userId]);
+  if (status === "disabled") {
+    await pool.execute("DELETE FROM user_sessions WHERE user_id = ?", [userId]);
+  }
+  const [rows] = await pool.execute(
+    `SELECT users.id,
+            users.email,
+            users.status,
+            users.role,
+            users.created_at,
+            users.last_login_at,
+            COUNT(projects.code) AS project_count
+       FROM users
+       LEFT JOIN projects ON projects.owner_user_id = users.id
+      WHERE users.id = ?
+      GROUP BY users.id, users.email, users.status, users.role, users.created_at, users.last_login_at
+      LIMIT 1`,
+    [userId],
+  );
+  return rows.length ? { ok: true, user: rowToAdminUser(rows[0]) } : { ok: false, status: 404, error: "not_found" };
+}
+
+async function resetUserPassword(userId, passwordValue) {
+  if (!databaseUrl) {
+    return { ok: false, status: 503, error: "database_required" };
+  }
+  const temporaryPassword = String(passwordValue || "").trim() || generateTemporaryPassword();
+  if (temporaryPassword.length < 6) {
+    return { ok: false, status: 400, error: "invalid_password" };
+  }
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  await pool.execute("UPDATE users SET password_hash = ? WHERE id = ?", [hashPassword(temporaryPassword), userId]);
+  await pool.execute("DELETE FROM user_sessions WHERE user_id = ?", [userId]);
+  const [rows] = await pool.execute(
+    `SELECT users.id,
+            users.email,
+            users.status,
+            users.role,
+            users.created_at,
+            users.last_login_at,
+            COUNT(projects.code) AS project_count
+       FROM users
+       LEFT JOIN projects ON projects.owner_user_id = users.id
+      WHERE users.id = ?
+      GROUP BY users.id, users.email, users.status, users.role, users.created_at, users.last_login_at
+      LIMIT 1`,
+    [userId],
+  );
+  return rows.length
+    ? { ok: true, user: rowToAdminUser(rows[0]), temporaryPassword }
+    : { ok: false, status: 404, error: "not_found" };
+}
+
+function rowToAdminUser(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    status: row.status || "active",
+    role: row.role || "user",
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+    lastLoginAt: row.last_login_at ? new Date(row.last_login_at).toISOString() : null,
+    projectCount: Number(row.project_count || 0),
+  };
+}
+
 function publicUser(user) {
   if (!user) {
     return null;
@@ -809,8 +966,28 @@ function publicUser(user) {
   };
 }
 
+function requireAdmin(user, response) {
+  if (!user) {
+    sendJson(response, 401, { error: "login_required" });
+    return false;
+  }
+  if (user.role !== "admin") {
+    sendJson(response, 403, { error: "admin_required" });
+    return false;
+  }
+  return true;
+}
+
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function isAdminEmail(email) {
+  return defaultAdminEmails.has(normalizeEmail(email));
+}
+
+function generateTemporaryPassword() {
+  return `Rpm-${randomBytes(5).toString("base64url")}`;
 }
 
 function canManageProject(user, project) {

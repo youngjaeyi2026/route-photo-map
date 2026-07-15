@@ -33,6 +33,7 @@ const state = {
   myProjects: [],
   shareLinks: [],
   shareView: null,
+  adminUsers: [],
   recordPanelOpen: true,
   pointEditPanelOpen: false,
   milestonePanelOpen: true,
@@ -1635,6 +1636,14 @@ function setupAuthPanel() {
     </div>
     <p id="authStatus" class="status-text">로그인하면 내 프로젝트 목록을 불러올 수 있습니다.</p>
     <div id="myProjectList" class="my-project-list"></div>
+    <div id="adminPanel" class="admin-panel" hidden>
+      <div class="section-title">
+        <h3>사용자 관리</h3>
+        <button id="adminRefreshBtn" type="button">새로고침</button>
+      </div>
+      <p id="adminStatus" class="status-text">사용자 목록을 확인할 수 있습니다.</p>
+      <div id="adminUserList" class="admin-user-list"></div>
+    </div>
   `;
   projectSection.before(section);
   authEls = {
@@ -1648,10 +1657,15 @@ function setupAuthPanel() {
     logoutBtn: section.querySelector("#authLogoutBtn"),
     status: section.querySelector("#authStatus"),
     list: section.querySelector("#myProjectList"),
+    adminPanel: section.querySelector("#adminPanel"),
+    adminRefreshBtn: section.querySelector("#adminRefreshBtn"),
+    adminStatus: section.querySelector("#adminStatus"),
+    adminUserList: section.querySelector("#adminUserList"),
   };
   authEls.loginBtn.addEventListener("click", loginWithPassword);
   authEls.logoutBtn.addEventListener("click", logout);
   authEls.passwordToggle.addEventListener("click", togglePasswordVisibility);
+  authEls.adminRefreshBtn.addEventListener("click", loadAdminUsers);
 }
 
 async function refreshAuth() {
@@ -1664,6 +1678,7 @@ async function refreshAuth() {
     renderAuthPanel();
     if (state.user) {
       await loadMyProjects();
+      await loadAdminUsers();
       await loadProjectShares();
     }
   } catch {
@@ -1684,8 +1699,13 @@ function renderAuthPanel() {
   authEls.loginBtn.hidden = Boolean(user);
   authEls.logoutBtn.hidden = !user;
   authEls.status.textContent = user
-    ? `${user.email} 계정으로 로그인했습니다.`
+    ? `${user.email} 계정으로 로그인했습니다.${user.role === "admin" ? " 관리자 권한입니다." : ""}`
     : "로그인하면 내 프로젝트 목록을 불러올 수 있습니다.";
+  authEls.adminPanel.hidden = user?.role !== "admin";
+  if (user?.role !== "admin") {
+    state.adminUsers = [];
+  }
+  renderAdminUserList();
   renderMyProjectList();
 }
 
@@ -1713,6 +1733,7 @@ async function loginWithPassword() {
     authEls.password.value = "";
     renderAuthPanel();
     await loadMyProjects();
+    await loadAdminUsers();
     await loadProjectShares();
     setStatus("로그인했습니다. 내 프로젝트 목록을 불러왔습니다.", "success");
   } catch (error) {
@@ -1730,8 +1751,116 @@ async function logout() {
   } catch {}
   state.user = null;
   state.myProjects = [];
+  state.adminUsers = [];
   renderAuthPanel();
   setStatus("로그아웃했습니다.", "info");
+}
+
+async function loadAdminUsers() {
+  if (!state.user || state.user.role !== "admin" || !authEls.adminPanel) {
+    return;
+  }
+  authEls.adminStatus.textContent = "사용자 목록을 불러오는 중입니다.";
+  try {
+    const result = await requestJson("/api/admin/users");
+    state.adminUsers = Array.isArray(result.users) ? result.users : [];
+    authEls.adminStatus.textContent = `사용자 ${state.adminUsers.length}명을 확인했습니다.`;
+  } catch {
+    state.adminUsers = [];
+    authEls.adminStatus.textContent = "사용자 목록을 불러오지 못했습니다.";
+  }
+  renderAdminUserList();
+}
+
+function renderAdminUserList() {
+  if (!authEls.adminUserList) {
+    return;
+  }
+  authEls.adminUserList.innerHTML = "";
+  if (!state.user || state.user.role !== "admin") {
+    return;
+  }
+  if (state.adminUsers.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "status-text";
+    empty.textContent = "아직 표시할 사용자가 없습니다.";
+    authEls.adminUserList.append(empty);
+    return;
+  }
+
+  state.adminUsers.forEach((user) => {
+    const item = document.createElement("article");
+    item.className = "admin-user-item";
+    item.classList.toggle("is-disabled", user.status !== "active");
+
+    const body = document.createElement("div");
+    const title = document.createElement("strong");
+    const meta = document.createElement("span");
+    title.textContent = user.email;
+    meta.textContent = `${user.role === "admin" ? "관리자" : "사용자"} · ${user.status === "active" ? "활성" : "비활성"} · 프로젝트 ${user.projectCount || 0}개`;
+    body.append(title, meta);
+
+    const actions = document.createElement("div");
+    actions.className = "admin-user-actions";
+
+    const statusButton = document.createElement("button");
+    statusButton.type = "button";
+    statusButton.textContent = user.status === "active" ? "비활성" : "활성";
+    statusButton.disabled = user.id === state.user.id && user.status === "active";
+    statusButton.addEventListener("click", () => toggleAdminUserStatus(user));
+
+    const resetButton = document.createElement("button");
+    resetButton.type = "button";
+    resetButton.textContent = "PW 초기화";
+    resetButton.addEventListener("click", () => resetAdminUserPassword(user));
+
+    actions.append(statusButton, resetButton);
+    item.append(body, actions);
+    authEls.adminUserList.append(item);
+  });
+}
+
+async function toggleAdminUserStatus(user) {
+  const nextStatus = user.status === "active" ? "disabled" : "active";
+  const ok = window.confirm(
+    `${user.email} 계정을 ${nextStatus === "active" ? "활성화" : "비활성화"}할까요?`,
+  );
+  if (!ok) {
+    return;
+  }
+  try {
+    const result = await requestJson(`/api/admin/users/${encodeURIComponent(user.id)}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: nextStatus }),
+    });
+    state.adminUsers = state.adminUsers.map((item) => (item.id === result.user.id ? result.user : item));
+    renderAdminUserList();
+    authEls.adminStatus.textContent = "사용자 상태를 변경했습니다.";
+  } catch {
+    authEls.adminStatus.textContent = "사용자 상태를 변경하지 못했습니다.";
+  }
+}
+
+async function resetAdminUserPassword(user) {
+  const password = window.prompt(
+    `${user.email} 계정의 새 비밀번호를 입력하세요.\n비워두면 임시 비밀번호를 자동 생성합니다.`,
+    "",
+  );
+  if (password === null) {
+    return;
+  }
+  try {
+    const result = await requestJson(`/api/admin/users/${encodeURIComponent(user.id)}/password`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    });
+    state.adminUsers = state.adminUsers.map((item) => (item.id === result.user.id ? result.user : item));
+    renderAdminUserList();
+    window.prompt("새 비밀번호입니다. 사용자에게 전달해 주세요.", result.temporaryPassword);
+    authEls.adminStatus.textContent = "비밀번호를 초기화했습니다.";
+  } catch {
+    authEls.adminStatus.textContent = "비밀번호를 초기화하지 못했습니다. 6자 이상으로 입력해 주세요.";
+  }
 }
 
 async function loadMyProjects() {
@@ -2205,6 +2334,11 @@ function renderPanelVisibility() {
 
 function renderPointEditing() {
   pointLayer.clearLayers();
+  if (state.shareView) {
+    state.pointEditMode = false;
+    state.pointEditPanelOpen = false;
+    return;
+  }
   if (state.selectedPointIndex !== null && !state.points[state.selectedPointIndex]) {
     state.selectedPointIndex = null;
   }
