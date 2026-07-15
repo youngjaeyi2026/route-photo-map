@@ -1636,7 +1636,7 @@ function setupAuthPanel() {
     <p id="authStatus" class="status-text">로그인하면 내 프로젝트 목록을 불러올 수 있습니다.</p>
     <div id="myProjectList" class="my-project-list"></div>
   `;
-  projectSection.after(section);
+  projectSection.before(section);
   authEls = {
     section,
     badge: section.querySelector("#authBadge"),
@@ -1773,7 +1773,7 @@ function renderMyProjectList() {
     const title = document.createElement("strong");
     const meta = document.createElement("span");
     title.textContent = project.name || "프로젝트";
-    meta.textContent = `${project.code} · ${formatDate(project.updatedAt || Date.now())}`;
+    meta.textContent = `${project.code} · ${formatDate(getProjectRecordDisplayTime(project))}`;
     body.append(title, meta);
     const button = document.createElement("button");
     button.type = "button";
@@ -1784,10 +1784,16 @@ function renderMyProjectList() {
   });
 }
 
+function getProjectRecordDisplayTime(project) {
+  const sessions = Array.isArray(project.sessions) ? project.sessions : [];
+  const primary = sessions.find((session) => session.id === project.primarySessionId) || sessions[0];
+  return primary?.startedAt || primary?.savedAt || primary?.endedAt || project.createdAt || project.updatedAt || Date.now();
+}
+
 function setupSharePanel() {
-  const authSection = document.querySelector("#authSection");
+  const timelineSection = document.querySelector(".timeline-section");
   const projectSection = document.querySelector(".project-section");
-  const anchor = authSection || projectSection;
+  const anchor = timelineSection || projectSection;
   if (!anchor || document.querySelector("#shareSection")) {
     return;
   }

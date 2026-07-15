@@ -282,6 +282,7 @@ h2 {
 }
 
 .is-collapsed > .collapsible-body,
+.record-section.is-collapsed > #recordControls,
 .point-edit-section.is-collapsed > .point-edit-row,
 .point-edit-section.is-collapsed > .point-edit-hint {
   display: none;
