@@ -49,6 +49,11 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
+  assert.match(pageHtml, /20260720-panel-scroll-2/);
+  const cssResponse = await fetch(`${baseUrl}/styles.css`);
+  const css = await cssResponse.text();
+  assert.equal(cssResponse.status, 200);
+  assert.match(css, /\.control-panel\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/s);
 
   const createResponse = await fetch(`${baseUrl}/api/projects`, {
     method: "POST",

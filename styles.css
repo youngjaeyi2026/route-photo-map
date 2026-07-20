@@ -191,6 +191,10 @@ button {
   box-shadow: var(--shadow);
 }
 
+.control-panel > * {
+  flex-shrink: 0;
+}
+
 .panel-header {
   display: grid;
   gap: 8px;
