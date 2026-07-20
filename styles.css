@@ -644,6 +644,11 @@ label[for="photoInput"] {
   padding-top: 12px;
 }
 
+.auth-body {
+  display: grid;
+  gap: 8px;
+}
+
 .auth-controls {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -846,6 +851,11 @@ label[for="photoInput"] {
 }
 
 .share-section {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.settings-section {
   border-top: 1px solid var(--line);
   padding-top: 12px;
 }
@@ -1828,9 +1838,36 @@ label[for="photoInput"] {
 }
 
 @media (min-width: 861px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    min-height: 0;
+  }
+
+  .app-shell {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .map-stage {
+    height: 100%;
+    min-height: 0;
+  }
+
   .control-panel {
+    height: 100dvh;
+    min-height: 0;
     gap: 10px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 16px 18px;
+    scrollbar-gutter: stable;
   }
 
   .panel-header {

@@ -35,6 +35,7 @@ const state = {
   shareView: null,
   adminUsers: [],
   adminPanelOpen: false,
+  authPanelOpen: true,
   sharePanelOpen: false,
   recordPanelOpen: true,
   pointEditPanelOpen: false,
@@ -1418,6 +1419,7 @@ function resetForNewProject() {
   state.segmentStartIndex = null;
   state.segmentEndIndex = null;
   state.pointAddMode = false;
+  state.recordPanelOpen = true;
   stopDestinationPositionWatcher();
   if (state.initialPosition) {
     currentMarker.setLatLng([state.initialPosition.lat, state.initialPosition.lng]);
@@ -1719,24 +1721,31 @@ function setupAuthPanel() {
   section.innerHTML = `
     <div class="section-title">
       <h2>로그인</h2>
-      <span id="authBadge" class="badge">비로그인</span>
-    </div>
-    <div class="auth-controls">
-      <input id="authEmail" type="text" placeholder="아이디" autocomplete="username" />
-      <div id="authPasswordWrap" class="password-field">
-        <input id="authPassword" type="password" placeholder="비밀번호" autocomplete="current-password" />
-        <button id="authPasswordToggle" type="button" aria-label="비밀번호 보기">보기</button>
+      <div class="section-title-actions">
+        <span id="authBadge" class="badge">비로그인</span>
+        <button id="authToggleBtn" class="section-toggle" type="button">숨기기</button>
       </div>
-      <button id="authLoginBtn" type="button">로그인 / 자동가입</button>
-      <button id="authLogoutBtn" type="button" hidden>로그아웃</button>
     </div>
-    <p id="authStatus" class="status-text">로그인하면 내 프로젝트 목록을 불러올 수 있습니다.</p>
-    <div id="myProjectList" class="my-project-list"></div>
+    <div id="authBody" class="collapsible-body auth-body">
+      <div class="auth-controls">
+        <input id="authEmail" type="text" placeholder="아이디" autocomplete="username" />
+        <div id="authPasswordWrap" class="password-field">
+          <input id="authPassword" type="password" placeholder="비밀번호" autocomplete="current-password" />
+          <button id="authPasswordToggle" type="button" aria-label="비밀번호 보기">보기</button>
+        </div>
+        <button id="authLoginBtn" type="button">로그인 / 자동가입</button>
+        <button id="authLogoutBtn" type="button" hidden>로그아웃</button>
+      </div>
+      <p id="authStatus" class="status-text">로그인하면 내 프로젝트 목록을 불러올 수 있습니다.</p>
+      <div id="myProjectList" class="my-project-list"></div>
+    </div>
   `;
   projectSection.before(section);
   authEls = {
     section,
+    body: section.querySelector("#authBody"),
     badge: section.querySelector("#authBadge"),
+    toggleBtn: section.querySelector("#authToggleBtn"),
     email: section.querySelector("#authEmail"),
     passwordWrap: section.querySelector("#authPasswordWrap"),
     password: section.querySelector("#authPassword"),
@@ -1749,6 +1758,7 @@ function setupAuthPanel() {
   authEls.loginBtn.addEventListener("click", loginWithPassword);
   authEls.logoutBtn.addEventListener("click", logout);
   authEls.passwordToggle.addEventListener("click", togglePasswordVisibility);
+  authEls.toggleBtn.addEventListener("click", toggleAuthPanel);
 }
 
 function setupAdminPanel() {
@@ -1808,6 +1818,8 @@ function renderAuthPanel() {
     return;
   }
   const user = state.user;
+  authEls.section.classList.toggle("is-collapsed", !state.authPanelOpen);
+  authEls.toggleBtn.textContent = state.authPanelOpen ? "숨기기" : "펼치기";
   authEls.badge.textContent = user ? "로그인" : "비로그인";
   authEls.badge.classList.toggle("is-live", Boolean(user));
   authEls.email.hidden = Boolean(user);
@@ -1829,6 +1841,12 @@ function renderAuthPanel() {
   }
   renderAdminUserList();
   renderMyProjectList();
+}
+
+function toggleAuthPanel() {
+  state.authPanelOpen = !state.authPanelOpen;
+  persist();
+  renderAuthPanel();
 }
 
 function toggleAdminPanel() {
@@ -4415,6 +4433,7 @@ function getPersistPayload() {
     initialPosition: state.initialPosition,
     activeStartedAt: state.activeStartedAt,
     adminPanelOpen: state.adminPanelOpen,
+    authPanelOpen: state.authPanelOpen,
     sharePanelOpen: state.sharePanelOpen,
     recordPanelOpen: state.recordPanelOpen,
     pointEditPanelOpen: state.pointEditPanelOpen,
@@ -4481,6 +4500,7 @@ function loadState() {
     state.initialPosition = saved.initialPosition || null;
     state.activeStartedAt = saved.activeStartedAt || null;
     state.adminPanelOpen = Boolean(saved.adminPanelOpen);
+    state.authPanelOpen = saved.authPanelOpen !== false;
     state.sharePanelOpen = Boolean(saved.sharePanelOpen);
     state.recordPanelOpen = saved.recordPanelOpen !== false;
     state.pointEditPanelOpen = Boolean(saved.pointEditPanelOpen);
@@ -4513,6 +4533,7 @@ function loadState() {
     state.initialPosition = null;
     state.activeStartedAt = null;
     state.adminPanelOpen = false;
+    state.authPanelOpen = true;
     state.sharePanelOpen = false;
     state.recordPanelOpen = true;
     state.pointEditPanelOpen = false;
