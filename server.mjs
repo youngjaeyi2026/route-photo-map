@@ -12,17 +12,19 @@ import { networkInterfaces } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname);
-const dataDir = join(root, "data");
+const dataDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(root, "data");
 const projectsPath = join(dataDir, "projects.json");
 const port = Number(process.env.PORT || 5179);
 const host = process.env.HOST || "0.0.0.0";
 const logPath = join(root, "server-debug.log");
 const maxBodyBytes = Number(process.env.MAX_BODY_BYTES || 120 * 1024 * 1024);
+const maxPhotoBytes = Number(process.env.MAX_PHOTO_BYTES || 12 * 1024 * 1024);
 const databaseUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.TIDB_DATABASE_URL || "";
+const isProduction = process.env.NODE_ENV === "production" || Boolean(process.env.RAILWAY_ENVIRONMENT);
 const sessionCookieName = "rpm_session";
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 30;
 const defaultAdminEmails = new Set(
-  (process.env.ADMIN_EMAILS || "youngjaeyi2018@gmail.com")
+  (process.env.ADMIN_EMAILS || "")
     .split(",")
     .map((email) => normalizeEmail(email))
     .filter(Boolean),
@@ -40,7 +42,7 @@ const shareExpiryOptions = new Map([
   ["30d", 1000 * 60 * 60 * 24 * 30],
   ["none", null],
 ]);
-const minPasswordLength = Number(process.env.MIN_PASSWORD_LENGTH || 4);
+const minPasswordLength = Number(process.env.MIN_PASSWORD_LENGTH || 8);
 
 mkdirSync(dataDir, { recursive: true });
 
@@ -69,7 +71,11 @@ const server = createServer(async (request, response) => {
     serveStatic(url, response);
   } catch (error) {
     log(`ERROR ${error.stack || error.message}`);
-    sendJson(response, 500, { error: "server_error", message: error.message });
+    const status = Number(error.status) || 500;
+    sendJson(response, status, {
+      error: status >= 500 ? "server_error" : error.message,
+      message: error.message,
+    });
   }
 });
 
@@ -82,12 +88,13 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/health") {
-    sendJson(response, 200, {
-      ok: true,
-      storage: databaseUrl ? "tidb" : "local-json",
-      files: isR2Configured() ? "cloudflare-r2" : "embedded-json",
-      time: new Date().toISOString(),
-    });
+    sendJson(response, 200, getHealthStatus());
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/ready") {
+    const health = getHealthStatus();
+    sendJson(response, health.ready ? 200 : 503, health);
     return;
   }
 
@@ -102,7 +109,10 @@ async function handleApi(request, response, url) {
     const body = await readJsonBody(request);
     const result = await loginOrRegister(body?.email, body?.password);
     if (!result.ok) {
-      sendJson(response, result.status || 400, { error: result.error });
+      sendJson(response, result.status || 400, {
+        error: result.error,
+        ...(result.error === "password_too_short" ? { minPasswordLength } : {}),
+      });
       return;
     }
     setSessionCookie(response, result.sessionId, request);
@@ -269,6 +279,40 @@ async function handleApi(request, response, url) {
   }
 
   const projectMatch = url.pathname.match(/^\/api\/projects\/([A-Z0-9-]+)$/);
+  const projectPhotoMatch = url.pathname.match(/^\/api\/projects\/([A-Z0-9-]+)\/photos$/);
+  if (projectPhotoMatch && request.method === "POST") {
+    const code = normalizeProjectCode(projectPhotoMatch[1]);
+    const project = await getProject(code);
+    if (!project) {
+      sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    if (!canManageProject(currentUser, project)) {
+      sendJson(response, 403, { error: "project_access_denied" });
+      return;
+    }
+    if (!isR2Configured()) {
+      sendJson(response, 503, {
+        error: "r2_not_configured",
+        message: "photo_storage_not_configured",
+      });
+      return;
+    }
+    const contentType = String(request.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+    if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(contentType)) {
+      sendJson(response, 415, { error: "unsupported_photo_type" });
+      return;
+    }
+    const body = await readRequestBody(request, maxPhotoBytes);
+    const photo = {
+      id: decodeHeaderValue(request.headers["x-photo-id"]) || randomBytes(12).toString("hex"),
+      displayName: decodeHeaderValue(request.headers["x-photo-name"]) || "photo",
+    };
+    const src = await uploadPhotoBufferToR2(code, photo, contentType, body);
+    sendJson(response, 201, { src });
+    return;
+  }
+
   if (projectMatch && request.method === "GET") {
     const code = normalizeProjectCode(projectMatch[1]);
     const project = await getProject(code);
@@ -282,6 +326,15 @@ async function handleApi(request, response, url) {
 
   if (projectMatch && request.method === "PUT") {
     const code = normalizeProjectCode(projectMatch[1]);
+    const existingProject = await getProject(code);
+    if (!existingProject) {
+      sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    if (!canManageProject(currentUser, existingProject)) {
+      sendJson(response, 403, { error: "project_access_denied" });
+      return;
+    }
     const body = await readJsonBody(request);
     const project = await saveProjectState(code, body, currentUser);
     sendJson(response, 200, project);
@@ -568,10 +621,15 @@ async function uploadDataUrlToR2(code, photo) {
   }
 
   const [, contentType, base64] = match;
+  const body = Buffer.from(base64, "base64");
+  return uploadPhotoBufferToR2(code, photo, contentType, body);
+}
+
+async function uploadPhotoBufferToR2(code, photo, contentType, body) {
   const extension = getExtensionFromMime(contentType);
   const safeName = sanitizeFileName(photo.displayName || photo.name || photo.id || "photo");
-  const key = `route-photo-map/${code}/photos/${safeName}-${photo.id || Date.now()}${extension}`;
-  const body = Buffer.from(base64, "base64");
+  const safeId = sanitizeFileName(photo.id || Date.now());
+  const key = `route-photo-map/${code}/photos/${safeName}-${safeId}${extension}`;
   const { PutObjectCommand } = await import("@aws-sdk/client-s3");
   const client = await getS3Client();
   await client.send(
@@ -814,7 +872,7 @@ async function loginOrRegister(emailValue, passwordValue) {
   }
   const email = normalizeEmail(emailValue);
   const password = String(passwordValue || "");
-  if (!email || password.length < minPasswordLength) {
+  if (!email || !password) {
     return { ok: false, status: 400, error: "invalid_credentials" };
   }
 
@@ -836,6 +894,9 @@ async function loginOrRegister(emailValue, passwordValue) {
       await pool.execute("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
     }
   } else {
+    if (password.length < minPasswordLength) {
+      return { ok: false, status: 400, error: "password_too_short" };
+    }
     user = {
       id: `U-${randomBytes(12).toString("hex")}`,
       email,
@@ -1215,31 +1276,85 @@ function serveStatic(url, response) {
 }
 
 function readJsonBody(request) {
+  return readRequestBody(request, maxBodyBytes).then((body) => {
+    if (body.length === 0) {
+      return {};
+    }
+    try {
+      return JSON.parse(body.toString("utf8"));
+    } catch {
+      throw createHttpError("invalid_json", 400);
+    }
+  });
+}
+
+function readRequestBody(request, limitBytes) {
   return new Promise((resolveBody, rejectBody) => {
     let size = 0;
     const chunks = [];
+    let settled = false;
     request.on("data", (chunk) => {
+      if (settled) {
+        return;
+      }
       size += chunk.length;
-      if (size > maxBodyBytes) {
-        rejectBody(new Error("request_body_too_large"));
-        request.destroy();
+      if (size > limitBytes) {
+        settled = true;
+        rejectBody(createHttpError("request_body_too_large", 413));
         return;
       }
       chunks.push(chunk);
     });
     request.on("end", () => {
-      if (chunks.length === 0) {
-        resolveBody({});
-        return;
-      }
-      try {
-        resolveBody(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-      } catch {
-        rejectBody(new Error("invalid_json"));
+      if (!settled) {
+        settled = true;
+        resolveBody(Buffer.concat(chunks));
       }
     });
-    request.on("error", rejectBody);
+    request.on("error", (error) => {
+      if (!settled) {
+        settled = true;
+        rejectBody(error);
+      }
+    });
   });
+}
+
+function createHttpError(message, status) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function decodeHeaderValue(value) {
+  try {
+    return decodeURIComponent(String(value || ""));
+  } catch {
+    return String(value || "");
+  }
+}
+
+function getHealthStatus() {
+  const issues = [];
+  if (isProduction && !databaseUrl) {
+    issues.push("database_not_configured");
+  }
+  if (isProduction && !isR2Configured()) {
+    issues.push("r2_not_configured");
+  }
+  return {
+    ok: true,
+    ready: issues.length === 0,
+    environment: isProduction ? "production" : "development",
+    storage: databaseUrl ? "tidb" : "local-json",
+    files: isR2Configured() ? "cloudflare-r2" : "embedded-json",
+    issues,
+    limits: {
+      projectBodyBytes: maxBodyBytes,
+      photoBytes: maxPhotoBytes,
+    },
+    time: new Date().toISOString(),
+  };
 }
 
 function sendJson(response, status, payload) {
@@ -1294,10 +1409,12 @@ server.on("error", (error) => {
 
 server.listen(port, host, () => {
   const lanUrls = getLanUrls(port);
+  const health = getHealthStatus();
   const message = [
     `Route Photo Map running at http://127.0.0.1:${port}`,
     `Project storage: ${databaseUrl ? "TiDB/MySQL" : "local JSON"}`,
     `File storage: ${isR2Configured() ? "Cloudflare R2" : "embedded JSON"}`,
+    `Readiness: ${health.ready ? "ready" : `not ready (${health.issues.join(", ")})`}`,
     ...lanUrls.map((url) => `Mobile URL: ${url}`),
   ].join("\n");
   log(message);

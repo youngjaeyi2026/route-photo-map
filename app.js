@@ -1462,6 +1462,7 @@ async function syncProjectState(reason = "manual") {
   setProjectStatus("서버 동기화 중입니다. 연결이 불안정해도 현재 작업은 로컬에 보관됩니다.");
 
   try {
+    await preparePhotosForProjectSync();
     const project = await requestJson(`/api/projects/${encodeURIComponent(state.projectCode)}`, {
       method: "PUT",
       body: JSON.stringify({
@@ -1496,9 +1497,91 @@ async function syncProjectState(reason = "manual") {
       setProjectStatus("서버 저장 용량을 초과했습니다. 사진 수를 줄이거나 서버 용량 설정을 확인해 주세요.");
       return false;
     }
+    if (error?.message === "server_not_ready") {
+      setProjectStatus("운영 서버의 TiDB 또는 R2 설정이 완료되지 않아 저장을 중단했습니다.");
+      return false;
+    }
+    if (error?.message === "photo_upload_failed") {
+      setProjectStatus("사진 업로드에 실패했습니다. 네트워크 연결과 R2 설정을 확인해 주세요.");
+      return false;
+    }
     setProjectStatus("서버 저장에 실패했습니다. 연결 상태를 확인해 주세요.");
     return false;
   }
+}
+
+async function preparePhotosForProjectSync() {
+  if (!state.serverHealth) {
+    await refreshServerHealth();
+  }
+  if (state.serverHealth?.environment === "production" && !state.serverHealth?.ready) {
+    throw new Error("server_not_ready");
+  }
+  if (state.serverHealth?.files !== "cloudflare-r2") {
+    return;
+  }
+
+  const photoLists = [state.photos, ...state.sessions.map((session) => session.photos || [])];
+  const pending = new Map();
+  photoLists.flat().forEach((photo) => {
+    if (photo?.src?.startsWith("data:image/")) {
+      pending.set(photo.id || photo.src, photo);
+    }
+  });
+  if (pending.size === 0) {
+    return;
+  }
+
+  let completed = 0;
+  for (const [key, photo] of pending) {
+    setProjectStatus(`사진을 먼저 업로드하고 있습니다. (${completed + 1}/${pending.size})`);
+    let result;
+    try {
+      result = await uploadProjectPhoto(photo);
+    } catch (error) {
+      console.warn("Photo upload failed", error);
+      throw new Error("photo_upload_failed");
+    }
+    photoLists.forEach((photos) => {
+      photos.forEach((item) => {
+        if ((item.id || item.src) === key || item.src === photo.src) {
+          item.src = result.src;
+          item.uploaded = true;
+        }
+      });
+    });
+    completed += 1;
+  }
+  persist();
+}
+
+async function uploadProjectPhoto(photo) {
+  const blob = await dataUrlToBlob(photo.src);
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(state.projectCode)}/photos`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": blob.type || "image/jpeg",
+        "X-Photo-Id": encodeURIComponent(photo.id || crypto.randomUUID()),
+        "X-Photo-Name": encodeURIComponent(getPhotoDisplayName(photo)),
+      },
+      body: blob,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Photo upload failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const response = await fetch(dataUrl);
+  if (!response.ok) {
+    throw new Error("Invalid photo data");
+  }
+  return response.blob();
 }
 
 function retryPendingProjectSync() {
@@ -1550,10 +1633,17 @@ function renderProjectState() {
   els.projectName.value = state.projectName || "프로젝트A";
   els.projectCode.value = state.projectCode || "";
   els.projectBadge.textContent = state.projectCode || getStorageBadgeLabel();
-  els.projectBadge.classList.toggle("is-live", Boolean(state.projectCode || state.serverHealth?.storage === "tidb"));
+  const serverReady = state.serverHealth?.environment !== "production" || state.serverHealth?.ready !== false;
+  els.projectBadge.classList.toggle(
+    "is-live",
+    serverReady && Boolean(state.projectCode || state.serverHealth?.storage === "tidb"),
+  );
 }
 
 function getStorageBadgeLabel() {
+  if (state.serverHealth?.environment === "production" && !state.serverHealth?.ready) {
+    return "설정 필요";
+  }
   if (state.serverHealth?.storage === "tidb" && state.serverHealth?.files === "cloudflare-r2") {
     return "서버";
   }
@@ -1567,6 +1657,9 @@ async function refreshServerHealth() {
   try {
     state.serverHealth = await requestJson("/api/health");
     renderProjectState();
+    if (state.serverHealth.environment === "production" && !state.serverHealth.ready) {
+      setProjectStatus("운영 서버 저장소 설정이 미완료되었습니다. 관리자에게 TiDB/R2 설정을 요청하세요.");
+    }
   } catch {
     state.serverHealth = null;
     renderProjectState();
@@ -1775,9 +1868,11 @@ async function loginWithPassword() {
     await loadProjectShares();
     setStatus("로그인했습니다. 내 프로젝트 목록을 불러왔습니다.", "success");
   } catch (error) {
-    const message =
-      error?.payload?.error === "account_disabled"
-        ? "비활성화된 계정입니다."
+    const authError = error?.payload?.error;
+    const message = authError === "account_disabled"
+      ? "비활성화된 계정입니다."
+      : authError === "password_too_short"
+        ? `새 계정의 비밀번호는 ${error.payload.minPasswordLength || 8}자 이상이어야 합니다.`
         : "로그인에 실패했습니다. 아이디 또는 비밀번호를 확인해 주세요.";
     authEls.status.textContent = message;
   }

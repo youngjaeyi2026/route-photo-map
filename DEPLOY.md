@@ -1,204 +1,95 @@
-# 동선사진기록 앱 배포 메모
+# 동선 사진 기록 앱 배포·운영 안내
 
-## 현재 목표
+## 운영 구성
 
-내 컴퓨터에서만 실행하던 동선사진기록 앱을 정식 서비스 주소로 전환합니다.
-
-- 서비스 주소: `https://samwon.site`
-- 코드 저장: GitHub
 - 앱 서버: Railway
 - 데이터베이스: TiDB Cloud(MySQL)
-- 사진 파일 저장: Cloudflare R2
-- 도메인: 가비아 `samwon.site`
+- 사진 저장소: Cloudflare R2
+- 서비스 주소: `https://samwon.site`
 
-## 현재 완료된 것
+운영 환경에서는 TiDB와 R2가 모두 설정되어야 저장 준비가 완료된 것으로 판단합니다.
 
-- 앱 폴더를 독립 Git 저장소로 준비
-- Railway 실행 설정 `railway.json` 추가
-- 서버 실행 명령 `npm start` 추가
-- TiDB/R2 환경변수 대응 서버 구조 추가
-- 로컬 개발 모드 유지
-- `/api/health` 상태 확인 API 추가
+## Railway 환경 변수
 
-로컬 상태 확인:
+`.env.example`을 기준으로 다음 값을 등록합니다.
 
 ```text
-http://127.0.0.1:5179/api/health
-```
-
-현재 로컬에서는 아래처럼 보이는 것이 정상입니다.
-
-```json
-{
-  "ok": true,
-  "storage": "local-json",
-  "files": "embedded-json"
-}
-```
-
-Railway에 TiDB/R2 환경변수를 넣으면 목표 상태는 아래입니다.
-
-```json
-{
-  "ok": true,
-  "storage": "tidb",
-  "files": "cloudflare-r2"
-}
-```
-
-## 1. GitHub 저장소 만들기
-
-GitHub에서 새 저장소를 만듭니다.
-
-추천 저장소 이름:
-
-```text
-route-photo-map
-```
-
-권장 설정:
-
-- Public 또는 Private는 자유 선택
-- README 생성 체크하지 않음
-- `.gitignore` 생성 체크하지 않음
-- License 생성 체크하지 않음
-
-저장소를 만든 뒤 GitHub가 알려주는 주소를 확인합니다.
-
-예:
-
-```text
-https://github.com/사용자명/route-photo-map.git
-```
-
-그 주소를 Codex에 알려주면 아래 명령을 실행하면 됩니다.
-
-```bash
-git remote add origin https://github.com/사용자명/route-photo-map.git
-git push -u origin main
-```
-
-## 2. Railway 프로젝트 만들기
-
-Railway에서 새 프로젝트를 만듭니다.
-
-권장 방식:
-
-```text
-New Project -> Deploy from GitHub repo -> route-photo-map 선택
-```
-
-Railway가 자동으로 감지해야 하는 항목:
-
-- Root directory: 저장소 루트
-- Build: Nixpacks
-- Start command: `npm start`
-
-만약 Root Directory를 묻는다면:
-
-```text
-/
-```
-
-현재 ZIP으로 올리는 경우에는 ZIP 안의 파일들이 바로 루트에 있으므로 별도 하위 폴더를 지정하지 않습니다.
-
-## 3. TiDB Cloud 환경변수
-
-Railway Variables에 아래 값을 추가합니다.
-
-```text
+NODE_ENV=production
 DATABASE_URL=mysql://USER:PASSWORD@HOST:4000/DATABASE
-```
-
-TiDB Cloud에서 MySQL 연결 문자열을 복사해 넣으면 됩니다.
-
-주의:
-
-- 비밀번호에 특수문자가 있으면 URL 인코딩이 필요할 수 있습니다.
-- TiDB는 SSL 연결을 요구할 수 있습니다.
-
-## 4. Cloudflare R2 환경변수
-
-Railway Variables에 아래 값을 추가합니다.
-
-```text
 R2_BUCKET=버킷명
 R2_ENDPOINT=https://ACCOUNT_ID.r2.cloudflarestorage.com
-R2_ACCESS_KEY_ID=R2_ACCESS_KEY
-R2_SECRET_ACCESS_KEY=R2_SECRET_KEY
-```
-
-선택값:
-
-```text
+R2_ACCESS_KEY_ID=접근키
+R2_SECRET_ACCESS_KEY=비밀키
 R2_PUBLIC_BASE_URL=https://files.samwon.site
+ADMIN_EMAILS=관리자이메일
+MIN_PASSWORD_LENGTH=8
+MAX_BODY_BYTES=125829120
+MAX_PHOTO_BYTES=12582912
+DB_CONNECTION_LIMIT=4
 ```
 
-초기에는 `R2_PUBLIC_BASE_URL` 없이도 서버 저장은 가능하지만, 사진을 다른 기기에서 보기 좋게 하려면 R2 공개 도메인 또는 공개 접근 설정을 준비하는 것이 좋습니다.
+`R2_PUBLIC_BASE_URL`은 선택 사항입니다. 비워 두면 앱 서버의 `/api/files/...` 경로를 통해 사진을 제공합니다.
 
-## 5. 도메인 연결
+## 상태 점검
 
-Railway에서 Custom Domain에 아래 도메인을 추가합니다.
-
-```text
-samwon.site
-```
-
-Railway가 안내하는 DNS 값을 가비아 DNS에 등록합니다.
-
-일반적으로 둘 중 하나입니다.
-
-```text
-CNAME
-```
-
-또는
-
-```text
-A Record
-```
-
-Railway 화면에 표시된 값을 그대로 가비아에 입력합니다.
-
-## 6. 배포 후 확인
-
-아래 주소를 엽니다.
+프로세스 생존 여부:
 
 ```text
 https://samwon.site/api/health
 ```
 
-정상 목표:
+운영 저장소 준비 여부:
+
+```text
+https://samwon.site/api/ready
+```
+
+정상 운영 상태의 핵심 응답은 다음과 같습니다.
 
 ```json
 {
   "ok": true,
+  "ready": true,
+  "environment": "production",
   "storage": "tidb",
-  "files": "cloudflare-r2"
+  "files": "cloudflare-r2",
+  "issues": []
 }
 ```
 
-그 다음 앱 화면:
+`/api/health`는 앱 프로세스가 살아 있으면 HTTP 200을 반환합니다. `/api/ready`는 TiDB 또는 R2 설정이 빠진 경우 HTTP 503을 반환하므로 배포 확인과 모니터링에는 `/api/ready`를 사용합니다.
 
-```text
-https://samwon.site
+## 배포 전 점검
+
+```bash
+npm install
+npm run check
+npm start
 ```
 
-확인할 흐름:
+로컬 개발 환경에서는 TiDB/R2가 없어도 `local-json`, `embedded-json` 모드로 동작합니다. 이 모드는 개발·복구용이며 운영 배포용이 아닙니다.
 
-1. 새 프로젝트 생성
-2. 기록 시작
-3. 사진 추가
+## 사진 저장 방식
+
+운영 환경에서는 프로젝트 전체 JSON을 저장하기 전에 새 사진을 R2에 개별 업로드합니다. 따라서 사진이 많은 현장 기록도 하나의 거대한 요청 본문으로 전송되지 않습니다.
+
+- 사진 한 장 제한: `MAX_PHOTO_BYTES`(기본 12MB)
+- 프로젝트 JSON 제한: `MAX_BODY_BYTES`(기본 120MB)
+- 제한 초과 시 서버는 HTTP 413을 반환합니다.
+
+## 배포 후 확인 순서
+
+1. `/api/ready`가 `ready: true`인지 확인
+2. 로그인 및 프로젝트 생성
+3. 기록 시작 후 사진 여러 장 추가
 4. 서버 저장
-5. 같은 공유 코드로 불러오기
-6. PC와 모바일에서 같은 기록 확인
+5. 다른 기기에서 같은 프로젝트 불러오기
+6. 공유 링크 생성·만료·삭제 확인
+7. Railway 로그에서 `server_error`, `request_body_too_large` 반복 여부 확인
 
-## 다음 큰 단계
+## 백업과 장애 대응
 
-서버 정식화 이후에는 아래 순서가 좋습니다.
-
-1. 로그인 기능
-2. 내 프로젝트 목록
-3. 주소 표시/주소 검색
-4. Android 앱 전환
-5. 보고서 작성
+- TiDB는 정기 백업 또는 스냅샷 정책을 활성화합니다.
+- R2 수명주기 규칙은 프로젝트 사진을 임의 삭제하지 않도록 설정합니다.
+- 로컬 `data/projects.json`과 `recovered-photos-from-projects-json/`은 운영 데이터 이전이 끝날 때까지 삭제하지 않습니다.
+- 저장 장애가 발생하면 먼저 `/api/ready`의 `issues`와 Railway 로그를 확인합니다.
