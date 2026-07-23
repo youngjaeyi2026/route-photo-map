@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-review-photo-position-1/);
+  assert.match(pageHtml, /20260723-compact-project-actions-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -114,8 +114,13 @@ try {
     appSource,
     /function applyProject\(project\)[\s\S]+?milestoneLayer\.clearLayers\(\)[\s\S]+?state\.milestones = normalizeMilestones[\s\S]+?state\.points = \[\][\s\S]+?applyProjectMeta\(project\)/,
   );
-  assert.match(appSource, /copyButton\.textContent = "코드 복사"/);
+  assert.match(appSource, /const copyButton = createPinIconButton\("코드 복사", "copy"\)/);
   assert.match(appSource, /async function copyProjectCode\(code\)/);
+  assert.match(appSource, /const openButton = createPinIconButton\("열기", "open"\)/);
+  assert.match(appSource, /memo\.textContent = pin\.memo\?\.trim\(\) \|\| "메모 없음"/);
+  const milestoneRenderer = appSource.match(/function renderMilestones\(\)[\s\S]+?function updateMapPinPosition/);
+  assert.ok(milestoneRenderer);
+  assert.doesNotMatch(milestoneRenderer[0], /pin\.lat\.toFixed|pin\.lng\.toFixed/);
   assert.match(appSource, /const usesMapCenter = !options\.position && !state\.tracking/);
   assert.match(appSource, /usesMapCenter \? "map-center" : "map"/);
   assert.match(appSource, /options\.label \|\| \(fixedPosition \? "지도 화면 중앙" : "위치 정보 없음"\)/);
@@ -132,12 +137,19 @@ try {
   assert.match(appSource, /로그인 영역을 제외한 작업 영역을 숨겼습니다/);
   assert.match(appSource, /\{ name: "회색", value: "#3f4a46" \}/);
   assert.doesNotMatch(appSource, /dashArray:\s*"8 7"/);
-  assert.match(css, /\.pin-icon-actions\s*\{[^}]*repeat\(4,\s*34px\)/s);
+  assert.match(css, /\.pin-icon-actions\s*\{[^}]*repeat\(4,\s*30px\)/s);
+  assert.match(css, /\.pin-icon-button\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px/s);
   assert.match(css, /\.color-picker-modal\s*\{/);
   assert.match(css, /\.field-action-group\s*\{[^}]*padding-top:\s*16px/s);
   assert.match(css, /#followRouteBtn\s*\{[^}]*min-height:\s*42px/s);
-  assert.match(css, /#constructionVisibilityBtn\s*\{/);
+  assert.match(css, /#addConstructionPinBtn\s*\{[^}]*min-height:\s*42px/s);
+  assert.match(css, /#constructionVisibilityBtn\s*\{[^}]*grid-column:\s*2;[^}]*min-height:\s*42px/s);
   assert.match(css, /\.my-project-actions\s*\{[^}]*grid-template-columns:\s*auto\s*auto\s*auto/s);
+  assert.match(css, /\.my-project-item strong\s*\{[^}]*-webkit-line-clamp:\s*2/s);
+  assert.match(
+    css,
+    /#followRouteBtn,[\s\S]+?#addConstructionPinBtn,[\s\S]+?#constructionVisibilityBtn\s*\{[^}]*min-height:\s*30px/s,
+  );
   assert.match(css, /\.point-edit-row button,[\s\S]+?font-size:\s*12px;[\s\S]+?font-weight:\s*800/s);
   assert.doesNotMatch(css, /\.point-edit-row button,[\s\S]{0,220}?font-size:\s*10px/);
   assert.match(css, /\.route-follow-status\s*\{[^}]*background:\s*#fff1ee/s);

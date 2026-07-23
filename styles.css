@@ -407,7 +407,7 @@ label[for="photoInput"] {
 }
 
 #addConstructionPinBtn {
-  min-height: 40px;
+  min-height: 42px;
   border: 1px solid #cbdceb;
   border-radius: 8px;
   color: #285b86;
@@ -418,7 +418,8 @@ label[for="photoInput"] {
 }
 
 #constructionVisibilityBtn {
-  min-height: 40px;
+  grid-column: 2;
+  min-height: 42px;
   border: 1px solid #cbdceb;
   border-radius: 8px;
   color: #285b86;
@@ -807,14 +808,20 @@ label[for="photoInput"] {
 .my-project-item span {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .my-project-item strong {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.25;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   font-size: 13px;
 }
 
 .my-project-item span {
+  white-space: nowrap;
   color: var(--muted);
   font-size: 11px;
 }
@@ -826,8 +833,8 @@ label[for="photoInput"] {
 }
 
 .my-project-item button {
-  min-width: 54px;
-  height: 32px;
+  min-width: 30px;
+  height: 30px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
@@ -1448,8 +1455,8 @@ label[for="photoInput"] {
 }
 
 .pin-icon-actions {
-  grid-template-columns: repeat(4, 34px);
-  gap: 5px;
+  grid-template-columns: repeat(4, 30px);
+  gap: 4px;
 }
 
 .pin-list-actions button,
@@ -1466,16 +1473,16 @@ label[for="photoInput"] {
 .pin-icon-button {
   display: grid;
   place-items: center;
-  width: 34px;
-  min-width: 34px !important;
-  height: 34px;
-  min-height: 34px !important;
+  width: 30px;
+  min-width: 30px !important;
+  height: 30px;
+  min-height: 30px !important;
   padding: 0;
 }
 
 .pin-icon-button svg {
-  width: 21px;
-  height: 21px;
+  width: 18px;
+  height: 18px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -1486,6 +1493,16 @@ label[for="photoInput"] {
 .pin-icon-button--view {
   color: #315f9e;
   background: #edf4fb !important;
+}
+
+.pin-icon-button--copy {
+  color: #315f9e;
+  background: #edf4fb !important;
+}
+
+.pin-icon-button--open {
+  color: #1f7a57;
+  background: #eaf4ee !important;
 }
 
 .pin-icon-button--edit {
@@ -1500,8 +1517,8 @@ label[for="photoInput"] {
 
 .pin-color-dot {
   display: block;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border: 2px solid #ffffff;
   border-radius: 999px;
   box-shadow: 0 0 0 1px rgba(22, 32, 28, 0.24);
@@ -2239,6 +2256,12 @@ label[for="photoInput"] {
     font-size: 12px;
   }
 
+  #followRouteBtn,
+  #addConstructionPinBtn,
+  #constructionVisibilityBtn {
+    min-height: 30px;
+  }
+
   .utility-row {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
@@ -2343,7 +2366,7 @@ label[for="photoInput"] {
   }
 
   .pin-icon-actions {
-    grid-template-columns: repeat(4, 34px);
+    grid-template-columns: repeat(4, 30px);
     justify-content: end;
   }
 

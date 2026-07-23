@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260723-review-photo-position-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260723-compact-project-actions-1" />
   </head>
   <body>
     <script>
@@ -106,15 +106,15 @@
               <div class="field-action-grid">
                 <button id="followRouteBtn" type="button">답사 따라가기</button>
                 <button id="addConstructionPinBtn" type="button">공사구역 추가</button>
+                <button
+                  id="constructionVisibilityBtn"
+                  type="button"
+                  aria-pressed="true"
+                  disabled
+                >
+                  공사구역 숨기기
+                </button>
               </div>
-              <button
-                id="constructionVisibilityBtn"
-                type="button"
-                aria-pressed="true"
-                disabled
-              >
-                공사구역 숨기기
-              </button>
               <div id="routeFollowStatus" class="route-follow-status">기록된 동선을 불러오면 답사 따라가기를 시작할 수 있습니다.</div>
             </div>
             <p class="hint">공사구역은 코드와 대표 색상을 지정해 프로젝트와 함께 저장·공유합니다.</p>
@@ -258,6 +258,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260723-review-photo-position-1"></script>
+    <script src="/app.js?v=20260723-compact-project-actions-1"></script>
   </body>
 </html>
