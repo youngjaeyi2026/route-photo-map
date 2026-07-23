@@ -3740,7 +3740,7 @@ function renderMilestones() {
   const pins = state.milestones
     .filter((pin) => pin.type === "construction")
     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-  renderConstructionVisibilityControls(pins.length);
+  renderConstructionVisibilityControls(getVisibleConstructionPinCount());
 
   if (pins.length === 0) {
     const empty = document.createElement("p");
@@ -3879,11 +3879,12 @@ function toggleConstructionVisibility() {
   if (state.shareView && (state.shareView.loading || state.shareView.revoked)) {
     return;
   }
-  if (!state.milestones.some((pin) => pin.type === "construction")) {
+  if (getVisibleConstructionPinCount() === 0) {
     return;
   }
   state.constructionPinsVisible = !state.constructionPinsVisible;
   renderMilestones();
+  renderProjectOverlays();
   setStatus(`공사구역 핀을 ${state.constructionPinsVisible ? "표시했습니다." : "숨겼습니다."}`);
 }
 
@@ -3902,6 +3903,21 @@ function renderConstructionVisibilityControls(pinCount) {
     els.shareConstructionToggleBtn.textContent = isVisible ? "공사구역 숨기기" : "공사구역 보기";
     els.shareConstructionToggleBtn.setAttribute("aria-pressed", String(isVisible));
   }
+}
+
+function getVisibleConstructionPinCount() {
+  const currentProjectCount = state.milestones.filter((pin) => pin.type === "construction").length;
+  const overlayCount = state.overlayProjects
+    .filter((project) => project.visible !== false)
+    .reduce(
+      (count, project) =>
+        count +
+        (Array.isArray(project.milestones)
+          ? project.milestones.filter((pin) => pin.type === "construction").length
+          : 0),
+      0,
+    );
+  return currentProjectCount + overlayCount;
 }
 
 function stopRouteFollowing(message = "답사 따라가기를 종료했습니다.") {
@@ -4242,7 +4258,7 @@ async function addOverlayProject() {
     }
     persist();
     renderProjectOverlays();
-    setStatus(`${overlay.name} 동선을 비교 화면에 추가했습니다.`);
+    setStatus(`${overlay.name} 동선과 공사구역을 비교 화면에 추가했습니다.`);
   } catch {
     setStatus("비교 프로젝트를 찾지 못했습니다. 공유 코드를 확인해 주세요.");
   }
@@ -4277,7 +4293,7 @@ function normalizeOverlayProject(project, fallbackIndex = 0) {
     color: normalizeConstructionColor(project.color || OVERLAY_COLORS[fallbackIndex % OVERLAY_COLORS.length]),
     visible: project.visible !== false,
     points: Array.isArray(project.points) ? project.points : [],
-    milestones: Array.isArray(project.milestones) ? project.milestones : [],
+    milestones: normalizeMilestones(Array.isArray(project.milestones) ? structuredClone(project.milestones) : []),
   };
 }
 
@@ -4289,6 +4305,7 @@ function renderProjectOverlays() {
   els.overlayProjectList.innerHTML = "";
 
   if (state.overlayProjects.length === 0) {
+    renderConstructionVisibilityControls(getVisibleConstructionPinCount());
     const empty = document.createElement("p");
     empty.className = "status-text";
     empty.textContent = "아직 함께 보는 프로젝트가 없습니다.";
@@ -4306,6 +4323,29 @@ function renderProjectOverlays() {
         lineCap: "round",
         lineJoin: "round",
       }).addTo(projectOverlayLayer);
+    }
+    if (project.visible !== false && state.constructionPinsVisible && Array.isArray(project.milestones)) {
+      project.milestones
+        .filter((pin) => pin.type === "construction")
+        .forEach((pin) => {
+          const pinLabel = getMapPinLabel(pin);
+          const icon = L.divIcon({
+            className: "",
+            html: createMapPinHtml("construction", pinLabel, pin.color),
+            iconSize: [34, 38],
+            iconAnchor: [17, 38],
+            popupAnchor: [0, -34],
+          });
+          L.marker([pin.lat, pin.lng], {
+            icon,
+            title: `${project.name} · ${pin.name || pinLabel}`,
+          })
+            .on("click", () => {
+              map.setView([pin.lat, pin.lng], Math.max(map.getZoom(), 18));
+              setStatus(`${project.name}의 ${pin.name || pinLabel} 위치로 이동했습니다.`);
+            })
+            .addTo(projectOverlayLayer);
+        });
     }
 
     const item = document.createElement("article");
@@ -4350,13 +4390,14 @@ function renderProjectOverlays() {
     item.append(toggle, swatch, body, removeButton);
     els.overlayProjectList.append(item);
   });
+  renderConstructionVisibilityControls(getVisibleConstructionPinCount());
 }
 
 function removeOverlayProject(code) {
   state.overlayProjects = state.overlayProjects.filter((project) => project.code !== code);
   persist();
   renderProjectOverlays();
-  setStatus("비교 프로젝트를 화면에서 제거했습니다.");
+  setStatus("비교 프로젝트의 동선과 공사구역을 화면에서 제거했습니다.");
 }
 
 function getPhotoDisplayName(photo) {
@@ -4715,7 +4756,12 @@ function fitToData() {
     .forEach((pin) => bounds.extend([pin.lat, pin.lng]));
   state.overlayProjects
     .filter((project) => project.visible !== false)
-    .forEach((project) => project.points.forEach((point) => bounds.extend([point.lat, point.lng])));
+    .forEach((project) => {
+      project.points.forEach((point) => bounds.extend([point.lat, point.lng]));
+      project.milestones
+        .filter((pin) => pin.type === "construction")
+        .forEach((pin) => bounds.extend([pin.lat, pin.lng]));
+    });
 
   if (bounds.isValid()) {
     map.fitBounds(bounds, { padding: [42, 42], maxZoom: 17 });

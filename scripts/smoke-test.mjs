@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-project-switch-sync-1/);
+  assert.match(pageHtml, /20260723-overlay-construction-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -110,6 +110,14 @@ try {
   assert.match(appSource, /function toggleConstructionVisibility\(\)/);
   assert.match(appSource, /state\.constructionPinsVisible = !state\.constructionPinsVisible/);
   assert.match(appSource, /if \(state\.constructionPinsVisible\) \{[\s\S]+?\.addTo\(milestoneLayer\)/);
+  assert.match(
+    appSource,
+    /function getVisibleConstructionPinCount\(\)[\s\S]+?project\.milestones\.filter\(\(pin\) => pin\.type === "construction"\)/,
+  );
+  assert.match(
+    appSource,
+    /if \(project\.visible !== false && state\.constructionPinsVisible[\s\S]+?\.addTo\(projectOverlayLayer\)/,
+  );
   assert.match(
     appSource,
     /function applyProject\(project\)[\s\S]+?milestoneLayer\.clearLayers\(\)[\s\S]+?state\.milestones = normalizeMilestones[\s\S]+?state\.points = \[\][\s\S]+?applyProjectMeta\(project\)/,
