@@ -9,14 +9,14 @@ const ROUTE_DEVIATION_METERS = 50;
 const REPRESENTATIVE_COLORS = [
   { name: "빨강", value: "#c34236" },
   { name: "주황", value: "#d96c1f" },
-  { name: "노랑", value: "#c79a00" },
+  { name: "노랑", value: "#a97800" },
   { name: "초록", value: "#1f7a57" },
   { name: "파랑", value: "#315f9e" },
   { name: "보라", value: "#6d4aa2" },
   { name: "갈색", value: "#8b5a2b" },
-  { name: "회색", value: "#5f6b66" },
+  { name: "회색", value: "#3f4a46" },
 ];
-const OVERLAY_COLORS = ["#315f9e", "#c34236", "#1f7a57", "#6d4aa2", "#d96c1f", "#5f6b66", "#c79a00", "#8b5a2b"];
+const OVERLAY_COLORS = ["#315f9e", "#c34236", "#1f7a57", "#6d4aa2", "#d96c1f", "#3f4a46", "#a97800", "#8b5a2b"];
 
 if (!window.L) {
   window.L = createFallbackMapApi();
@@ -3988,6 +3988,12 @@ function normalizeConstructionCode(value, fallback = "C?") {
 
 function normalizeConstructionColor(value) {
   const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "#c79a00") {
+    return "#a97800";
+  }
+  if (normalized === "#5f6b66") {
+    return "#3f4a46";
+  }
   return /^#[0-9a-f]{6}$/.test(normalized) ? normalized : DEFAULT_CONSTRUCTION_COLOR;
 }
 
@@ -4163,7 +4169,7 @@ function normalizeOverlayProject(project, fallbackIndex = 0) {
   return {
     code: normalizeProjectCode(project.code),
     name: project.name || project.code,
-    color: project.color || OVERLAY_COLORS[fallbackIndex % OVERLAY_COLORS.length],
+    color: normalizeConstructionColor(project.color || OVERLAY_COLORS[fallbackIndex % OVERLAY_COLORS.length]),
     visible: project.visible !== false,
     points: Array.isArray(project.points) ? project.points : [],
     milestones: Array.isArray(project.milestones) ? project.milestones : [],
@@ -4190,9 +4196,8 @@ function renderProjectOverlays() {
     if (project.visible !== false && points.length > 0) {
       L.polyline(points.map((point) => [point.lat, point.lng]), {
         color: project.color,
-        weight: 4,
-        opacity: 0.68,
-        dashArray: "8 7",
+        weight: 5,
+        opacity: 0.82,
         lineCap: "round",
         lineJoin: "round",
       }).addTo(projectOverlayLayer);

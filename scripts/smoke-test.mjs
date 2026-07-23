@@ -49,7 +49,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-field-follow-1/);
+  assert.match(pageHtml, /20260723-field-layout-2/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="addConstructionPinBtn"/);
@@ -73,8 +73,13 @@ try {
   assert.match(appSource, /startShareViewVerification[\s\S]+?verifyShareView/);
   assert.match(appSource, /primarySession[\s\S]+?primaryPoints\.length > 0 \? primaryPoints : lastStatePoints/);
   assert.match(appSource, /ROUTE_COMPLETED_COLOR = "#1f7a57"[\s\S]+?ROUTE_REMAINING_COLOR = "#315f9e"/);
+  assert.match(appSource, /\{ name: "노랑", value: "#a97800" \}/);
+  assert.match(appSource, /\{ name: "회색", value: "#3f4a46" \}/);
+  assert.doesNotMatch(appSource, /dashArray:\s*"8 7"/);
   assert.match(css, /\.pin-icon-actions\s*\{[^}]*repeat\(4,\s*34px\)/s);
   assert.match(css, /\.color-picker-modal\s*\{/);
+  assert.match(css, /\.field-action-group\s*\{[^}]*padding-top:\s*16px/s);
+  assert.match(css, /\.route-follow-status\s*\{[^}]*background:\s*#fff1ee/s);
 
   const createResponse = await fetch(`${baseUrl}/api/projects`, {
     method: "POST",

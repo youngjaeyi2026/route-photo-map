@@ -387,16 +387,45 @@ label[for="photoInput"] {
 }
 
 #followRouteBtn {
-  order: 4;
+  min-height: 40px;
+  border: 1px solid #315f9e;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #315f9e;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 #addConstructionPinBtn {
-  order: 5;
+  min-height: 40px;
+  border: 1px solid #cbdceb;
+  border-radius: 8px;
+  color: #285b86;
+  background: #eaf3fb;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 #followRouteBtn.is-active {
   color: #ffffff;
-  background: var(--red);
+  border-color: #1f416d;
+  background: #1f416d;
+}
+
+.field-action-group {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.field-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .save-action {
@@ -1268,19 +1297,19 @@ label[for="photoInput"] {
   align-items: center;
   min-height: 42px;
   padding: 8px 10px;
-  border: 1px solid #c9ddd1;
+  border: 1px solid #f2c9c2;
   border-radius: 8px;
-  color: var(--green-dark);
-  background: #f1f8f3;
+  color: #8a3328;
+  background: #fff1ee;
   font-size: 12px;
   font-weight: 800;
   line-height: 1.45;
 }
 
 .route-follow-status.is-off-route {
-  border-color: #f2c9c2;
-  color: #8a3328;
-  background: #fff1ee;
+  border-color: #df8176;
+  color: #78271f;
+  background: #ffe2dd;
 }
 
 .overlay-controls input {
