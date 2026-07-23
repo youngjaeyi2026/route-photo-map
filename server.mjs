@@ -38,6 +38,7 @@ const r2Config = {
 };
 const shareExpiryOptions = new Map([
   ["1d", 1000 * 60 * 60 * 24],
+  ["5d", 1000 * 60 * 60 * 24 * 5],
   ["7d", 1000 * 60 * 60 * 24 * 7],
   ["30d", 1000 * 60 * 60 * 24 * 30],
   ["none", null],
@@ -240,7 +241,7 @@ async function handleApi(request, response, url) {
       return;
     }
     const body = await readJsonBody(request);
-    sendJson(response, 201, await createShareLink(project, currentUser, body?.expiresIn || "7d"));
+    sendJson(response, 201, await createShareLink(project, currentUser, body?.expiresIn || "5d"));
     return;
   }
 
@@ -274,7 +275,7 @@ async function handleApi(request, response, url) {
       return;
     }
     const body = await readJsonBody(request);
-    sendJson(response, 200, await updateShareLinkExpiry(code, token, body?.expiresIn || "7d"));
+    sendJson(response, 200, await updateShareLinkExpiry(code, token, body?.expiresIn || "5d"));
     return;
   }
 
@@ -460,12 +461,12 @@ async function saveProjectState(code, body, user = null) {
 async function createShareLink(project, user, expiresIn) {
   const now = new Date().toISOString();
   const token = generateShareToken();
-  const duration = shareExpiryOptions.has(expiresIn) ? shareExpiryOptions.get(expiresIn) : shareExpiryOptions.get("7d");
+  const expiresAt = resolveShareExpiresAt(expiresIn);
   const share = {
     token,
     projectCode: project.code,
     ownerUserId: user?.id || project.ownerUserId || null,
-    expiresAt: duration === null ? null : new Date(Date.now() + duration).toISOString(),
+    expiresAt,
     active: true,
     createdAt: now,
     updatedAt: now,
@@ -528,8 +529,7 @@ async function removeShareLink(code, token) {
 }
 
 async function updateShareLinkExpiry(code, token, expiresIn) {
-  const duration = shareExpiryOptions.has(expiresIn) ? shareExpiryOptions.get(expiresIn) : shareExpiryOptions.get("7d");
-  const expiresAt = duration === null ? null : new Date(Date.now() + duration).toISOString();
+  const expiresAt = resolveShareExpiresAt(expiresIn);
   const updatedAt = new Date().toISOString();
   if (databaseUrl) {
     const pool = await getMysqlPool();
@@ -551,6 +551,18 @@ async function updateShareLinkExpiry(code, token, expiresIn) {
   });
   writeProjectsFile(db);
   return normalizeShareLink(updated);
+}
+
+function resolveShareExpiresAt(expiresIn) {
+  const value = String(expiresIn || "5d");
+  if (value.startsWith("custom:")) {
+    const timestamp = new Date(value.slice("custom:".length)).getTime();
+    if (Number.isFinite(timestamp) && timestamp > Date.now()) {
+      return new Date(timestamp).toISOString();
+    }
+  }
+  const duration = shareExpiryOptions.has(value) ? shareExpiryOptions.get(value) : shareExpiryOptions.get("5d");
+  return duration === null ? null : new Date(Date.now() + duration).toISOString();
 }
 
 async function getSharedProject(token) {

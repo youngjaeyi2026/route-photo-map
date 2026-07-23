@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260723-construction-share-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260723-field-follow-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -39,7 +39,10 @@
           </div>
           <div class="project-controls">
             <button id="createProjectBtn" class="project-primary-action" type="button">새 프로젝트</button>
-            <input id="projectName" type="text" value="프로젝트A" aria-label="프로젝트 이름" />
+            <div class="project-name-row">
+              <input id="projectName" type="text" value="프로젝트A" placeholder="프로젝트명" aria-label="프로젝트 이름" />
+              <button id="renameProjectBtn" type="button">이름 변경</button>
+            </div>
             <div class="project-code-row">
               <input id="projectCode" type="text" placeholder="공유 코드" aria-label="공유 코드" />
               <button id="openProjectBtn" type="button">불러오기</button>
@@ -82,9 +85,14 @@
               <label class="secondary-action" for="photoInput">
                 <span>사진 추가</span>
               </label>
+              <button id="followRouteBtn" class="secondary-action" type="button">답사 따라가기</button>
+              <button id="addConstructionPinBtn" class="secondary-action" type="button">공사구역 추가</button>
               <button id="saveBtn" class="save-action" type="button">기록 저장</button>
               <input id="photoInput" type="file" accept="image/*" capture="environment" />
             </div>
+            <div id="routeFollowStatus" class="route-follow-status">기록된 동선을 불러오면 답사 따라가기를 시작할 수 있습니다.</div>
+            <p class="hint">공사구역은 코드와 대표 색상을 지정해 프로젝트와 함께 저장·공유합니다.</p>
+            <div id="milestoneList" class="milestone-list"></div>
           </div>
           <p id="statusText" class="status-text status-message">현재 위치 권한을 허용하면 이동 경로가 자동으로 기록됩니다.</p>
         </section>
@@ -110,28 +118,6 @@
           <p id="pointEditHint" class="status-text point-edit-hint" hidden>
             위치점 추가는 선택한 점 뒤에 새 점을 넣습니다. 선택이 없으면 마지막에 추가됩니다.
           </p>
-        </section>
-
-        <section id="milestoneSection" class="panel-section milestone-section">
-          <div class="section-title">
-            <h2>목적지</h2>
-            <div class="section-title-actions">
-              <button id="milestoneToggleBtn" class="section-toggle" type="button">숨기기</button>
-            </div>
-          </div>
-          <div id="milestoneControls" class="collapsible-body">
-            <p class="hint">답사 따라가기 목적지와 공사구역을 남깁니다.</p>
-            <div class="milestone-actions">
-              <button id="followRouteBtn" type="button">답사 따라가기</button>
-              <label class="destination-photo-action" for="destinationPhotoInput">목적지 사진 추가</label>
-              <button id="addMilestoneBtn" type="button">목적지 추가</button>
-              <button id="addConstructionPinBtn" type="button">공사구역 추가</button>
-              <input id="destinationPhotoInput" type="file" accept="image/*" capture="environment" />
-            </div>
-            <p class="hint">공사구역은 수정에서 표시 코드를, 색상에서 공사 성격별 구분 색을 바꿀 수 있습니다.</p>
-            <div id="destinationFollowStatus" class="destination-follow-status">목적지를 선택하면 잔여거리가 표시됩니다.</div>
-            <div id="milestoneList" class="milestone-list"></div>
-          </div>
         </section>
 
         <section class="panel-section timeline-section">
@@ -233,7 +219,19 @@
       </article>
     </div>
 
+    <div id="colorPickerModal" class="color-picker-modal" hidden>
+      <button class="color-picker-backdrop" type="button" data-color-picker-close aria-label="색상 선택 닫기"></button>
+      <section class="color-picker-card" role="dialog" aria-modal="true" aria-labelledby="colorPickerTitle">
+        <h2 id="colorPickerTitle">대표 색상 선택</h2>
+        <div id="colorPickerOptions" class="color-picker-options"></div>
+        <div class="color-picker-actions">
+          <button id="colorPickerCancelBtn" type="button">취소</button>
+          <button id="colorPickerConfirmBtn" class="primary-action" type="button">선택 완료</button>
+        </div>
+      </section>
+    </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260723-construction-share-1"></script>
+    <script src="/app.js?v=20260723-field-follow-1"></script>
   </body>
 </html>

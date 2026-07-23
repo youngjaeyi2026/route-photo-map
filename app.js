@@ -2,9 +2,21 @@
 const SESSIONS_KEY = "route-photo-map-sessions-v1";
 const MAX_STORED_IMAGE_LENGTH = 850000;
 const MAX_EDIT_POINT_MARKERS = 1000;
-const DESTINATION_ARRIVAL_RADIUS_METERS = 20;
 const DEFAULT_CONSTRUCTION_COLOR = "#c34236";
-const OVERLAY_COLORS = ["#315f9e", "#c34236", "#9a5b12", "#5e4fa2", "#0f7f6e", "#c98c2b"];
+const ROUTE_COMPLETED_COLOR = "#1f7a57";
+const ROUTE_REMAINING_COLOR = "#315f9e";
+const ROUTE_DEVIATION_METERS = 50;
+const REPRESENTATIVE_COLORS = [
+  { name: "빨강", value: "#c34236" },
+  { name: "주황", value: "#d96c1f" },
+  { name: "노랑", value: "#c79a00" },
+  { name: "초록", value: "#1f7a57" },
+  { name: "파랑", value: "#315f9e" },
+  { name: "보라", value: "#6d4aa2" },
+  { name: "갈색", value: "#8b5a2b" },
+  { name: "회색", value: "#5f6b66" },
+];
+const OVERLAY_COLORS = ["#315f9e", "#c34236", "#1f7a57", "#6d4aa2", "#d96c1f", "#5f6b66", "#c79a00", "#8b5a2b"];
 
 if (!window.L) {
   window.L = createFallbackMapApi();
@@ -40,18 +52,19 @@ const state = {
   sharePanelOpen: false,
   recordPanelOpen: true,
   pointEditPanelOpen: false,
-  milestonePanelOpen: true,
   pointEditMode: false,
   pointAddMode: false,
   destinationFollow: false,
-  activeDestinationId: null,
+  followProgressIndex: 0,
+  routeOffTrack: false,
+  routeDeviationSamples: 0,
+  routeRecoverySamples: 0,
   continuingSessionId: null,
   selectedPointIndex: null,
   lastRoutePointIndex: null,
   segmentStartIndex: null,
   segmentEndIndex: null,
   undoRouteEdit: null,
-  arrivedPinIds: new Set(),
   selectedPosition: null,
   initialPosition: null,
   points: [],
@@ -67,7 +80,6 @@ const els = {
   trackBtn: document.querySelector("#trackBtn"),
   pauseBtn: document.querySelector("#pauseBtn"),
   photoInput: document.querySelector("#photoInput"),
-  destinationPhotoInput: document.querySelector("#destinationPhotoInput"),
   locateBtn: document.querySelector("#locateBtn"),
   fitBtn: document.querySelector("#fitBtn"),
   autoFollowBtn: document.querySelector("#autoFollowBtn"),
@@ -93,6 +105,7 @@ const els = {
   projectBadge: document.querySelector("#projectBadge"),
   projectStatus: document.querySelector("#projectStatus"),
   createProjectBtn: document.querySelector("#createProjectBtn"),
+  renameProjectBtn: document.querySelector("#renameProjectBtn"),
   openProjectBtn: document.querySelector("#openProjectBtn"),
   syncProjectBtn: document.querySelector("#syncProjectBtn"),
   recordSection: document.querySelector("#recordSection"),
@@ -110,8 +123,6 @@ const els = {
   segmentStartInput: document.querySelector("#segmentStartInput"),
   segmentEndInput: document.querySelector("#segmentEndInput"),
   pointEditHint: document.querySelector("#pointEditHint"),
-  milestoneSection: document.querySelector("#milestoneSection"),
-  milestoneToggleBtn: document.querySelector("#milestoneToggleBtn"),
   statusText: document.querySelector("#statusText"),
   trackingBadge: document.querySelector("#trackingBadge"),
   distanceValue: document.querySelector("#distanceValue"),
@@ -122,13 +133,17 @@ const els = {
   historyList: document.querySelector("#historyList"),
   photoItemTemplate: document.querySelector("#photoItemTemplate"),
   followRouteBtn: document.querySelector("#followRouteBtn"),
-  destinationFollowStatus: document.querySelector("#destinationFollowStatus"),
-  addMilestoneBtn: document.querySelector("#addMilestoneBtn"),
+  routeFollowStatus: document.querySelector("#routeFollowStatus"),
   addConstructionPinBtn: document.querySelector("#addConstructionPinBtn"),
   milestoneList: document.querySelector("#milestoneList"),
   overlayProjectCode: document.querySelector("#overlayProjectCode"),
   addOverlayProjectBtn: document.querySelector("#addOverlayProjectBtn"),
   overlayProjectList: document.querySelector("#overlayProjectList"),
+  colorPickerModal: document.querySelector("#colorPickerModal"),
+  colorPickerTitle: document.querySelector("#colorPickerTitle"),
+  colorPickerOptions: document.querySelector("#colorPickerOptions"),
+  colorPickerCancelBtn: document.querySelector("#colorPickerCancelBtn"),
+  colorPickerConfirmBtn: document.querySelector("#colorPickerConfirmBtn"),
 };
 
 const map = L.map("map", {
@@ -143,9 +158,17 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 const routeLine = L.polyline([], {
-  color: "#1f7a57",
+  color: ROUTE_COMPLETED_COLOR,
   weight: 6,
   opacity: 0.88,
+  lineCap: "round",
+  lineJoin: "round",
+}).addTo(map);
+
+const routeRemainingLine = L.polyline([], {
+  color: ROUTE_REMAINING_COLOR,
+  weight: 6,
+  opacity: 0.9,
   lineCap: "round",
   lineJoin: "round",
 }).addTo(map);
@@ -165,7 +188,10 @@ const pointLayer = L.layerGroup().addTo(map);
 let programmaticMapMove = false;
 let lastFollowMapMoveAt = 0;
 let lastLiveStatusAt = 0;
-let destinationWatcherId = null;
+let routeFollowWatcherId = null;
+let shareViewTimerId = null;
+let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
+let colorPickerConfirmHandler = null;
 let authEls = {};
 let shareEls = {};
 
@@ -173,6 +199,7 @@ loadState();
 setupAuthPanel();
 setupAdminPanel();
 setupSharePanel();
+setupColorPicker();
 render();
 showLocationReadiness();
 captureInitialPosition();
@@ -198,7 +225,7 @@ map.on("click", (event) => {
 });
 
 map.on("dragstart zoomstart", () => {
-  if (programmaticMapMove || !state.tracking || !state.autoFollow) {
+  if (programmaticMapMove || (!state.tracking && !state.destinationFollow) || !state.autoFollow) {
     return;
   }
   state.autoFollow = false;
@@ -239,7 +266,6 @@ els.saveBtn.addEventListener("click", () => saveCurrentSession("manual"));
 els.exportBtn.addEventListener("click", exportData);
 els.clearBtn.addEventListener("click", clearData);
 els.photoInput.addEventListener("change", handlePhotoInput);
-els.destinationPhotoInput?.addEventListener("change", handleDestinationPhotoInput);
 els.mapProvider.addEventListener("change", handleMapProviderChange);
 els.wakeLockToggle.addEventListener("change", handleWakeLockToggle);
 els.photoFilter.addEventListener("change", (event) => {
@@ -281,8 +307,12 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.photoModal.hidden) {
     closePhotoModal();
   }
+  if (event.key === "Escape" && els.colorPickerModal && !els.colorPickerModal.hidden) {
+    closeRepresentativeColorPicker();
+  }
 });
 els.createProjectBtn.addEventListener("click", createServerProject);
+els.renameProjectBtn?.addEventListener("click", renameCurrentProject);
 els.openProjectBtn.addEventListener("click", () => openServerProject(els.projectCode.value));
 els.syncProjectBtn.addEventListener("click", () => syncProjectState("manual"));
 document.addEventListener("click", (event) => {
@@ -294,13 +324,8 @@ document.addEventListener("click", (event) => {
     event.preventDefault();
     togglePointEditPanel();
   }
-  if (event.target?.closest("#milestoneToggleBtn")) {
-    event.preventDefault();
-    toggleMilestonePanel();
-  }
 });
-els.followRouteBtn?.addEventListener("click", toggleDestinationFollow);
-els.addMilestoneBtn?.addEventListener("click", () => addMapPin("milestone"));
+els.followRouteBtn?.addEventListener("click", toggleRouteFollow);
 els.addConstructionPinBtn?.addEventListener("click", () => addMapPin("construction"));
 els.addOverlayProjectBtn?.addEventListener("click", () => addOverlayProject());
 els.overlayProjectCode?.addEventListener("keydown", (event) => {
@@ -320,9 +345,10 @@ els.segmentEndInput?.addEventListener("input", applySegmentNumberInputs);
 els.segmentStartInput?.addEventListener("change", applySegmentNumberInputs);
 els.segmentEndInput?.addEventListener("change", applySegmentNumberInputs);
 els.projectName.addEventListener("change", () => {
-  state.projectName = els.projectName.value.trim() || "프로젝트A";
-  persist();
-  renderProjectState();
+  if (!state.projectCode) {
+    state.projectName = els.projectName.value.trim();
+    persist();
+  }
 });
 window.addEventListener("beforeunload", persist);
 window.addEventListener("online", retryPendingProjectSync);
@@ -341,6 +367,9 @@ document.addEventListener("visibilitychange", () => {
   }
 if (state.wakeLockEnabled) {
     requestWakeLock();
+  }
+  if (shareToken && state.shareView) {
+    verifyShareView(shareToken);
   }
 });
 
@@ -362,8 +391,15 @@ function startTracking() {
     return;
   }
 
+  if (state.destinationFollow) {
+    state.destinationFollow = false;
+    state.followProgressIndex = 0;
+    state.routeOffTrack = false;
+    state.routeDeviationSamples = 0;
+    state.routeRecoverySamples = 0;
+  }
   state.tracking = true;
-  stopDestinationPositionWatcher();
+  stopRouteFollowWatcher();
   state.paused = false;
   state.recordPanelOpen = true;
   state.autoFollow = true;
@@ -438,7 +474,7 @@ function stopTracking(options = {}) {
   }
   render();
   if (state.destinationFollow) {
-    startDestinationPositionWatcher();
+    startRouteFollowWatcher();
   }
   if (clearCurrent) {
     setStatus("기록을 저장하고 현재 화면을 초기화했습니다.");
@@ -455,7 +491,6 @@ function resetCurrentRecord() {
   state.activeStartedAt = null;
   state.continuingSessionId = null;
   state.undoRouteEdit = null;
-  state.arrivedPinIds = new Set();
   if (state.initialPosition) {
     currentMarker.setLatLng([state.initialPosition.lat, state.initialPosition.lng]);
   }
@@ -480,11 +515,11 @@ function pollCurrentPosition() {
   );
 }
 
-function startDestinationPositionWatcher() {
-  if (destinationWatcherId !== null || state.tracking || !state.destinationFollow || !navigator.geolocation) {
+function startRouteFollowWatcher() {
+  if (routeFollowWatcherId !== null || state.tracking || !state.destinationFollow || !navigator.geolocation) {
     return;
   }
-  destinationWatcherId = navigator.geolocation.watchPosition(
+  routeFollowWatcherId = navigator.geolocation.watchPosition(
     (position) => {
       const point = {
         lat: position.coords.latitude,
@@ -494,12 +529,13 @@ function startDestinationPositionWatcher() {
       };
       state.selectedPosition = point;
       currentMarker.setLatLng([point.lat, point.lng]);
-      renderDestinationFollowStatus(point);
+      updateRouteFollowing(point);
       followLatestPoint(point);
-      checkDestinationArrival(point);
       persist();
     },
-    () => {},
+    (error) => {
+      setStatus(getLocationErrorMessage(error), "warning");
+    },
     {
       enableHighAccuracy: true,
       maximumAge: 2000,
@@ -508,13 +544,13 @@ function startDestinationPositionWatcher() {
   );
 }
 
-function stopDestinationPositionWatcher() {
-  if (destinationWatcherId === null || !navigator.geolocation) {
-    destinationWatcherId = null;
+function stopRouteFollowWatcher() {
+  if (routeFollowWatcherId === null || !navigator.geolocation) {
+    routeFollowWatcherId = null;
     return;
   }
-  navigator.geolocation.clearWatch(destinationWatcherId);
-  destinationWatcherId = null;
+  navigator.geolocation.clearWatch(routeFollowWatcherId);
+  routeFollowWatcherId = null;
 }
 
 function togglePauseTracking() {
@@ -570,62 +606,54 @@ function addPointFromCoords(coords, timestamp = Date.now()) {
   persist();
   renderRouteProgress(nextPoint);
   followLatestPoint(nextPoint);
-  return checkDestinationArrival(nextPoint);
+  return updateRouteFollowing(nextPoint);
 }
 
 function renderRouteProgress(point = getLatestPosition()) {
-  routeLine.setLatLngs(getRoutePathPoints(state.points).map((item) => [item.lat, item.lng]));
+  renderRouteLines();
   if (point) {
     currentMarker.setLatLng([point.lat, point.lng]);
   }
   renderStats();
-  renderDestinationFollowStatus(point);
+  renderRouteFollowStatus(point);
   renderTrackingState();
   if (state.pointEditMode) {
     renderPointEditing();
   }
 }
 
-function checkDestinationArrival(point) {
+function updateRouteFollowing(point) {
   if (!state.destinationFollow) {
     return false;
   }
-
-  let target = getActiveDestination();
-  if (!target) {
-    target = activateNextDestination();
-  }
-  if (!target) {
-    state.destinationFollow = false;
-    stopDestinationPositionWatcher();
-    renderDestinationFollowStatus(point);
+  const routePoints = getRoutePathPoints(state.points);
+  const nearest = findNearestRoutePosition(point, routePoints);
+  if (!nearest) {
+    stopRouteFollowing("기록된 동선을 확인할 수 없어 답사 따라가기를 종료했습니다.");
     return false;
   }
 
-  const radius = Number(target.arrivalRadius || DESTINATION_ARRIVAL_RADIUS_METERS);
-  if (getDistanceMeters(point, target) > radius) {
-    renderDestinationFollowStatus(point);
-    return false;
+  const nextProgressIndex = nearest.segmentIndex + (nearest.segmentRatio >= 0.5 ? 1 : 0);
+  state.followProgressIndex = Math.max(state.followProgressIndex, nextProgressIndex);
+  const accuracy = Math.max(0, Number(point.accuracy || 0));
+  const threshold = Math.max(ROUTE_DEVIATION_METERS, Math.min(100, accuracy * 1.5));
+  const isOffRoute = nearest.distanceMeters > threshold;
+  state.routeDeviationSamples = isOffRoute ? state.routeDeviationSamples + 1 : 0;
+  state.routeRecoverySamples = isOffRoute ? 0 : state.routeRecoverySamples + 1;
+
+  if (!state.routeOffTrack && state.routeDeviationSamples >= 2) {
+    state.routeOffTrack = true;
+    speakRouteGuidance("기록된 경로에서 벗어났습니다.");
+    setStatus(`경로 이탈 · 기록된 동선에서 약 ${Math.round(nearest.distanceMeters)}m 떨어져 있습니다.`, "warning");
+  } else if (state.routeOffTrack && state.routeRecoverySamples >= 2) {
+    state.routeOffTrack = false;
+    speakRouteGuidance("기록된 경로로 복귀했습니다.");
+    setStatus("기록된 경로로 복귀했습니다.", "success");
   }
 
-  target.completed = true;
-  target.arrivedAt = Date.now();
-  state.arrivedPinIds.add(target.id);
-  const next = activateNextDestination();
-  persist();
-  renderMilestones();
-  renderDestinationFollowStatus(point);
-  if (next) {
-    setStatus(`${target.name} 도착. 다음 목적지는 ${next.name}입니다.`);
-  } else {
-    state.destinationFollow = false;
-    state.activeDestinationId = null;
-    stopDestinationPositionWatcher();
-    persist();
-    renderDestinationFollowStatus(point);
-    setStatus(`${target.name} 도착. 모든 목적지에 도착했습니다.`);
-  }
-  return true;
+  renderRouteLines();
+  renderRouteFollowStatus(point, nearest);
+  return false;
 }
 
 function followLatestPoint(point) {
@@ -742,20 +770,6 @@ async function handlePhotoInput(event, options = {}) {
   }
 }
 
-function handleDestinationPhotoInput(event) {
-  const position = getDestinationPhotoBasePosition();
-  if (!position) {
-    setStatus("먼저 목적지 또는 지도 위치를 선택한 뒤 사진을 추가해 주세요.", "warning");
-    event.target.value = "";
-    return;
-  }
-  handlePhotoInput(event, {
-    position,
-    source: "map",
-    label: "목적지/선택 위치",
-  });
-}
-
 async function getBestPhotoPosition(file) {
   const exifPosition = await withTimeout(getExifGpsPosition(file), 3500, null);
   if (exifPosition) {
@@ -866,7 +880,7 @@ async function locateCurrentPosition(options = {}) {
     currentMarker.setLatLng([position.lat, position.lng]);
     persist();
     renderTrackingState();
-    renderDestinationFollowStatus(position);
+    renderRouteFollowStatus(position);
     setMapView([position.lat, position.lng], Math.max(map.getZoom(), 17));
     if (status) {
       setStatus("현재 위치를 지도에 반영했습니다.");
@@ -1255,6 +1269,9 @@ function loadSession(sessionId) {
   if (state.tracking) {
     stopTracking({ save: false });
   }
+  stopRouteFollowWatcher();
+  state.destinationFollow = false;
+  state.followProgressIndex = 0;
 
   state.points = structuredClone(session.points || []);
   state.photos = structuredClone(session.photos || []);
@@ -1277,6 +1294,9 @@ function resumeSession(sessionId) {
   if (state.tracking) {
     stopTracking({ save: false });
   }
+  stopRouteFollowWatcher();
+  state.destinationFollow = false;
+  state.followProgressIndex = 0;
 
   const hasCurrentRecord = state.points.length > 0 || state.photos.length > 0;
   const isSameCurrentRecord = state.continuingSessionId === sessionId || getCurrentRecordSignature() === session.signature;
@@ -1307,6 +1327,9 @@ function setPrimarySession(sessionId) {
   if (!session) {
     return;
   }
+  stopRouteFollowWatcher();
+  state.destinationFollow = false;
+  state.followProgressIndex = 0;
   state.primarySessionId = session.id;
   state.points = structuredClone(session.points || []);
   state.photos = structuredClone(session.photos || []);
@@ -1372,7 +1395,7 @@ async function createServerProject() {
     state.sessions.length > 0;
   if (hasCurrentData) {
     const ok = window.confirm(
-      "새 프로젝트를 시작할까요?\n\n현재 화면의 거리, 위치점, 사진, 목적지, 저장된 기록이 새 프로젝트 기준으로 초기화됩니다.",
+      "새 프로젝트를 시작할까요?\n\n현재 화면의 거리, 위치점, 사진, 공사구역, 저장된 기록이 새 프로젝트 기준으로 초기화됩니다.",
     );
     if (!ok) {
       return;
@@ -1402,6 +1425,36 @@ async function createServerProject() {
   }
 }
 
+async function renameCurrentProject() {
+  if (!state.projectCode) {
+    setProjectStatus("이름을 변경할 프로젝트를 먼저 만들거나 불러와 주세요.");
+    return;
+  }
+  const nextName = els.projectName.value.trim();
+  if (!nextName) {
+    setProjectStatus("변경할 프로젝트명을 입력해 주세요.");
+    els.projectName.focus();
+    return;
+  }
+  if (nextName === state.projectName) {
+    setProjectStatus("현재 프로젝트명과 같습니다.");
+    return;
+  }
+  const previousName = state.projectName;
+  state.projectName = nextName;
+  persist();
+  renderProjectState();
+  const saved = await syncProjectState("rename-project");
+  if (saved) {
+    setProjectStatus(`프로젝트명을 '${nextName}'(으)로 변경했습니다.`);
+    return;
+  }
+  state.projectName = previousName;
+  persist();
+  renderProjectState();
+  setProjectStatus("프로젝트명을 변경하지 못했습니다. 서버 연결을 확인해 주세요.");
+}
+
 function resetForNewProject() {
   state.points = [];
   state.photos = [];
@@ -1412,8 +1465,10 @@ function resetForNewProject() {
   state.selectedPosition = state.initialPosition || null;
   state.activeStartedAt = null;
   state.destinationFollow = false;
-  state.activeDestinationId = null;
-  state.arrivedPinIds = new Set();
+  state.followProgressIndex = 0;
+  state.routeOffTrack = false;
+  state.routeDeviationSamples = 0;
+  state.routeRecoverySamples = 0;
   state.undoRouteEdit = null;
   state.selectedPointIndex = null;
   state.lastRoutePointIndex = null;
@@ -1421,7 +1476,7 @@ function resetForNewProject() {
   state.segmentEndIndex = null;
   state.pointAddMode = false;
   state.recordPanelOpen = true;
-  stopDestinationPositionWatcher();
+  stopRouteFollowWatcher();
   if (state.initialPosition) {
     currentMarker.setLatLng([state.initialPosition.lat, state.initialPosition.lng]);
   }
@@ -1596,6 +1651,7 @@ function retryPendingProjectSync() {
 }
 
 function applyProject(project) {
+  stopRouteFollowWatcher();
   applyProjectMeta(project);
   state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
   state.primarySessionId = project.primarySessionId || state.sessions[0]?.id || null;
@@ -1615,9 +1671,11 @@ function applyProject(project) {
   }
   state.undoRouteEdit = null;
   state.continuingSessionId = null;
-  state.arrivedPinIds = new Set();
   state.destinationFollow = false;
-  state.activeDestinationId = null;
+  state.followProgressIndex = 0;
+  state.routeOffTrack = false;
+  state.routeDeviationSamples = 0;
+  state.routeRecoverySamples = 0;
 }
 
 function applyProjectMeta(project) {
@@ -1635,8 +1693,11 @@ function renderProjectState() {
   if (!els.projectCode) {
     return;
   }
-  els.projectName.value = state.projectName || "프로젝트A";
+  els.projectName.value = state.projectName || "";
   els.projectCode.value = state.projectCode || "";
+  if (els.renameProjectBtn) {
+    els.renameProjectBtn.disabled = !state.projectCode || Boolean(state.shareView);
+  }
   els.projectBadge.textContent = state.projectCode || getStorageBadgeLabel();
   const serverReady = state.serverHealth?.environment !== "production" || state.serverHealth?.ready !== false;
   els.projectBadge.classList.toggle(
@@ -1677,7 +1738,11 @@ function setProjectStatus(message) {
 
 function updateProjectUrl(code) {
   const url = new URL(window.location.href);
-  url.searchParams.set("project", code);
+  if (code) {
+    url.searchParams.set("project", code);
+  } else {
+    url.searchParams.delete("project");
+  }
   window.history.replaceState({}, "", url);
 }
 
@@ -2132,10 +2197,10 @@ function setupSharePanel() {
       <div class="share-controls">
         <select id="shareExpiry" aria-label="공유 만료 기간">
           <option value="1d">1일</option>
-          <option value="7d" selected>7일</option>
-          <option value="30d">30일</option>
-          <option value="none">만료 없음</option>
+          <option value="5d" selected>5일</option>
+          <option value="custom">기간 지정</option>
         </select>
+        <input id="shareCustomDate" type="date" aria-label="공유 종료 날짜" hidden />
         <button id="shareCreateBtn" type="button">공유 링크 만들기</button>
       </div>
       <p id="shareStatus" class="status-text">로그인 후 프로젝트를 저장하면 공유 링크를 만들 수 있습니다.</p>
@@ -2148,12 +2213,15 @@ function setupSharePanel() {
     badge: section.querySelector("#shareBadge"),
     toggleBtn: section.querySelector("#shareToggleBtn"),
     expiry: section.querySelector("#shareExpiry"),
+    customDate: section.querySelector("#shareCustomDate"),
     createBtn: section.querySelector("#shareCreateBtn"),
     status: section.querySelector("#shareStatus"),
     list: section.querySelector("#shareList"),
   };
   shareEls.createBtn.addEventListener("click", createShareLink);
   shareEls.toggleBtn.addEventListener("click", toggleSharePanel);
+  shareEls.expiry.addEventListener("change", renderShareExpiryControls);
+  shareEls.customDate.min = new Date().toISOString().slice(0, 10);
 }
 
 async function loadProjectShares() {
@@ -2181,10 +2249,14 @@ async function createShareLink() {
     return;
   }
   await syncProjectState("share");
+  const expiresIn = getSelectedShareExpiry();
+  if (!expiresIn) {
+    return;
+  }
   try {
     const share = await requestJson(`/api/projects/${encodeURIComponent(state.projectCode)}/share`, {
       method: "POST",
-      body: JSON.stringify({ expiresIn: shareEls.expiry.value }),
+      body: JSON.stringify({ expiresIn }),
     });
     state.shareLinks = [share, ...state.shareLinks.filter((item) => item.token !== share.token)];
     renderSharePanel();
@@ -2242,10 +2314,14 @@ async function updateShareExpiry(token) {
   if (!state.projectCode || !token) {
     return;
   }
+  const expiresIn = getSelectedShareExpiry();
+  if (!expiresIn) {
+    return;
+  }
   try {
     const share = await requestJson(`/api/projects/${encodeURIComponent(state.projectCode)}/share/${encodeURIComponent(token)}`, {
       method: "PATCH",
-      body: JSON.stringify({ expiresIn: shareEls.expiry.value }),
+      body: JSON.stringify({ expiresIn }),
     });
     state.shareLinks = state.shareLinks.map((item) => (item.token === token ? share : item));
     renderSharePanel();
@@ -2278,6 +2354,8 @@ function renderSharePanel() {
   shareEls.toggleBtn.textContent = state.sharePanelOpen ? "숨기기" : "펼치기";
   shareEls.createBtn.disabled = !canShare;
   shareEls.expiry.disabled = !canShare;
+  shareEls.customDate.disabled = !canShare;
+  renderShareExpiryControls();
   shareEls.badge.textContent = state.shareLinks.some(isClientShareActive) ? "공유 중" : "보기 전용";
   shareEls.badge.classList.toggle("is-live", state.shareLinks.some(isClientShareActive));
   if (!state.user) {
@@ -2327,6 +2405,30 @@ function renderSharePanel() {
   });
 }
 
+function renderShareExpiryControls() {
+  if (!shareEls.customDate || !shareEls.expiry) {
+    return;
+  }
+  shareEls.customDate.hidden = shareEls.expiry.value !== "custom";
+}
+
+function getSelectedShareExpiry() {
+  if (shareEls.expiry.value !== "custom") {
+    return shareEls.expiry.value;
+  }
+  if (!shareEls.customDate.value) {
+    shareEls.status.textContent = "공유 종료 날짜를 선택해 주세요.";
+    shareEls.customDate.focus();
+    return "";
+  }
+  const expiresAt = new Date(`${shareEls.customDate.value}T23:59:59`);
+  if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+    shareEls.status.textContent = "현재보다 이후의 공유 종료 날짜를 선택해 주세요.";
+    return "";
+  }
+  return `custom:${expiresAt.toISOString()}`;
+}
+
 function toggleSharePanel() {
   state.sharePanelOpen = !state.sharePanelOpen;
   persist();
@@ -2342,11 +2444,56 @@ async function openShareView(token) {
     document.body.classList.add("is-share-view");
     render();
     fitToData();
+    startShareViewVerification(token);
     setProjectStatus("보기 전용 공유 링크입니다. 수정과 저장은 제한됩니다.");
   } catch {
-    document.body.classList.add("is-share-view");
-    setProjectStatus("공유 링크가 만료되었거나 중지되었습니다.");
+    endSharedView("공유 링크가 만료되었거나 작성자가 공유를 종료했습니다.");
   }
+}
+
+function startShareViewVerification(token) {
+  if (shareViewTimerId !== null) {
+    window.clearInterval(shareViewTimerId);
+  }
+  shareViewTimerId = window.setInterval(() => verifyShareView(token), 15000);
+}
+
+async function verifyShareView(token) {
+  if (!token || !state.shareView || document.hidden) {
+    return;
+  }
+  try {
+    await requestJson(`/api/share/${encodeURIComponent(token)}`);
+  } catch (error) {
+    if (error?.status === 404) {
+      endSharedView("작성자가 공유를 종료했습니다.");
+    }
+  }
+}
+
+function endSharedView(message) {
+  if (shareViewTimerId !== null) {
+    window.clearInterval(shareViewTimerId);
+    shareViewTimerId = null;
+  }
+  stopRouteFollowWatcher();
+  state.shareView = { active: false, revoked: true };
+  state.points = [];
+  state.photos = [];
+  state.milestones = [];
+  state.overlayProjects = [];
+  state.sessions = [];
+  state.primarySessionId = null;
+  state.selectedPosition = null;
+  state.projectCode = "";
+  state.projectName = "";
+  state.destinationFollow = false;
+  state.followProgressIndex = 0;
+  currentMarker.setLatLng([37.5665, 126.978]);
+  document.body.classList.add("is-share-view", "is-share-ended");
+  render();
+  setProjectStatus(message);
+  setStatus(message, "warning");
 }
 
 function getShareTokenFromPath() {
@@ -2432,7 +2579,9 @@ function handleMapProviderChange(event) {
 }
 
 function clearData() {
-  const ok = window.confirm("현재 작업을 초기화할까요?\n\n저장된 기록은 유지되고, 현재 화면의 위치점과 사진만 비워집니다.");
+  const ok = window.confirm(
+    "현재 화면을 새 작업 상태로 초기화할까요?\n\n화면의 동선, 사진, 공사구역, 기록, 비교 프로젝트와 현재 프로젝트 연결이 해제됩니다. 서버에 저장된 기존 프로젝트는 삭제되지 않습니다.",
+  );
   if (!ok) {
     return;
   }
@@ -2448,17 +2597,54 @@ function clearData() {
     state.tracking = false;
     state.paused = false;
   }
-  resetCurrentRecord();
+  stopRouteFollowWatcher();
+  window.speechSynthesis?.cancel();
+  state.points = [];
+  state.photos = [];
+  state.milestones = [];
+  state.overlayProjects = [];
+  state.sessions = [];
+  state.primarySessionId = null;
+  state.continuingSessionId = null;
+  state.selectedPosition = state.initialPosition || null;
+  state.activeStartedAt = null;
+  state.destinationFollow = false;
+  state.followProgressIndex = 0;
+  state.routeOffTrack = false;
+  state.routeDeviationSamples = 0;
+  state.routeRecoverySamples = 0;
+  state.undoRouteEdit = null;
+  state.selectedPointIndex = null;
+  state.lastRoutePointIndex = null;
+  state.segmentStartIndex = null;
+  state.segmentEndIndex = null;
+  state.pointEditMode = false;
+  state.pointAddMode = false;
+  state.projectCode = "";
+  state.projectName = "";
+  state.shareLinks = [];
+  state.syncDirty = false;
+  state.syncing = false;
+  state.lastSyncedAt = null;
+  state.lastSyncFailedAt = null;
+  state.lastSyncError = "";
+  state.adminPanelOpen = false;
+  state.authPanelOpen = false;
+  state.sharePanelOpen = false;
+  state.recordPanelOpen = false;
+  state.pointEditPanelOpen = false;
+  updateProjectUrl("");
+  if (state.initialPosition) {
+    currentMarker.setLatLng([state.initialPosition.lat, state.initialPosition.lng]);
+  }
+  persist();
   render();
-  syncProjectState("clear-current");
-  setStatus("현재 작업만 초기화했습니다. 저장된 기록은 유지됩니다.");
-  return;
-  setStatus("현재 화면을 초기화했습니다.");
+  setProjectStatus("새 작업 준비 상태입니다. 서버에 저장된 기존 프로젝트는 유지됩니다.");
+  setStatus("화면을 초기화하고 모든 작업 영역을 숨겼습니다.");
 }
 
 function render() {
-  const latLngs = getRoutePathPoints(state.points).map((point) => [point.lat, point.lng]);
-  routeLine.setLatLngs(latLngs);
+  renderRouteLines();
 
   const latest = getLatestPosition();
   if (latest) {
@@ -2469,13 +2655,14 @@ function render() {
   renderPhotos();
   renderMilestones();
   renderProjectOverlays();
-  renderDestinationFollowStatus();
+  renderRouteFollowStatus();
   renderStats();
   renderTrackingState();
   renderPanelVisibility();
   renderSessions();
   renderProjectState();
   renderSharePanel();
+  renderAuthPanel();
 }
 
 function toggleRecordPanel() {
@@ -2520,14 +2707,7 @@ function togglePointEditPanel() {
   state.segmentEndIndex = null;
   persist();
   render();
-  setStatus("위치 편집을 시작했습니다. 지도 위 위치점, 사진, 목적지, 공사구역을 드래그해서 이동할 수 있습니다.", "info");
-}
-
-function toggleMilestonePanel() {
-  state.milestonePanelOpen = !state.milestonePanelOpen;
-  persist();
-  renderPanelVisibility();
-  setStatus(state.milestonePanelOpen ? "목적지 영역을 열었습니다." : "목적지 영역을 숨겼습니다.", "info");
+  setStatus("위치 편집을 시작했습니다. 지도 위 위치점, 사진, 공사구역을 드래그해서 이동할 수 있습니다.", "info");
 }
 
 function closePointEditPanel() {
@@ -2554,12 +2734,6 @@ function renderPanelVisibility() {
   }
   if (els.pointEditToggleBtn) {
     els.pointEditToggleBtn.textContent = state.pointEditPanelOpen ? "편집 마치기" : "펼치기";
-  }
-  if (els.milestoneSection) {
-    els.milestoneSection.classList.toggle("is-collapsed", !state.milestonePanelOpen);
-  }
-  if (els.milestoneToggleBtn) {
-    els.milestoneToggleBtn.textContent = state.milestonePanelOpen ? "숨기기" : "펼치기";
   }
 }
 
@@ -2746,7 +2920,7 @@ function updatePointEditHint() {
     return;
   }
   els.pointEditHint.textContent =
-    "지도 위 위치점, 사진, 목적지, 공사구역을 누른 상태로 끌어 위치를 수정할 수 있습니다.";
+    "지도 위 위치점, 사진, 공사구역을 누른 상태로 끌어 위치를 수정할 수 있습니다.";
 }
 
 function applyPointSelection(index) {
@@ -3421,14 +3595,14 @@ function hidePhotoTray() {
   }
 }
 
-function addMapPin(type = "milestone") {
+function addMapPin(type = "construction") {
   const position = getPinBasePosition();
   if (!position) {
     setStatus("먼저 지도에서 위치를 선택하거나 현재 위치를 확인해 주세요.");
     return;
   }
 
-  const label = type === "construction" ? "공사구역" : "목적지";
+  const label = "공사구역";
   const name = window.prompt(`${label} 이름`, `${label} ${state.milestones.length + 1}`);
   if (name === null) {
     return;
@@ -3438,47 +3612,32 @@ function addMapPin(type = "milestone") {
     return;
   }
   let displayCode = "";
-  if (type === "construction") {
-    const code = window.prompt("지도 표시 코드 (예: C1, D1)", getNextConstructionCode());
-    if (code === null) {
-      return;
-    }
-    displayCode = normalizeConstructionCode(code, getNextConstructionCode());
+  const code = window.prompt("지도 표시 코드 (예: C1, D1)", getNextConstructionCode());
+  if (code === null) {
+    return;
   }
+  displayCode = normalizeConstructionCode(code, getNextConstructionCode());
 
   state.milestones.push({
     id: crypto.randomUUID(),
-    type,
+    type: "construction",
     name: name.trim() || `${label} ${state.milestones.length + 1}`,
     memo: memo.trim(),
     lat: position.lat,
     lng: position.lng,
-    priority: type === "construction" ? null : getNextDestinationPriority(),
+    priority: null,
     completed: false,
-    arrivalRadius: DESTINATION_ARRIVAL_RADIUS_METERS,
     createdAt: Date.now(),
-    ...(type === "construction"
-      ? {
-          displayCode,
-          color: DEFAULT_CONSTRUCTION_COLOR,
-        }
-      : {}),
+    displayCode,
+    color: DEFAULT_CONSTRUCTION_COLOR,
   });
   persist();
   renderMilestones();
-  syncProjectState(`pin-${type}`);
-  setStatus(
-    type === "construction"
-      ? `지도 중앙에 ${displayCode} 공사구역을 추가했습니다. 목록의 색상 버튼에서 구분 색상을 바꿀 수 있습니다.`
-      : `지도 중앙에 ${label}을 추가했습니다. 도착 반경은 ${DESTINATION_ARRIVAL_RADIUS_METERS}m 기준입니다.`,
-  );
+  syncProjectState("pin-construction");
+  setStatus(`지도 중앙에 ${displayCode} 공사구역을 추가했습니다. 색상 아이콘에서 대표 색상을 선택할 수 있습니다.`);
 }
 
 function getPinBasePosition() {
-  return getMapCenterPosition();
-}
-
-function getDestinationPhotoBasePosition() {
   return getMapCenterPosition();
 }
 
@@ -3494,44 +3653,6 @@ function getMapCenterPosition() {
   };
 }
 
-function getDestinationPins() {
-  ensureDestinationPriorities();
-  return state.milestones
-    .filter((pin) => pin.type !== "construction")
-    .sort((a, b) => (a.priority || 0) - (b.priority || 0));
-}
-
-function ensureDestinationPriorities() {
-  const destinations = state.milestones.filter((pin) => pin.type !== "construction");
-  let changed = false;
-  destinations
-    .sort((a, b) => (a.priority || 999999) - (b.priority || 999999) || (a.createdAt || 0) - (b.createdAt || 0))
-    .forEach((pin, index) => {
-      if (!Number.isFinite(pin.priority)) {
-        pin.priority = index + 1;
-        changed = true;
-      }
-      if (typeof pin.completed !== "boolean") {
-        pin.completed = false;
-        changed = true;
-      }
-      if (!Number.isFinite(Number(pin.arrivalRadius)) || Number(pin.arrivalRadius) === 10) {
-        pin.arrivalRadius = DESTINATION_ARRIVAL_RADIUS_METERS;
-        changed = true;
-      }
-    });
-  if (changed) {
-    persist();
-  }
-}
-
-function getNextDestinationPriority() {
-  const priorities = state.milestones
-    .filter((pin) => pin.type !== "construction")
-    .map((pin) => Number(pin.priority || 0));
-  return Math.max(0, ...priorities) + 1;
-}
-
 function renderMilestones() {
   milestoneLayer.clearLayers();
   if (!els.milestoneList) {
@@ -3539,36 +3660,24 @@ function renderMilestones() {
   }
   els.milestoneList.innerHTML = "";
 
-  if (state.milestones.length === 0) {
+  const pins = state.milestones
+    .filter((pin) => pin.type === "construction")
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+  if (pins.length === 0) {
     const empty = document.createElement("p");
     empty.className = "status-text";
-    empty.textContent = "아직 등록된 목적지나 공사구역이 없습니다.";
+    empty.textContent = "아직 등록된 공사구역이 없습니다.";
     els.milestoneList.append(empty);
     return;
   }
 
-  const pins = [...state.milestones].sort((a, b) => {
-    if (a.type === "construction" && b.type !== "construction") {
-      return 1;
-    }
-    if (a.type !== "construction" && b.type === "construction") {
-      return -1;
-    }
-    return (a.priority || 999999) - (b.priority || 999999) || (a.createdAt || 0) - (b.createdAt || 0);
-  });
-
   pins.forEach((pin) => {
     const typeLabel = getPinTypeLabel(pin.type);
-    const isDestination = pin.type !== "construction";
-    const isActive = state.activeDestinationId === pin.id && state.destinationFollow;
     const pinLabel = getMapPinLabel(pin);
     const icon = L.divIcon({
       className: "",
-      html: createMapPinHtml(
-        pin.type === "construction" ? "construction" : pin.completed ? "destination-complete" : isActive ? "destination-active" : "milestone",
-        pinLabel,
-        pin.type === "construction" ? pin.color : "",
-      ),
+      html: createMapPinHtml("construction", pinLabel, pin.color),
       iconSize: [34, 38],
       iconAnchor: [17, 38],
       popupAnchor: [0, -34],
@@ -3599,14 +3708,12 @@ function renderMilestones() {
 
     const item = document.createElement("article");
     item.className = "pin-list-item";
-    item.classList.toggle("is-active-destination", isActive);
-    item.classList.toggle("is-completed-destination", Boolean(pin.completed));
 
     const body = document.createElement("div");
     const title = document.createElement("strong");
     const meta = document.createElement("span");
     title.textContent = `${pinLabel}. ${pin.name || typeLabel}`;
-    meta.textContent = `${typeLabel}${pin.completed ? " · 도착 완료" : ""} · 반경 ${pin.arrivalRadius || DESTINATION_ARRIVAL_RADIUS_METERS}m · ${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}`;
+    meta.textContent = `${typeLabel} · ${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}`;
     body.append(title, meta);
     if (pin.memo) {
       const memo = document.createElement("small");
@@ -3615,58 +3722,27 @@ function renderMilestones() {
     }
 
     const actions = document.createElement("div");
-    actions.className = "pin-list-actions";
-    if (isDestination && !state.shareView) {
-      const targetButton = document.createElement("button");
-      targetButton.type = "button";
-      targetButton.textContent = isActive ? "종료" : "목적지";
-      targetButton.addEventListener("click", () => selectDestination(pin.id));
-      const upButton = document.createElement("button");
-      upButton.type = "button";
-      upButton.textContent = "위";
-      upButton.addEventListener("click", () => moveDestinationPriority(pin.id, -1));
-      const downButton = document.createElement("button");
-      downButton.type = "button";
-      downButton.textContent = "아래";
-      downButton.addEventListener("click", () => moveDestinationPriority(pin.id, 1));
-      actions.append(targetButton, upButton, downButton);
-    }
-    const locateButton = document.createElement("button");
-    locateButton.type = "button";
-    locateButton.textContent = "보기";
+    actions.className = "pin-list-actions pin-icon-actions";
+    const locateButton = createPinIconButton("보기", "view");
     locateButton.addEventListener("click", () => {
-      if (isDestination) {
-        selectDestination(pin.id);
-        return;
-      }
       map.setView([pin.lat, pin.lng], 18);
       setStatus(`${pin.name} 위치로 이동했습니다.`);
     });
     actions.append(locateButton);
     if (!state.shareView) {
-      if (!isDestination) {
-        const colorLabel = document.createElement("label");
-        colorLabel.className = "pin-color-action";
-        colorLabel.title = `${pinLabel} 색상 변경`;
-        const colorInput = document.createElement("input");
-        colorInput.type = "color";
-        colorInput.value = normalizeConstructionColor(pin.color);
-        colorInput.setAttribute("aria-label", `${pinLabel} 공사구역 색상`);
-        colorInput.addEventListener("change", () => updateConstructionPinColor(pin.id, colorInput.value));
-        const colorText = document.createElement("span");
-        colorText.textContent = "색상";
-        colorLabel.append(colorInput, colorText);
-        actions.append(colorLabel);
-      }
-      const editButton = document.createElement("button");
-      editButton.type = "button";
-      editButton.textContent = "수정";
+      const colorButton = createPinIconButton("색상", "color", normalizeConstructionColor(pin.color));
+      colorButton.addEventListener("click", () => {
+        openRepresentativeColorPicker({
+          title: `${pinLabel} 대표 색상`,
+          currentColor: pin.color,
+          onConfirm: (color) => updateConstructionPinColor(pin.id, color),
+        });
+      });
+      const editButton = createPinIconButton("수정", "edit");
       editButton.addEventListener("click", () => editMapPin(pin.id));
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.textContent = "삭제";
+      const deleteButton = createPinIconButton("삭제", "delete");
       deleteButton.addEventListener("click", () => deleteMapPin(pin.id));
-      actions.append(editButton, deleteButton);
+      actions.append(colorButton, editButton, deleteButton);
     }
 
     item.append(body, actions);
@@ -3688,151 +3764,142 @@ function updateMapPinPosition(pinId, latlng) {
   setStatus(`${pin.name} 위치를 보정했습니다.`);
 }
 
-async function selectDestination(pinId) {
-  const pin = state.milestones.find((item) => item.id === pinId && item.type !== "construction");
-  if (!pin) {
-    return;
-  }
-  if (state.destinationFollow && state.activeDestinationId === pinId) {
-    state.destinationFollow = false;
-    state.activeDestinationId = null;
-    stopDestinationPositionWatcher();
-    persist();
-    render();
-    setStatus(`${pin.name} 목적지 따라가기를 종료했습니다.`);
-    return;
-  }
-  pin.completed = false;
-  pin.arrivedAt = null;
-  state.arrivedPinIds.delete(pin.id);
-  state.activeDestinationId = pin.id;
-  state.destinationFollow = true;
-  state.autoFollow = true;
-  persist();
-  render();
-  startDestinationPositionWatcher();
-  setStatus(`${pin.name} 목적지를 따라갑니다. 현재 위치를 확인하는 중입니다.`);
-  const position = await locateCurrentPosition({ status: false });
-  if (position) {
-    checkDestinationArrival(position);
-    setStatus(`${pin.name} 목적지를 따라갑니다.`);
-  } else {
-    setStatus(`${pin.name} 목적지를 선택했습니다. 현재 위치 권한이나 GPS 신호를 확인해 주세요.`);
-  }
-}
-
-function moveDestinationPriority(pinId, direction) {
-  const destinations = getDestinationPins();
-  const index = destinations.findIndex((pin) => pin.id === pinId);
-  const nextIndex = index + direction;
-  if (index < 0 || nextIndex < 0 || nextIndex >= destinations.length) {
-    return;
-  }
-  const current = destinations[index];
-  const target = destinations[nextIndex];
-  const currentPriority = current.priority;
-  current.priority = target.priority;
-  target.priority = currentPriority;
-  persist();
-  render();
-  setStatus("목적지 우선순위를 변경했습니다.");
-}
-
-async function toggleDestinationFollow() {
+async function toggleRouteFollow() {
   if (state.destinationFollow) {
-    state.destinationFollow = false;
-    state.activeDestinationId = null;
-    stopDestinationPositionWatcher();
-    persist();
-    render();
-    setStatus("답사 따라가기를 종료했습니다.");
+    stopRouteFollowing("답사 따라가기를 종료했습니다.");
+    return;
+  }
+  if (state.tracking) {
+    setStatus("이동 기록을 완료한 뒤 답사 따라가기를 시작해 주세요.", "warning");
+    return;
+  }
+  const routePoints = getRoutePathPoints(state.points);
+  if (routePoints.length < 2) {
+    setStatus("답사할 기록 동선을 먼저 불러와 주세요.", "warning");
+    return;
+  }
+  if (!canUsePreciseLocation() || !navigator.geolocation) {
+    setStatus("현재 위치 권한을 허용해야 답사 따라가기를 시작할 수 있습니다.", "warning");
     return;
   }
 
-  const target = activateNextDestination();
-  if (!target) {
-    setStatus("따라갈 목적지가 없습니다. 목적지를 먼저 추가해 주세요.");
-    return;
-  }
   state.destinationFollow = true;
   state.autoFollow = true;
+  state.followProgressIndex = 0;
+  state.routeOffTrack = false;
+  state.routeDeviationSamples = 0;
+  state.routeRecoverySamples = 0;
   persist();
   render();
-  startDestinationPositionWatcher();
-  setStatus(`${target.name} 목적지를 따라갑니다. 현재 위치를 확인하는 중입니다.`);
   const position = await locateCurrentPosition({ status: false });
-  if (position) {
-    checkDestinationArrival(position);
-    setStatus(`${target.name} 목적지를 따라갑니다.`);
-  } else {
-    setStatus(`${target.name} 목적지를 선택했습니다. 현재 위치 권한이나 GPS 신호를 확인해 주세요.`);
+  if (!position) {
+    stopRouteFollowing("현재 위치를 확인하지 못해 답사 따라가기를 시작할 수 없습니다.");
+    return;
   }
+  updateRouteFollowing(position);
+  startRouteFollowWatcher();
+  setStatus("답사 따라가기를 시작했습니다. 현재 위치를 따라가며 경로 이탈을 음성으로 안내합니다.", "active");
 }
 
-function activateNextDestination() {
-  const destinations = getDestinationPins();
-  const current = getActiveDestination();
-  if (current && !current.completed) {
-    return current;
-  }
-  const next = destinations.find((pin) => !pin.completed && !state.arrivedPinIds.has(pin.id));
-  state.activeDestinationId = next?.id || null;
-  return next || null;
+function stopRouteFollowing(message = "답사 따라가기를 종료했습니다.") {
+  state.destinationFollow = false;
+  state.followProgressIndex = 0;
+  state.routeOffTrack = false;
+  state.routeDeviationSamples = 0;
+  state.routeRecoverySamples = 0;
+  stopRouteFollowWatcher();
+  window.speechSynthesis?.cancel();
+  persist();
+  renderRouteLines();
+  renderRouteFollowStatus();
+  renderTrackingState();
+  setStatus(message);
 }
 
-function getActiveDestination() {
-  if (!state.activeDestinationId) {
+function renderRouteLines() {
+  const points = getRoutePathPoints(state.points);
+  if (!state.destinationFollow || points.length < 2) {
+    routeLine.setLatLngs(points.map((point) => [point.lat, point.lng]));
+    routeRemainingLine.setLatLngs([]);
+    return;
+  }
+  const splitIndex = Math.min(Math.max(0, state.followProgressIndex), points.length - 1);
+  const completed = points.slice(0, splitIndex + 1);
+  const remaining = points.slice(splitIndex);
+  routeLine.setLatLngs(completed.map((point) => [point.lat, point.lng]));
+  routeRemainingLine.setLatLngs(remaining.map((point) => [point.lat, point.lng]));
+}
+
+function renderRouteFollowStatus(point = getLatestPosition(), nearest = null) {
+  if (!els.routeFollowStatus || !els.followRouteBtn) {
+    return;
+  }
+  const routePoints = getRoutePathPoints(state.points);
+  els.followRouteBtn.textContent = state.destinationFollow ? "따라가기 종료" : "답사 따라가기";
+  els.followRouteBtn.classList.toggle("is-active", state.destinationFollow);
+  els.followRouteBtn.disabled = state.shareView ? routePoints.length < 2 : false;
+  if (routePoints.length < 2) {
+    els.routeFollowStatus.textContent = "기록된 동선을 불러오면 답사 따라가기를 시작할 수 있습니다.";
+    els.routeFollowStatus.classList.remove("is-off-route");
+    return;
+  }
+  if (!state.destinationFollow) {
+    els.routeFollowStatus.textContent = `답사 대기 · 기록 동선 ${routePoints.length}점`;
+    els.routeFollowStatus.classList.remove("is-off-route");
+    return;
+  }
+  const currentNearest = nearest || (point ? findNearestRoutePosition(point, routePoints) : null);
+  const distanceText = currentNearest ? ` · 경로와 ${Math.round(currentNearest.distanceMeters)}m` : "";
+  els.routeFollowStatus.textContent = state.routeOffTrack
+    ? `경로 이탈${distanceText}`
+    : `답사 진행 중${distanceText}`;
+  els.routeFollowStatus.classList.toggle("is-off-route", state.routeOffTrack);
+}
+
+function findNearestRoutePosition(point, routePoints) {
+  if (!point || routePoints.length < 2) {
     return null;
   }
-  return state.milestones.find((pin) => pin.id === state.activeDestinationId && pin.type !== "construction") || null;
+  let nearest = null;
+  for (let index = 0; index < routePoints.length - 1; index += 1) {
+    const candidate = getPointToSegmentDistance(point, routePoints[index], routePoints[index + 1]);
+    if (!nearest || candidate.distanceMeters < nearest.distanceMeters) {
+      nearest = {
+        ...candidate,
+        segmentIndex: index,
+      };
+    }
+  }
+  return nearest;
 }
 
-function getRemainingDestinationDistance(fromPoint = getLatestPosition()) {
-  if (!fromPoint) {
-    return null;
-  }
-  const destinations = getDestinationPins().filter((pin) => !pin.completed);
-  if (destinations.length === 0) {
-    return 0;
-  }
-  const active = getActiveDestination() || destinations[0];
-  const activeIndex = destinations.findIndex((pin) => pin.id === active.id);
-  const sequence = destinations.slice(Math.max(0, activeIndex));
-  return sequence.reduce((total, pin, index) => {
-    const previous = index === 0 ? fromPoint : sequence[index - 1];
-    return total + getDistanceMeters(previous, pin);
-  }, 0);
+function getPointToSegmentDistance(point, start, end) {
+  const averageLat = toRad((start.lat + end.lat + point.lat) / 3);
+  const metersPerDegreeLat = 111320;
+  const metersPerDegreeLng = Math.max(1, metersPerDegreeLat * Math.cos(averageLat));
+  const bx = (end.lng - start.lng) * metersPerDegreeLng;
+  const by = (end.lat - start.lat) * metersPerDegreeLat;
+  const px = (point.lng - start.lng) * metersPerDegreeLng;
+  const py = (point.lat - start.lat) * metersPerDegreeLat;
+  const lengthSquared = bx * bx + by * by;
+  const segmentRatio = lengthSquared > 0 ? Math.max(0, Math.min(1, (px * bx + py * by) / lengthSquared)) : 0;
+  const nearestX = bx * segmentRatio;
+  const nearestY = by * segmentRatio;
+  return {
+    distanceMeters: Math.hypot(px - nearestX, py - nearestY),
+    segmentRatio,
+  };
 }
 
-function renderDestinationFollowStatus(fromPoint = getLatestPosition()) {
-  if (!els.destinationFollowStatus) {
+function speakRouteGuidance(message) {
+  if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
     return;
   }
-  const destinations = getDestinationPins();
-  const openDestinations = destinations.filter((pin) => !pin.completed);
-  let active = getActiveDestination();
-  if (state.destinationFollow && (!active || active.completed)) {
-    active = activateNextDestination();
-  }
-  const remaining = getRemainingDestinationDistance(fromPoint);
-  if (els.followRouteBtn) {
-    els.followRouteBtn.textContent = state.destinationFollow ? "따라가기 종료" : "답사 따라가기";
-    els.followRouteBtn.classList.toggle("is-active", state.destinationFollow);
-  }
-
-  if (destinations.length === 0) {
-    els.destinationFollowStatus.textContent = "목적지를 추가하면 잔여거리가 표시됩니다.";
-    return;
-  }
-  if (openDestinations.length === 0) {
-    els.destinationFollowStatus.textContent = "모든 목적지에 도착했습니다.";
-    return;
-  }
-  if (!state.destinationFollow || !active) {
-    els.destinationFollowStatus.textContent = `대기 중 · 남은 목적지 ${openDestinations.length}개`;
-    return;
-  }
-  els.destinationFollowStatus.textContent = `${active.name} 진행 중 · 최종 목적지까지 ${formatDistance(remaining)} · 도착 반경 ${active.arrivalRadius || DESTINATION_ARRIVAL_RADIUS_METERS}m`;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(message);
+  utterance.lang = "ko-KR";
+  utterance.rate = 0.95;
+  window.speechSynthesis.speak(utterance);
 }
 
 function editMapPin(pinId) {
@@ -3876,17 +3943,8 @@ function deleteMapPin(pinId) {
     return;
   }
   state.milestones = state.milestones.filter((item) => item.id !== pinId);
-  if (state.activeDestinationId === pinId) {
-    state.activeDestinationId = null;
-    activateNextDestination();
-    if (!state.activeDestinationId) {
-      state.destinationFollow = false;
-      stopDestinationPositionWatcher();
-    }
-  }
   persist();
   renderMilestones();
-  renderDestinationFollowStatus();
   syncProjectState("delete-pin");
   setStatus("핀을 삭제했습니다.");
 }
@@ -3978,6 +4036,76 @@ function createMapPinHtml(type, label, color = "") {
   return `<span class="map-pin map-pin--${type}"${background}><b>${escapeHtml(label)}</b></span>`;
 }
 
+function setupColorPicker() {
+  if (!els.colorPickerModal) {
+    return;
+  }
+  els.colorPickerCancelBtn?.addEventListener("click", closeRepresentativeColorPicker);
+  els.colorPickerModal.querySelector("[data-color-picker-close]")?.addEventListener("click", closeRepresentativeColorPicker);
+  els.colorPickerConfirmBtn?.addEventListener("click", () => {
+    const handler = colorPickerConfirmHandler;
+    const color = colorPickerSelection;
+    closeRepresentativeColorPicker();
+    handler?.(color);
+  });
+}
+
+function openRepresentativeColorPicker({ title = "대표 색상 선택", currentColor, onConfirm }) {
+  if (!els.colorPickerModal || !els.colorPickerOptions) {
+    return;
+  }
+  const normalizedCurrent = normalizeConstructionColor(currentColor);
+  colorPickerSelection =
+    REPRESENTATIVE_COLORS.find((color) => color.value === normalizedCurrent)?.value || DEFAULT_CONSTRUCTION_COLOR;
+  colorPickerConfirmHandler = onConfirm;
+  els.colorPickerTitle.textContent = title;
+  renderRepresentativeColorOptions();
+  els.colorPickerModal.hidden = false;
+}
+
+function renderRepresentativeColorOptions() {
+  els.colorPickerOptions.innerHTML = "";
+  REPRESENTATIVE_COLORS.forEach((color) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "representative-color";
+    button.classList.toggle("is-selected", color.value === colorPickerSelection);
+    button.setAttribute("aria-label", color.name);
+    button.innerHTML = `<span style="background:${color.value}"></span><b>${color.name}</b>`;
+    button.addEventListener("click", () => {
+      colorPickerSelection = color.value;
+      renderRepresentativeColorOptions();
+    });
+    els.colorPickerOptions.append(button);
+  });
+}
+
+function closeRepresentativeColorPicker() {
+  if (els.colorPickerModal) {
+    els.colorPickerModal.hidden = true;
+  }
+  colorPickerConfirmHandler = null;
+}
+
+function createPinIconButton(label, icon, color = "") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `pin-icon-button pin-icon-button--${icon}`;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  if (icon === "color") {
+    button.innerHTML = `<span class="pin-color-dot" style="background:${normalizeConstructionColor(color)}"></span>`;
+    return button;
+  }
+  const icons = {
+    view: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="3"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.2-1 10.7-10.7-3.2-3.2L5 15.8 4 20Z"/><path d="m14.8 6 3.2 3.2"/></svg>',
+    delete: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg>',
+  };
+  button.innerHTML = icons[icon] || "";
+  return button;
+}
+
 async function addOverlayProject() {
   const code = normalizeProjectCode(els.overlayProjectCode?.value);
   if (!code) {
@@ -4011,12 +4139,19 @@ async function addOverlayProject() {
 
 function createOverlayProject(project) {
   const nextIndex = state.overlayProjects.length;
+  const sessions = Array.isArray(project.sessions) ? project.sessions : [];
+  const primarySession =
+    sessions.find((session) => session.id === project.primarySessionId) ||
+    sessions[0] ||
+    null;
+  const primaryPoints = Array.isArray(primarySession?.points) ? primarySession.points : [];
+  const lastStatePoints = Array.isArray(project.lastState?.points) ? project.lastState.points : [];
   return normalizeOverlayProject({
     code: project.code,
     name: project.name || project.code,
     color: OVERLAY_COLORS[nextIndex % OVERLAY_COLORS.length],
     visible: true,
-    points: Array.isArray(project.lastState?.points) ? project.lastState.points : [],
+    points: primaryPoints.length > 0 ? primaryPoints : lastStatePoints,
     milestones: Array.isArray(project.lastState?.milestones) ? project.lastState.milestones : [],
   }, nextIndex);
 }
@@ -4076,9 +4211,19 @@ function renderProjectOverlays() {
       renderProjectOverlays();
     });
 
-    const swatch = document.createElement("span");
-    swatch.className = "overlay-swatch";
+    const swatch = document.createElement("button");
+    swatch.type = "button";
+    swatch.className = "overlay-swatch overlay-color-button";
+    swatch.title = `${project.name} 대표 색상`;
+    swatch.setAttribute("aria-label", `${project.name} 대표 색상 변경`);
     swatch.style.backgroundColor = project.color;
+    swatch.addEventListener("click", () => {
+      openRepresentativeColorPicker({
+        title: `${project.name} 비교 노선 색상`,
+        currentColor: project.color,
+        onConfirm: (color) => updateOverlayProjectColor(project.code, color),
+      });
+    });
 
     const body = document.createElement("div");
     const title = document.createElement("strong");
@@ -4110,6 +4255,17 @@ function getPhotoDisplayName(photo) {
 
 function getNextPhotoName() {
   return getNextProjectPhotoName();
+}
+
+function updateOverlayProjectColor(code, color) {
+  const project = state.overlayProjects.find((item) => item.code === code);
+  if (!project) {
+    return;
+  }
+  project.color = normalizeConstructionColor(color);
+  persist();
+  renderProjectOverlays();
+  setStatus(`${project.name} 비교 노선 색상을 변경했습니다.`);
 }
 
 function getNextProjectPhotoName() {
@@ -4444,7 +4600,9 @@ function fitToData() {
   const bounds = L.latLngBounds([]);
   state.points.forEach((point) => bounds.extend([point.lat, point.lng]));
   state.photos.filter(hasPhotoPosition).forEach((photo) => bounds.extend([photo.lat, photo.lng]));
-  state.milestones.forEach((pin) => bounds.extend([pin.lat, pin.lng]));
+  state.milestones
+    .filter((pin) => pin.type === "construction")
+    .forEach((pin) => bounds.extend([pin.lat, pin.lng]));
   state.overlayProjects
     .filter((project) => project.visible !== false)
     .forEach((project) => project.points.forEach((point) => bounds.extend([point.lat, point.lng])));
@@ -4552,9 +4710,7 @@ function getPersistPayload() {
     sharePanelOpen: state.sharePanelOpen,
     recordPanelOpen: state.recordPanelOpen,
     pointEditPanelOpen: state.pointEditPanelOpen,
-    milestonePanelOpen: state.milestonePanelOpen,
     destinationFollow: state.destinationFollow,
-    activeDestinationId: state.activeDestinationId,
     continuingSessionId: state.continuingSessionId,
     wakeLockEnabled: state.wakeLockEnabled,
     autoFollow: state.autoFollow,
@@ -4620,9 +4776,11 @@ function loadState() {
     state.recordPanelOpen = saved.recordPanelOpen !== false;
     state.pointEditPanelOpen = Boolean(saved.pointEditPanelOpen);
     state.pointEditMode = state.pointEditPanelOpen;
-    state.milestonePanelOpen = saved.milestonePanelOpen !== false;
-    state.destinationFollow = Boolean(saved.destinationFollow);
-    state.activeDestinationId = saved.activeDestinationId || null;
+    state.destinationFollow = false;
+    state.followProgressIndex = 0;
+    state.routeOffTrack = false;
+    state.routeDeviationSamples = 0;
+    state.routeRecoverySamples = 0;
     state.continuingSessionId = saved.continuingSessionId || null;
     state.wakeLockEnabled = Boolean(saved.wakeLockEnabled);
     state.autoFollow = saved.autoFollow !== false;
@@ -4630,13 +4788,12 @@ function loadState() {
     state.photoFilter = saved.photoFilter || "all";
     state.photoView = saved.photoView || "list";
     state.projectCode = saved.projectCode || "";
-    state.projectName = saved.projectName || "프로젝트A";
+    state.projectName = typeof saved.projectName === "string" ? saved.projectName : "프로젝트A";
     state.syncDirty = Boolean(saved.syncDirty);
     state.syncing = false;
     state.lastSyncedAt = saved.lastSyncedAt || null;
     state.lastSyncFailedAt = saved.lastSyncFailedAt || null;
     state.lastSyncError = saved.lastSyncError || "";
-    state.arrivedPinIds = new Set();
   } catch {
     state.points = [];
     state.photos = [];
@@ -4653,9 +4810,11 @@ function loadState() {
     state.recordPanelOpen = true;
     state.pointEditPanelOpen = false;
     state.pointEditMode = false;
-    state.milestonePanelOpen = true;
     state.destinationFollow = false;
-    state.activeDestinationId = null;
+    state.followProgressIndex = 0;
+    state.routeOffTrack = false;
+    state.routeDeviationSamples = 0;
+    state.routeRecoverySamples = 0;
     state.continuingSessionId = null;
     state.wakeLockEnabled = false;
     state.autoFollow = true;
@@ -4664,7 +4823,6 @@ function loadState() {
     state.photoView = "list";
     state.projectCode = "";
     state.projectName = "프로젝트A";
-    state.arrivedPinIds = new Set();
   }
 }
 

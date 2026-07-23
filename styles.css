@@ -383,7 +383,20 @@ label[for="photoInput"] {
 }
 
 #saveBtn {
+  order: 6;
+}
+
+#followRouteBtn {
   order: 4;
+}
+
+#addConstructionPinBtn {
+  order: 5;
+}
+
+#followRouteBtn.is-active {
+  color: #ffffff;
+  background: var(--red);
 }
 
 .save-action {
@@ -423,8 +436,7 @@ label[for="photoInput"] {
   accent-color: var(--green);
 }
 
-#photoInput,
-#destinationPhotoInput {
+#photoInput {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -871,6 +883,7 @@ label[for="photoInput"] {
 }
 
 .share-controls select,
+.share-controls input,
 .share-controls button,
 .share-item button {
   min-width: 0;
@@ -881,6 +894,15 @@ label[for="photoInput"] {
   font: inherit;
   font-size: 12px;
   font-weight: 800;
+}
+
+.share-controls input {
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.share-controls input:not([hidden]) {
+  grid-column: 1 / -1;
 }
 
 .share-controls button {
@@ -952,8 +974,15 @@ label[for="photoInput"] {
   font-weight: 800;
 }
 
+.project-name-row,
 .project-code-row,
 .project-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.project-name-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
@@ -1208,20 +1237,12 @@ label[for="photoInput"] {
   font-weight: 800;
 }
 
-.milestone-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
 .overlay-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.milestone-actions button,
-.milestone-actions label,
 .overlay-controls button,
 .overlay-controls input {
   display: inline-flex;
@@ -1237,35 +1258,29 @@ label[for="photoInput"] {
   font-weight: 800;
 }
 
-.milestone-actions button:first-child,
-.milestone-actions label,
 .overlay-controls button {
   color: #285b86;
   background: #eaf3fb;
 }
 
-.milestone-section.is-collapsed > .collapsible-body {
-  display: none;
-}
-
-.milestone-actions button.is-active {
-  color: #ffffff;
-  background: var(--red);
-}
-
-.destination-follow-status {
+.route-follow-status {
   display: flex;
   align-items: center;
   min-height: 42px;
-  margin: 6px 0 12px;
   padding: 8px 10px;
-  border: 1px solid #f2c9c2;
+  border: 1px solid #c9ddd1;
   border-radius: 8px;
-  color: #8a3328;
-  background: #fff1ee;
+  color: var(--green-dark);
+  background: #f1f8f3;
   font-size: 12px;
   font-weight: 800;
   line-height: 1.45;
+}
+
+.route-follow-status.is-off-route {
+  border-color: #f2c9c2;
+  color: #8a3328;
+  background: #fff1ee;
 }
 
 .overlay-controls input {
@@ -1292,15 +1307,6 @@ label[for="photoInput"] {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
-}
-
-.pin-list-item.is-active-destination {
-  border-color: rgba(31, 122, 87, 0.58);
-  background: #f1f8f3;
-}
-
-.pin-list-item.is-completed-destination {
-  opacity: 0.72;
 }
 
 .pin-list-item strong,
@@ -1331,8 +1337,12 @@ label[for="photoInput"] {
   gap: 5px;
 }
 
+.pin-icon-actions {
+  grid-template-columns: repeat(4, 34px);
+  gap: 5px;
+}
+
 .pin-list-actions button,
-.pin-color-action,
 .overlay-item button {
   min-height: 30px;
   min-width: 48px;
@@ -1343,30 +1353,48 @@ label[for="photoInput"] {
   font-weight: 800;
 }
 
-.pin-color-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-}
-
-.pin-color-action input[type="color"] {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  cursor: pointer;
-}
-
-.pin-color-action input[type="color"]::-webkit-color-swatch-wrapper {
+.pin-icon-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  min-width: 34px !important;
+  height: 34px;
+  min-height: 34px !important;
   padding: 0;
 }
 
-.pin-color-action input[type="color"]::-webkit-color-swatch {
-  border: 1px solid rgba(22, 32, 28, 0.18);
+.pin-icon-button svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pin-icon-button--view {
+  color: #315f9e;
+  background: #edf4fb !important;
+}
+
+.pin-icon-button--edit {
+  color: #b35b19;
+  background: #fff4e8 !important;
+}
+
+.pin-icon-button--delete {
+  color: #b63b31;
+  background: #fff0ee !important;
+}
+
+.pin-color-dot {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #ffffff;
   border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(22, 32, 28, 0.24);
 }
 
 .overlay-item {
@@ -1383,6 +1411,102 @@ label[for="photoInput"] {
   width: 12px;
   height: 24px;
   border-radius: 999px;
+}
+
+.overlay-color-button {
+  width: 24px;
+  min-width: 24px !important;
+  height: 30px;
+  min-height: 30px !important;
+  padding: 0;
+  border: 2px solid #ffffff !important;
+  box-shadow: 0 0 0 1px rgba(22, 32, 28, 0.2);
+}
+
+.color-picker-modal[hidden] {
+  display: none;
+}
+
+.color-picker-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2400;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.color-picker-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: rgba(15, 24, 20, 0.48);
+}
+
+.color-picker-card {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 14px;
+  width: min(360px, 100%);
+  padding: 18px;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgba(15, 24, 20, 0.28);
+}
+
+.color-picker-card h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.color-picker-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.representative-color {
+  display: grid;
+  place-items: center;
+  gap: 5px;
+  min-height: 66px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  color: var(--ink);
+  background: #f6f8f6;
+}
+
+.representative-color.is-selected {
+  border-color: var(--green);
+  background: #eaf4ee;
+}
+
+.representative-color span {
+  width: 28px;
+  height: 28px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(22, 32, 28, 0.2);
+}
+
+.representative-color b {
+  font-size: 12px;
+}
+
+.color-picker-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.color-picker-actions button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 800;
 }
 
 .is-photo-modal-open {
@@ -1708,15 +1832,6 @@ label[for="photoInput"] {
   background: var(--gold);
 }
 
-.map-pin--destination-active {
-  background: var(--green);
-  box-shadow: 0 0 0 5px rgba(31, 122, 87, 0.18), 0 7px 16px rgba(22, 32, 28, 0.3);
-}
-
-.map-pin--destination-complete {
-  background: #77827d;
-}
-
 .map-pin--construction {
   background: var(--red);
 }
@@ -1954,6 +2069,7 @@ label[for="photoInput"] {
     font-size: 13px;
   }
 
+  .project-name-row,
   .project-code-row,
   .project-actions {
     gap: 6px;
@@ -2066,13 +2182,10 @@ label[for="photoInput"] {
   gap: 8px;
 }
 
-  .milestone-actions,
   .overlay-controls {
     gap: 6px;
   }
 
-  .milestone-actions button,
-  .milestone-actions label,
   .overlay-controls button,
   .overlay-controls input {
     min-height: 30px;
@@ -2105,10 +2218,6 @@ label[for="photoInput"] {
 }
 
 @media (max-width: 460px) {
-  .milestone-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .photo-item {
     grid-template-columns: 64px minmax(0, 1fr) 34px;
   }
@@ -2121,6 +2230,11 @@ label[for="photoInput"] {
   .pin-list-actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     grid-column: 1 / -1;
+  }
+
+  .pin-icon-actions {
+    grid-template-columns: repeat(4, 34px);
+    justify-content: end;
   }
 
   .pin-list-actions button {

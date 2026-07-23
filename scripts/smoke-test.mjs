@@ -49,7 +49,14 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-construction-share-1/);
+  assert.match(pageHtml, /20260723-field-follow-1/);
+  assert.match(pageHtml, /id="renameProjectBtn"/);
+  assert.match(pageHtml, /id="followRouteBtn"/);
+  assert.match(pageHtml, /id="addConstructionPinBtn"/);
+  assert.match(pageHtml, /id="colorPickerConfirmBtn"[^>]*>선택 완료</);
+  assert.doesNotMatch(pageHtml, /id="addMilestoneBtn"|id="destinationPhotoInput"|id="milestoneSection"/);
+  const elementIds = [...pageHtml.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
+  assert.equal(new Set(elementIds).size, elementIds.length);
   const cssResponse = await fetch(`${baseUrl}/styles.css`);
   const css = await cssResponse.text();
   assert.equal(cssResponse.status, 200);
@@ -62,6 +69,12 @@ try {
     /state\.milestones = normalizeMilestones\([\s\S]+?const primarySession[\s\S]+?if \(primarySession\)/,
   );
   assert.match(appSource, /displayCode[\s\S]+?normalizeConstructionColor/);
+  assert.match(appSource, /findNearestRoutePosition[\s\S]+?speakRouteGuidance/);
+  assert.match(appSource, /startShareViewVerification[\s\S]+?verifyShareView/);
+  assert.match(appSource, /primarySession[\s\S]+?primaryPoints\.length > 0 \? primaryPoints : lastStatePoints/);
+  assert.match(appSource, /ROUTE_COMPLETED_COLOR = "#1f7a57"[\s\S]+?ROUTE_REMAINING_COLOR = "#315f9e"/);
+  assert.match(css, /\.pin-icon-actions\s*\{[^}]*repeat\(4,\s*34px\)/s);
+  assert.match(css, /\.color-picker-modal\s*\{/);
 
   const createResponse = await fetch(`${baseUrl}/api/projects`, {
     method: "POST",
@@ -102,7 +115,7 @@ try {
   const shareResponse = await fetch(`${baseUrl}/api/projects/${project.code}/share`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ expiresIn: "7d" }),
+    body: JSON.stringify({ expiresIn: "5d" }),
   });
   assert.equal(shareResponse.status, 201);
   const share = await shareResponse.json();
@@ -111,6 +124,23 @@ try {
   assert.equal(sharedResponse.status, 200);
   assert.deepEqual(shared.project.sessions[0].points, routePoints);
   assert.deepEqual(shared.project.lastState.milestones, constructionPins);
+  const customExpiry = new Date(Date.now() + 1000 * 60 * 60 * 36).toISOString();
+  const updateShareResponse = await fetch(`${baseUrl}/api/projects/${project.code}/share/${share.token}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expiresIn: `custom:${customExpiry}` }),
+  });
+  const updatedShare = await updateShareResponse.json();
+  assert.equal(updateShareResponse.status, 200);
+  assert.equal(updatedShare.expiresAt, customExpiry);
+
+  const deleteShareResponse = await fetch(
+    `${baseUrl}/api/projects/${project.code}/share/${share.token}/delete`,
+    { method: "DELETE" },
+  );
+  assert.equal(deleteShareResponse.status, 200);
+  const deletedShareViewResponse = await fetch(`${baseUrl}/api/share/${share.token}`);
+  assert.equal(deletedShareViewResponse.status, 404);
 
   const photoResponse = await fetch(`${baseUrl}/api/projects/${project.code}/photos`, {
     method: "POST",
@@ -129,7 +159,7 @@ try {
   const oversizedBody = await oversizedResponse.json();
   assert.equal(oversizedResponse.status, 413);
   assert.equal(oversizedBody.error, "request_body_too_large");
-  console.log("Smoke test passed: UI, shared route/construction data, storage guard, and size protection work.");
+  console.log("Smoke test passed: field UI, share expiry/revocation, route/construction data, and storage guards work.");
 } finally {
   child.kill();
   rmSync(dataDir, { recursive: true, force: true });
