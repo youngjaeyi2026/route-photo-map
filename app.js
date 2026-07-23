@@ -2235,6 +2235,7 @@ function setupSharePanel() {
   shareEls.createBtn.addEventListener("click", createShareLink);
   shareEls.toggleBtn.addEventListener("click", toggleSharePanel);
   shareEls.expiry.addEventListener("change", renderShareExpiryControls);
+  shareEls.customDate.addEventListener("input", renderShareExpiryControls);
   shareEls.customDate.min = new Date().toISOString().slice(0, 10);
 }
 
@@ -2394,10 +2395,13 @@ function renderSharePanel() {
 }
 
 function renderShareExpiryControls() {
-  if (!shareEls.customDate || !shareEls.expiry) {
+  if (!shareEls.customDate || !shareEls.expiry || !shareEls.createBtn) {
     return;
   }
-  shareEls.customDate.hidden = shareEls.expiry.value !== "custom";
+  const usesCustomDate = shareEls.expiry.value === "custom";
+  const canShare = Boolean(state.user && state.projectCode);
+  shareEls.customDate.hidden = !usesCustomDate;
+  shareEls.createBtn.disabled = !canShare || (usesCustomDate && !shareEls.customDate.value);
 }
 
 function getSelectedShareExpiry() {

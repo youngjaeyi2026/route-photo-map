@@ -941,6 +941,17 @@ label[for="photoInput"] {
 
 .share-controls input:not([hidden]) {
   grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+#shareExpiry {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+#shareCreateBtn {
+  grid-column: 2;
+  grid-row: 1;
 }
 
 .share-controls button {
