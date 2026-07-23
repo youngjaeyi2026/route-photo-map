@@ -73,10 +73,11 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-keep-login-open-1/);
+  assert.match(pageHtml, /20260723-construction-visibility-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
+  assert.match(pageHtml, /id="constructionVisibilityBtn"/);
   assert.match(pageHtml, /id="addConstructionPinBtn"/);
   assert.match(pageHtml, /document\.body\.classList\.add\("is-share-view", "is-share-loading"\)/);
   assert.match(pageHtml, /id="colorPickerConfirmBtn"[^>]*>선택 완료</);
@@ -106,8 +107,15 @@ try {
   assert.match(appSource, /shareView: initialShareToken \? \{ loading: true \} : null/);
   assert.match(appSource, /if \(!initialShareToken\) \{\s*loadState\(\)/);
   assert.match(appSource, /match\(\/\^\\\/view\\\/\(\[A-Za-z0-9_-\]\+\)\\\/\?\$\/\)/);
-  assert.match(appSource, /function toggleSharedConstructionVisibility\(\)/);
-  assert.match(appSource, /state\.shareView && !state\.shareConstructionVisible/);
+  assert.match(appSource, /function toggleConstructionVisibility\(\)/);
+  assert.match(appSource, /state\.constructionPinsVisible = !state\.constructionPinsVisible/);
+  assert.match(appSource, /if \(state\.constructionPinsVisible\) \{[\s\S]+?\.addTo\(milestoneLayer\)/);
+  assert.match(
+    appSource,
+    /function applyProject\(project\)[\s\S]+?milestoneLayer\.clearLayers\(\)[\s\S]+?state\.milestones = normalizeMilestones[\s\S]+?state\.points = \[\][\s\S]+?applyProjectMeta\(project\)/,
+  );
+  assert.match(appSource, /copyButton\.textContent = "코드 복사"/);
+  assert.match(appSource, /async function copyProjectCode\(code\)/);
   assert.match(appSource, /async function endShareLink\(token\)/);
   assert.match(appSource, /endButton\.textContent = "공유 종료"/);
   assert.doesNotMatch(appSource, /stopShareLink|stopButton\.textContent = "중지"/);
@@ -123,6 +131,9 @@ try {
   assert.match(css, /\.pin-icon-actions\s*\{[^}]*repeat\(4,\s*34px\)/s);
   assert.match(css, /\.color-picker-modal\s*\{/);
   assert.match(css, /\.field-action-group\s*\{[^}]*padding-top:\s*16px/s);
+  assert.match(css, /#followRouteBtn\s*\{[^}]*min-height:\s*42px/s);
+  assert.match(css, /#constructionVisibilityBtn\s*\{/);
+  assert.match(css, /\.my-project-actions\s*\{[^}]*grid-template-columns:\s*auto\s*auto\s*auto/s);
   assert.match(css, /\.route-follow-status\s*\{[^}]*background:\s*#fff1ee/s);
   assert.match(css, /\.is-share-view \.timeline-section,[\s\S]+?\.is-share-view \.history-section/s);
   assert.match(css, /\.is-share-view #recordControls\s*\{[^}]*display:\s*grid\s*!important/s);

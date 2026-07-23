@@ -396,7 +396,7 @@ label[for="photoInput"] {
 }
 
 #followRouteBtn {
-  min-height: 40px;
+  min-height: 42px;
   border: 1px solid #315f9e;
   border-radius: 8px;
   color: #ffffff;
@@ -415,6 +415,24 @@ label[for="photoInput"] {
   font: inherit;
   font-size: 12px;
   font-weight: 800;
+}
+
+#constructionVisibilityBtn {
+  min-height: 40px;
+  border: 1px solid #cbdceb;
+  border-radius: 8px;
+  color: #285b86;
+  background: #f4f8fb;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+#constructionVisibilityBtn:disabled {
+  cursor: not-allowed;
+  color: var(--muted);
+  border-color: var(--line);
+  background: #eef2ee;
 }
 
 #followRouteBtn.is-active {
@@ -803,7 +821,7 @@ label[for="photoInput"] {
 
 .my-project-actions {
   display: inline-grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: auto auto auto;
   gap: 6px;
 }
 
@@ -1009,6 +1027,7 @@ label[for="photoInput"] {
 .is-share-view .record-section .section-title-actions,
 .is-share-view .record-action-grid,
 .is-share-view #addConstructionPinBtn,
+.is-share-view #constructionVisibilityBtn,
 .is-share-view .record-section .hint,
 .is-share-view #milestoneList,
 .is-share-view #statusText,

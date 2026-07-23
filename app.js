@@ -48,7 +48,7 @@ const state = {
   myProjects: [],
   shareLinks: [],
   shareView: initialShareToken ? { loading: true } : null,
-  shareConstructionVisible: true,
+  constructionPinsVisible: true,
   adminUsers: [],
   adminPanelOpen: false,
   authPanelOpen: true,
@@ -138,6 +138,7 @@ const els = {
   photoItemTemplate: document.querySelector("#photoItemTemplate"),
   followRouteBtn: document.querySelector("#followRouteBtn"),
   shareConstructionToggleBtn: document.querySelector("#shareConstructionToggleBtn"),
+  constructionVisibilityBtn: document.querySelector("#constructionVisibilityBtn"),
   routeFollowStatus: document.querySelector("#routeFollowStatus"),
   addConstructionPinBtn: document.querySelector("#addConstructionPinBtn"),
   milestoneList: document.querySelector("#milestoneList"),
@@ -333,7 +334,8 @@ document.addEventListener("click", (event) => {
   }
 });
 els.followRouteBtn?.addEventListener("click", toggleRouteFollow);
-els.shareConstructionToggleBtn?.addEventListener("click", toggleSharedConstructionVisibility);
+els.shareConstructionToggleBtn?.addEventListener("click", toggleConstructionVisibility);
+els.constructionVisibilityBtn?.addEventListener("click", toggleConstructionVisibility);
 els.addConstructionPinBtn?.addEventListener("click", () => addMapPin("construction"));
 els.addOverlayProjectBtn?.addEventListener("click", () => addOverlayProject());
 els.overlayProjectCode?.addEventListener("keydown", (event) => {
@@ -1467,6 +1469,7 @@ function resetForNewProject() {
   state.points = [];
   state.photos = [];
   state.milestones = [];
+  state.constructionPinsVisible = true;
   state.sessions = [];
   state.primarySessionId = null;
   state.continuingSessionId = null;
@@ -1660,13 +1663,17 @@ function retryPendingProjectSync() {
 
 function applyProject(project) {
   stopRouteFollowWatcher();
-  applyProjectMeta(project);
+  milestoneLayer.clearLayers();
   state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
   state.primarySessionId = project.primarySessionId || state.sessions[0]?.id || null;
   const lastState = project.lastState || {};
   state.milestones = normalizeMilestones(
     Array.isArray(lastState.milestones) ? structuredClone(lastState.milestones) : [],
   );
+  state.constructionPinsVisible = true;
+  state.points = [];
+  state.photos = [];
+  state.selectedPosition = null;
   const primarySession = state.sessions.find((session) => session.id === state.primarySessionId);
   if (primarySession) {
     state.points = Array.isArray(primarySession.points) ? structuredClone(primarySession.points) : [];
@@ -1684,6 +1691,7 @@ function applyProject(project) {
   state.routeOffTrack = false;
   state.routeDeviationSamples = 0;
   state.routeRecoverySamples = 0;
+  applyProjectMeta(project);
 }
 
 function applyProjectMeta(project) {
@@ -2139,6 +2147,11 @@ function renderMyProjectList() {
     body.append(title, meta);
     const actions = document.createElement("div");
     actions.className = "my-project-actions";
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.textContent = "코드 복사";
+    copyButton.setAttribute("aria-label", `${project.code} 프로젝트 코드 복사`);
+    copyButton.addEventListener("click", () => copyProjectCode(project.code));
     const openButton = document.createElement("button");
     openButton.type = "button";
     openButton.textContent = "열기";
@@ -2147,10 +2160,23 @@ function renderMyProjectList() {
     deleteButton.type = "button";
     deleteButton.textContent = "삭제";
     deleteButton.addEventListener("click", () => deleteMyProject(project));
-    actions.append(openButton, deleteButton);
+    actions.append(copyButton, openButton, deleteButton);
     item.append(body, actions);
     authEls.list.append(item);
   });
+}
+
+async function copyProjectCode(code) {
+  const normalizedCode = normalizeProjectCode(code);
+  if (!normalizedCode) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(normalizedCode);
+  } catch {
+    window.prompt("프로젝트 코드를 복사해 주세요.", normalizedCode);
+  }
+  setStatus(`${normalizedCode} 프로젝트 코드를 복사했습니다.`);
 }
 
 async function deleteMyProject(project) {
@@ -2432,7 +2458,7 @@ async function openShareView(token) {
   try {
     const result = await requestJson(`/api/share/${encodeURIComponent(token)}`);
     state.shareView = result.share;
-    state.shareConstructionVisible = true;
+    state.constructionPinsVisible = true;
     applyProject(result.project);
     document.body.classList.add("is-share-view");
     render();
@@ -2482,7 +2508,7 @@ function endSharedView(message) {
   state.projectCode = "";
   state.projectName = "";
   state.destinationFollow = false;
-  state.shareConstructionVisible = true;
+  state.constructionPinsVisible = true;
   state.followProgressIndex = 0;
   currentMarker.setLatLng([37.5665, 126.978]);
   document.body.classList.add("is-share-view", "is-share-ended");
@@ -2598,6 +2624,7 @@ function clearData() {
   state.points = [];
   state.photos = [];
   state.milestones = [];
+  state.constructionPinsVisible = true;
   state.overlayProjects = [];
   state.sessions = [];
   state.primarySessionId = null;
@@ -3627,6 +3654,7 @@ function addMapPin(type = "construction") {
     displayCode,
     color: DEFAULT_CONSTRUCTION_COLOR,
   });
+  state.constructionPinsVisible = true;
   persist();
   renderMilestones();
   syncProjectState("pin-construction");
@@ -3659,7 +3687,7 @@ function renderMilestones() {
   const pins = state.milestones
     .filter((pin) => pin.type === "construction")
     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-  renderSharedConstructionToggle(pins.length);
+  renderConstructionVisibilityControls(pins.length);
 
   if (pins.length === 0) {
     const empty = document.createElement("p");
@@ -3668,43 +3696,41 @@ function renderMilestones() {
     els.milestoneList.append(empty);
     return;
   }
-  if (state.shareView && !state.shareConstructionVisible) {
-    return;
-  }
-
   pins.forEach((pin) => {
     const typeLabel = getPinTypeLabel(pin.type);
     const pinLabel = getMapPinLabel(pin);
-    const icon = L.divIcon({
-      className: "",
-      html: createMapPinHtml("construction", pinLabel, pin.color),
-      iconSize: [34, 38],
-      iconAnchor: [17, 38],
-      popupAnchor: [0, -34],
-    });
-    let pinWasDragged = false;
-    L.marker([pin.lat, pin.lng], {
-      icon,
-      title: state.pointEditMode ? `${pin.name} - 드래그해서 위치 수정` : `${pin.name} 위치`,
-      draggable: state.pointEditMode,
-    })
-      .on("dragstart", () => {
-        pinWasDragged = true;
+    if (state.constructionPinsVisible) {
+      const icon = L.divIcon({
+        className: "",
+        html: createMapPinHtml("construction", pinLabel, pin.color),
+        iconSize: [34, 38],
+        iconAnchor: [17, 38],
+        popupAnchor: [0, -34],
+      });
+      let pinWasDragged = false;
+      L.marker([pin.lat, pin.lng], {
+        icon,
+        title: state.pointEditMode ? `${pin.name} - 드래그해서 위치 수정` : `${pin.name} 위치`,
+        draggable: state.pointEditMode,
       })
-      .on("dragend", (event) => {
-        updateMapPinPosition(pin.id, event.target.getLatLng());
-        window.setTimeout(() => {
-          pinWasDragged = false;
-        }, 0);
-      })
-      .on("click", () => {
-        if (state.pointEditMode || pinWasDragged) {
-          return;
-        }
-        map.setView([pin.lat, pin.lng], Math.max(map.getZoom(), 18));
-        setStatus(`${pin.name} 위치로 이동했습니다.`);
-      })
-      .addTo(milestoneLayer);
+        .on("dragstart", () => {
+          pinWasDragged = true;
+        })
+        .on("dragend", (event) => {
+          updateMapPinPosition(pin.id, event.target.getLatLng());
+          window.setTimeout(() => {
+            pinWasDragged = false;
+          }, 0);
+        })
+        .on("click", () => {
+          if (state.pointEditMode || pinWasDragged) {
+            return;
+          }
+          map.setView([pin.lat, pin.lng], Math.max(map.getZoom(), 18));
+          setStatus(`${pin.name} 위치로 이동했습니다.`);
+        })
+        .addTo(milestoneLayer);
+    }
 
     const item = document.createElement("article");
     item.className = "pin-list-item";
@@ -3801,25 +3827,33 @@ async function toggleRouteFollow() {
   setStatus("답사 따라가기를 시작했습니다. 현재 위치를 따라가며 경로 이탈을 음성으로 안내합니다.", "active");
 }
 
-function toggleSharedConstructionVisibility() {
-  if (!state.shareView || state.shareView.loading || state.shareView.revoked) {
+function toggleConstructionVisibility() {
+  if (state.shareView && (state.shareView.loading || state.shareView.revoked)) {
     return;
   }
-  state.shareConstructionVisible = !state.shareConstructionVisible;
+  if (!state.milestones.some((pin) => pin.type === "construction")) {
+    return;
+  }
+  state.constructionPinsVisible = !state.constructionPinsVisible;
   renderMilestones();
+  setStatus(`공사구역 핀을 ${state.constructionPinsVisible ? "표시했습니다." : "숨겼습니다."}`);
 }
 
-function renderSharedConstructionToggle(pinCount) {
-  if (!els.shareConstructionToggleBtn) {
-    return;
+function renderConstructionVisibilityControls(pinCount) {
+  const isVisible = state.constructionPinsVisible;
+  if (els.constructionVisibilityBtn) {
+    els.constructionVisibilityBtn.hidden = Boolean(state.shareView);
+    els.constructionVisibilityBtn.disabled = pinCount === 0;
+    els.constructionVisibilityBtn.textContent = isVisible ? "공사구역 숨기기" : "공사구역 보기";
+    els.constructionVisibilityBtn.setAttribute("aria-pressed", String(isVisible));
   }
-  const canToggle = Boolean(state.shareView && !state.shareView.loading && !state.shareView.revoked && pinCount > 0);
-  els.shareConstructionToggleBtn.hidden = !canToggle;
-  els.shareConstructionToggleBtn.disabled = !canToggle;
-  els.shareConstructionToggleBtn.textContent = state.shareConstructionVisible
-    ? "공사구역 숨기기"
-    : "공사구역 보기";
-  els.shareConstructionToggleBtn.setAttribute("aria-pressed", String(state.shareConstructionVisible));
+  if (els.shareConstructionToggleBtn) {
+    const canToggle = Boolean(state.shareView && !state.shareView.loading && !state.shareView.revoked && pinCount > 0);
+    els.shareConstructionToggleBtn.hidden = !canToggle;
+    els.shareConstructionToggleBtn.disabled = !canToggle;
+    els.shareConstructionToggleBtn.textContent = isVisible ? "공사구역 숨기기" : "공사구역 보기";
+    els.shareConstructionToggleBtn.setAttribute("aria-pressed", String(isVisible));
+  }
 }
 
 function stopRouteFollowing(message = "답사 따라가기를 종료했습니다.") {
