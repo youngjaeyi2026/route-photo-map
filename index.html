@@ -6,9 +6,14 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260723-bright-yellow-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260723-share-construction-toggle-1" />
   </head>
   <body>
+    <script>
+      if (/^\/view\/[A-Za-z0-9_-]+\/?$/.test(window.location.pathname)) {
+        document.body.classList.add("is-share-view", "is-share-loading");
+      }
+    </script>
     <main class="app-shell">
       <section class="map-stage" aria-label="동선 지도">
         <div id="map"></div>
@@ -69,6 +74,15 @@
         <section id="recordSection" class="panel-section record-section">
           <div class="section-title">
             <h2 id="recordTitle">기록</h2>
+            <button
+              id="shareConstructionToggleBtn"
+              class="section-toggle share-construction-toggle"
+              type="button"
+              aria-pressed="true"
+              hidden
+            >
+              공사구역 숨기기
+            </button>
             <div class="section-title-actions">
               <span id="trackingBadge" class="badge">대기</span>
               <button id="recordToggleBtn" class="section-toggle" type="button">숨기기</button>
@@ -236,6 +250,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260723-bright-yellow-1"></script>
+    <script src="/app.js?v=20260723-share-construction-toggle-1"></script>
   </body>
 </html>

@@ -49,10 +49,12 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-bright-yellow-1/);
+  assert.match(pageHtml, /20260723-share-construction-toggle-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
+  assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
   assert.match(pageHtml, /id="addConstructionPinBtn"/);
+  assert.match(pageHtml, /document\.body\.classList\.add\("is-share-view", "is-share-loading"\)/);
   assert.match(pageHtml, /id="colorPickerConfirmBtn"[^>]*>선택 완료</);
   assert.doesNotMatch(pageHtml, /id="addMilestoneBtn"|id="destinationPhotoInput"|id="milestoneSection"/);
   const elementIds = [...pageHtml.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
@@ -77,6 +79,11 @@ try {
   assert.match(appSource, /BRIGHT_YELLOW_COLOR = "#f2c400"/);
   assert.match(appSource, /normalized === "#c79a00" \|\| normalized === "#a97800"/);
   assert.match(appSource, /pinColor === BRIGHT_YELLOW_COLOR \? ";color:#3b3210"/);
+  assert.match(appSource, /shareView: initialShareToken \? \{ loading: true \} : null/);
+  assert.match(appSource, /if \(!initialShareToken\) \{\s*loadState\(\)/);
+  assert.match(appSource, /match\(\/\^\\\/view\\\/\(\[A-Za-z0-9_-\]\+\)\\\/\?\$\/\)/);
+  assert.match(appSource, /function toggleSharedConstructionVisibility\(\)/);
+  assert.match(appSource, /state\.shareView && !state\.shareConstructionVisible/);
   assert.match(appSource, /\{ name: "회색", value: "#3f4a46" \}/);
   assert.doesNotMatch(appSource, /dashArray:\s*"8 7"/);
   assert.match(css, /\.pin-icon-actions\s*\{[^}]*repeat\(4,\s*34px\)/s);
@@ -85,6 +92,8 @@ try {
   assert.match(css, /\.route-follow-status\s*\{[^}]*background:\s*#fff1ee/s);
   assert.match(css, /\.is-share-view \.timeline-section,[\s\S]+?\.is-share-view \.history-section/s);
   assert.match(css, /\.is-share-view #recordControls\s*\{[^}]*display:\s*grid\s*!important/s);
+  assert.match(css, /\.is-share-view \.share-construction-toggle:not\(\[hidden\]\)\s*\{[^}]*display:\s*inline-flex/s);
+  assert.match(css, /\.is-share-loading \.control-panel\s*\{[^}]*pointer-events:\s*none/s);
 
   const createResponse = await fetch(`${baseUrl}/api/projects`, {
     method: "POST",

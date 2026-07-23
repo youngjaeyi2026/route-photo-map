@@ -18,6 +18,7 @@ const REPRESENTATIVE_COLORS = [
   { name: "회색", value: "#3f4a46" },
 ];
 const OVERLAY_COLORS = ["#315f9e", "#c34236", "#1f7a57", "#6d4aa2", "#d96c1f", "#3f4a46", BRIGHT_YELLOW_COLOR, "#8b5a2b"];
+const initialShareToken = getShareTokenFromPath();
 
 if (!window.L) {
   window.L = createFallbackMapApi();
@@ -46,7 +47,8 @@ const state = {
   user: null,
   myProjects: [],
   shareLinks: [],
-  shareView: null,
+  shareView: initialShareToken ? { loading: true } : null,
+  shareConstructionVisible: true,
   adminUsers: [],
   adminPanelOpen: false,
   authPanelOpen: true,
@@ -135,6 +137,7 @@ const els = {
   historyList: document.querySelector("#historyList"),
   photoItemTemplate: document.querySelector("#photoItemTemplate"),
   followRouteBtn: document.querySelector("#followRouteBtn"),
+  shareConstructionToggleBtn: document.querySelector("#shareConstructionToggleBtn"),
   routeFollowStatus: document.querySelector("#routeFollowStatus"),
   addConstructionPinBtn: document.querySelector("#addConstructionPinBtn"),
   milestoneList: document.querySelector("#milestoneList"),
@@ -197,7 +200,9 @@ let colorPickerConfirmHandler = null;
 let authEls = {};
 let shareEls = {};
 
-loadState();
+if (!initialShareToken) {
+  loadState();
+}
 setupAuthPanel();
 setupAdminPanel();
 setupSharePanel();
@@ -328,6 +333,7 @@ document.addEventListener("click", (event) => {
   }
 });
 els.followRouteBtn?.addEventListener("click", toggleRouteFollow);
+els.shareConstructionToggleBtn?.addEventListener("click", toggleSharedConstructionVisibility);
 els.addConstructionPinBtn?.addEventListener("click", () => addMapPin("construction"));
 els.addOverlayProjectBtn?.addEventListener("click", () => addOverlayProject());
 els.overlayProjectCode?.addEventListener("keydown", (event) => {
@@ -375,7 +381,7 @@ if (state.wakeLockEnabled) {
   }
 });
 
-const shareToken = getShareTokenFromPath();
+const shareToken = initialShareToken;
 const urlProjectCode = new URLSearchParams(window.location.search).get("project");
 if (shareToken) {
   openShareView(shareToken);
@@ -2448,10 +2454,12 @@ async function openShareView(token) {
   try {
     const result = await requestJson(`/api/share/${encodeURIComponent(token)}`);
     state.shareView = result.share;
+    state.shareConstructionVisible = true;
     applyProject(result.project);
     document.body.classList.add("is-share-view");
     render();
     fitToData();
+    document.body.classList.remove("is-share-loading");
     startShareViewVerification(token);
     setProjectStatus("보기 전용 공유 링크입니다. 수정과 저장은 제한됩니다.");
   } catch {
@@ -2496,16 +2504,18 @@ function endSharedView(message) {
   state.projectCode = "";
   state.projectName = "";
   state.destinationFollow = false;
+  state.shareConstructionVisible = true;
   state.followProgressIndex = 0;
   currentMarker.setLatLng([37.5665, 126.978]);
   document.body.classList.add("is-share-view", "is-share-ended");
+  document.body.classList.remove("is-share-loading");
   render();
   setProjectStatus(message);
   setStatus(message, "warning");
 }
 
 function getShareTokenFromPath() {
-  const match = window.location.pathname.match(/^\/view\/([A-Za-z0-9_-]+)$/);
+  const match = window.location.pathname.match(/^\/view\/([A-Za-z0-9_-]+)\/?$/);
   return match ? match[1] : "";
 }
 
@@ -3671,12 +3681,16 @@ function renderMilestones() {
   const pins = state.milestones
     .filter((pin) => pin.type === "construction")
     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  renderSharedConstructionToggle(pins.length);
 
   if (pins.length === 0) {
     const empty = document.createElement("p");
     empty.className = "status-text";
     empty.textContent = "아직 등록된 공사구역이 없습니다.";
     els.milestoneList.append(empty);
+    return;
+  }
+  if (state.shareView && !state.shareConstructionVisible) {
     return;
   }
 
@@ -3807,6 +3821,27 @@ async function toggleRouteFollow() {
   updateRouteFollowing(position);
   startRouteFollowWatcher();
   setStatus("답사 따라가기를 시작했습니다. 현재 위치를 따라가며 경로 이탈을 음성으로 안내합니다.", "active");
+}
+
+function toggleSharedConstructionVisibility() {
+  if (!state.shareView || state.shareView.loading || state.shareView.revoked) {
+    return;
+  }
+  state.shareConstructionVisible = !state.shareConstructionVisible;
+  renderMilestones();
+}
+
+function renderSharedConstructionToggle(pinCount) {
+  if (!els.shareConstructionToggleBtn) {
+    return;
+  }
+  const canToggle = Boolean(state.shareView && !state.shareView.loading && !state.shareView.revoked && pinCount > 0);
+  els.shareConstructionToggleBtn.hidden = !canToggle;
+  els.shareConstructionToggleBtn.disabled = !canToggle;
+  els.shareConstructionToggleBtn.textContent = state.shareConstructionVisible
+    ? "공사구역 숨기기"
+    : "공사구역 보기";
+  els.shareConstructionToggleBtn.setAttribute("aria-pressed", String(state.shareConstructionVisible));
 }
 
 function stopRouteFollowing(message = "답사 따라가기를 종료했습니다.") {

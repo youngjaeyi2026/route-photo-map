@@ -274,6 +274,15 @@ h2 {
   gap: 6px;
 }
 
+.share-construction-toggle {
+  display: none;
+  margin-left: auto;
+}
+
+.share-construction-toggle[hidden] {
+  display: none !important;
+}
+
 .section-toggle {
   min-height: 28px;
   border: 1px solid var(--line);
@@ -1000,6 +1009,14 @@ label[for="photoInput"] {
 
 .is-share-view #recordControls {
   display: grid !important;
+}
+
+.is-share-view .share-construction-toggle:not([hidden]) {
+  display: inline-flex;
+}
+
+.is-share-loading .control-panel {
+  pointer-events: none;
 }
 
 .is-share-view .field-action-group {
