@@ -575,9 +575,83 @@ async function getSharedProject(token) {
     return null;
   }
   return {
-    share,
-    project,
+    share: {
+      token: share.token,
+      expiresAt: share.expiresAt,
+      active: share.active,
+      createdAt: share.createdAt,
+      updatedAt: share.updatedAt,
+    },
+    project: createSharedProjectView(project),
   };
+}
+
+function createSharedProjectView(project) {
+  const sessions = Array.isArray(project.sessions) ? project.sessions : [];
+  const primarySession =
+    sessions.find((session) => session.id === project.primarySessionId) ||
+    sessions[0] ||
+    null;
+  const routePoints = sanitizeSharedRoutePoints(
+    Array.isArray(primarySession?.points) && primarySession.points.length > 0
+      ? primarySession.points
+      : project.lastState?.points,
+  );
+  const sharedSession = {
+    id: "shared-route",
+    name: "공유 노선",
+    startedAt: primarySession?.startedAt || project.createdAt || null,
+    endedAt: primarySession?.endedAt || project.updatedAt || null,
+    distanceMeters: Number(primarySession?.distanceMeters || 0),
+    points: routePoints,
+    photos: [],
+  };
+  const milestones = Array.isArray(project.lastState?.milestones)
+    ? project.lastState.milestones
+        .filter((pin) => pin?.type === "construction")
+        .map((pin) => ({
+          id: pin.id,
+          type: "construction",
+          name: pin.name || "공사구역",
+          memo: pin.memo || "",
+          displayCode: pin.displayCode || pin.code || "",
+          color: pin.color || "#c34236",
+          lat: Number(pin.lat),
+          lng: Number(pin.lng),
+          createdAt: pin.createdAt || null,
+        }))
+        .filter((pin) => Number.isFinite(pin.lat) && Number.isFinite(pin.lng))
+    : [];
+
+  return {
+    code: "",
+    name: project.name || "공유 노선",
+    createdAt: project.createdAt || null,
+    updatedAt: project.updatedAt || null,
+    primarySessionId: sharedSession.id,
+    sessions: [sharedSession],
+    lastState: {
+      points: routePoints,
+      photos: [],
+      milestones,
+      savedAt: project.lastState?.savedAt || project.updatedAt || null,
+    },
+  };
+}
+
+function sanitizeSharedRoutePoints(points) {
+  if (!Array.isArray(points)) {
+    return [];
+  }
+  return points
+    .map((point) => ({
+      lat: Number(point?.lat),
+      lng: Number(point?.lng),
+      timestamp: point?.timestamp || null,
+      ...(Number.isFinite(Number(point?.accuracy)) ? { accuracy: Number(point.accuracy) } : {}),
+      ...(point?.skipInRoute === true ? { skipInRoute: true } : {}),
+    }))
+    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
 }
 
 async function prepareProjectPayload(code, project) {

@@ -109,6 +109,7 @@ const els = {
   openProjectBtn: document.querySelector("#openProjectBtn"),
   syncProjectBtn: document.querySelector("#syncProjectBtn"),
   recordSection: document.querySelector("#recordSection"),
+  recordTitle: document.querySelector("#recordTitle"),
   recordToggleBtn: document.querySelector("#recordToggleBtn"),
   pointEditSection: document.querySelector("#pointEditSection"),
   pointEditToggleBtn: document.querySelector("#pointEditToggleBtn"),
@@ -1695,10 +1696,16 @@ function renderProjectState() {
   }
   els.projectName.value = state.projectName || "";
   els.projectCode.value = state.projectCode || "";
+  if (els.recordTitle) {
+    els.recordTitle.textContent = state.shareView ? "노선 보기" : "기록";
+  }
   if (els.renameProjectBtn) {
     els.renameProjectBtn.disabled = !state.projectCode || Boolean(state.shareView);
   }
   els.projectBadge.textContent = state.projectCode || getStorageBadgeLabel();
+  if (state.shareView) {
+    els.projectBadge.textContent = "공유 보기";
+  }
   const serverReady = state.serverHealth?.environment !== "production" || state.serverHealth?.ready !== false;
   els.projectBadge.classList.toggle(
     "is-live",

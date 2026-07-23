@@ -980,14 +980,48 @@ label[for="photoInput"] {
 
 .is-share-view .auth-section,
 .is-share-view .share-section,
-.is-share-view .record-section,
 .is-share-view .point-edit-section,
 .is-share-view .overlay-section,
 .is-share-view .settings-section,
+.is-share-view .timeline-section,
+.is-share-view .history-section,
 .is-share-view .project-controls,
+.is-share-view .record-section .section-title-actions,
+.is-share-view .record-action-grid,
+.is-share-view #addConstructionPinBtn,
+.is-share-view .record-section .hint,
+.is-share-view #milestoneList,
+.is-share-view #statusText,
 .is-share-view .photo-actions button:not(:first-child),
 .is-share-view #photoModalMemoBtn,
 .is-share-view #photoModalTagBtn {
+  display: none !important;
+}
+
+.is-share-view #recordControls {
+  display: grid !important;
+}
+
+.is-share-view .field-action-group {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.is-share-view .field-action-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.is-share-view .status-strip {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.is-share-view .status-strip > div:last-child {
+  display: none;
+}
+
+.is-share-ended .record-section,
+.is-share-ended .status-strip {
   display: none !important;
 }
 

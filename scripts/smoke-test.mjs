@@ -49,7 +49,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-field-layout-2/);
+  assert.match(pageHtml, /20260723-share-route-only-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="addConstructionPinBtn"/);
@@ -80,6 +80,8 @@ try {
   assert.match(css, /\.color-picker-modal\s*\{/);
   assert.match(css, /\.field-action-group\s*\{[^}]*padding-top:\s*16px/s);
   assert.match(css, /\.route-follow-status\s*\{[^}]*background:\s*#fff1ee/s);
+  assert.match(css, /\.is-share-view \.timeline-section,[\s\S]+?\.is-share-view \.history-section/s);
+  assert.match(css, /\.is-share-view #recordControls\s*\{[^}]*display:\s*grid\s*!important/s);
 
   const createResponse = await fetch(`${baseUrl}/api/projects`, {
     method: "POST",
@@ -104,15 +106,25 @@ try {
       createdAt: 1,
     },
   ];
+  const privatePhotos = [
+    {
+      id: "private-photo",
+      name: "공유 금지 사진",
+      src: "https://example.invalid/private-photo.jpg",
+      lat: 37.505,
+      lng: 127.005,
+      timestamp: 3,
+    },
+  ];
   const saveResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name: "smoke-test",
       points: routePoints,
-      photos: [],
+      photos: privatePhotos,
       milestones: constructionPins,
-      sessions: [{ id: "route-1", points: routePoints, photos: [] }],
+      sessions: [{ id: "route-1", points: routePoints, photos: privatePhotos }],
       primarySessionId: "route-1",
     }),
   });
@@ -125,10 +137,18 @@ try {
   assert.equal(shareResponse.status, 201);
   const share = await shareResponse.json();
   const sharedResponse = await fetch(`${baseUrl}/api/share/${share.token}`);
-  const shared = await sharedResponse.json();
+  const sharedText = await sharedResponse.text();
+  const shared = JSON.parse(sharedText);
   assert.equal(sharedResponse.status, 200);
+  assert.equal(shared.project.code, "");
+  assert.equal(shared.project.sessions.length, 1);
   assert.deepEqual(shared.project.sessions[0].points, routePoints);
-  assert.deepEqual(shared.project.lastState.milestones, constructionPins);
+  assert.deepEqual(shared.project.sessions[0].photos, []);
+  assert.deepEqual(shared.project.lastState.photos, []);
+  assert.equal(shared.project.lastState.milestones.length, 1);
+  assert.equal(shared.project.lastState.milestones[0].displayCode, "D1");
+  assert.equal(shared.project.lastState.milestones[0].color, "#315f9e");
+  assert.doesNotMatch(sharedText, /private-photo|공유 금지 사진|example\.invalid/);
   const customExpiry = new Date(Date.now() + 1000 * 60 * 60 * 36).toISOString();
   const updateShareResponse = await fetch(`${baseUrl}/api/projects/${project.code}/share/${share.token}`, {
     method: "PATCH",
@@ -164,7 +184,7 @@ try {
   const oversizedBody = await oversizedResponse.json();
   assert.equal(oversizedResponse.status, 413);
   assert.equal(oversizedBody.error, "request_body_too_large");
-  console.log("Smoke test passed: field UI, share expiry/revocation, route/construction data, and storage guards work.");
+  console.log("Smoke test passed: route-only sharing, photo privacy, expiry/revocation, field UI, and storage guards work.");
 } finally {
   child.kill();
   rmSync(dataDir, { recursive: true, force: true });
