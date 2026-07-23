@@ -1455,6 +1455,14 @@ async function renameCurrentProject() {
     return;
   }
   const previousName = state.projectName;
+  const confirmed = window.confirm(
+    `프로젝트명을 변경할까요?\n\n기존 이름: ${previousName}\n새 이름: ${nextName}`,
+  );
+  if (!confirmed) {
+    els.projectName.value = previousName;
+    setProjectStatus("프로젝트명 변경을 취소했습니다.");
+    return;
+  }
   state.projectName = nextName;
   persist();
   renderProjectState();

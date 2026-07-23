@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-overlay-construction-1/);
+  assert.match(pageHtml, /20260723-project-rename-confirm-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -108,6 +108,10 @@ try {
   assert.match(appSource, /if \(!initialShareToken\) \{\s*loadState\(\)/);
   assert.match(appSource, /match\(\/\^\\\/view\\\/\(\[A-Za-z0-9_-\]\+\)\\\/\?\$\/\)/);
   assert.match(appSource, /function toggleConstructionVisibility\(\)/);
+  assert.match(
+    appSource,
+    /function renameCurrentProject\(\)[\s\S]+?window\.confirm\([\s\S]+?기존 이름:[\s\S]+?새 이름:[\s\S]+?프로젝트명 변경을 취소했습니다/,
+  );
   assert.match(appSource, /state\.constructionPinsVisible = !state\.constructionPinsVisible/);
   assert.match(appSource, /if \(state\.constructionPinsVisible\) \{[\s\S]+?\.addTo\(milestoneLayer\)/);
   assert.match(
