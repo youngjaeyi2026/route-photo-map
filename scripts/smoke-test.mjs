@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-short-project-code-1/);
+  assert.match(pageHtml, /20260723-keep-login-open-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -113,6 +113,11 @@ try {
   assert.doesNotMatch(appSource, /stopShareLink|stopButton\.textContent = "중지"/);
   assert.match(appSource, /customDate\.addEventListener\("input", renderShareExpiryControls\)/);
   assert.match(appSource, /createBtn\.disabled = !canShare \|\| \(usesCustomDate && !shareEls\.customDate\.value\)/);
+  assert.match(
+    appSource,
+    /function clearData\(\)[\s\S]+?state\.adminPanelOpen = false;\s+state\.authPanelOpen = true;\s+state\.sharePanelOpen = false;/,
+  );
+  assert.match(appSource, /로그인 영역을 제외한 작업 영역을 숨겼습니다/);
   assert.match(appSource, /\{ name: "회색", value: "#3f4a46" \}/);
   assert.doesNotMatch(appSource, /dashArray:\s*"8 7"/);
   assert.match(css, /\.pin-icon-actions\s*\{[^}]*repeat\(4,\s*34px\)/s);

@@ -2625,7 +2625,7 @@ function clearData() {
   state.lastSyncFailedAt = null;
   state.lastSyncError = "";
   state.adminPanelOpen = false;
-  state.authPanelOpen = false;
+  state.authPanelOpen = true;
   state.sharePanelOpen = false;
   state.recordPanelOpen = false;
   state.pointEditPanelOpen = false;
@@ -2636,7 +2636,7 @@ function clearData() {
   persist();
   render();
   setProjectStatus("새 작업 준비 상태입니다. 서버에 저장된 기존 프로젝트는 유지됩니다.");
-  setStatus("화면을 초기화하고 모든 작업 영역을 숨겼습니다.");
+  setStatus("화면을 초기화하고 로그인 영역을 제외한 작업 영역을 숨겼습니다.");
 }
 
 function render() {
