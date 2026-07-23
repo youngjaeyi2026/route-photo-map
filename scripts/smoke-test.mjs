@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-compact-project-actions-1/);
+  assert.match(pageHtml, /20260723-text-project-actions-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -114,9 +114,10 @@ try {
     appSource,
     /function applyProject\(project\)[\s\S]+?milestoneLayer\.clearLayers\(\)[\s\S]+?state\.milestones = normalizeMilestones[\s\S]+?state\.points = \[\][\s\S]+?applyProjectMeta\(project\)/,
   );
-  assert.match(appSource, /const copyButton = createPinIconButton\("코드 복사", "copy"\)/);
+  assert.match(appSource, /copyButton\.textContent = "코드 복사"/);
   assert.match(appSource, /async function copyProjectCode\(code\)/);
-  assert.match(appSource, /const openButton = createPinIconButton\("열기", "open"\)/);
+  assert.match(appSource, /openButton\.textContent = "열기"/);
+  assert.match(appSource, /deleteButton\.textContent = "삭제"/);
   assert.match(appSource, /memo\.textContent = pin\.memo\?\.trim\(\) \|\| "메모 없음"/);
   const milestoneRenderer = appSource.match(/function renderMilestones\(\)[\s\S]+?function updateMapPinPosition/);
   assert.ok(milestoneRenderer);
@@ -145,6 +146,8 @@ try {
   assert.match(css, /#addConstructionPinBtn\s*\{[^}]*min-height:\s*42px/s);
   assert.match(css, /#constructionVisibilityBtn\s*\{[^}]*grid-column:\s*2;[^}]*min-height:\s*42px/s);
   assert.match(css, /\.my-project-actions\s*\{[^}]*grid-template-columns:\s*auto\s*auto\s*auto/s);
+  assert.match(css, /\.my-project-item button\s*\{[^}]*height:\s*30px;[^}]*padding:\s*0\s*8px/s);
+  assert.match(css, /\.project-list-action--copy\s*\{/);
   assert.match(css, /\.my-project-item strong\s*\{[^}]*-webkit-line-clamp:\s*2/s);
   assert.match(
     css,

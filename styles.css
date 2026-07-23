@@ -835,12 +835,29 @@ label[for="photoInput"] {
 .my-project-item button {
   min-width: 30px;
   height: 30px;
+  padding: 0 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
   font: inherit;
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
+}
+
+.project-list-action--copy {
+  color: #315f9e;
+  background: #edf4fb !important;
+}
+
+.project-list-action--open {
+  color: #1f7a57;
+  background: #eaf4ee !important;
+}
+
+.project-list-action--delete {
+  color: #b63b31;
+  background: #fff0ee !important;
 }
 
 .admin-panel {
@@ -1493,16 +1510,6 @@ label[for="photoInput"] {
 .pin-icon-button--view {
   color: #315f9e;
   background: #edf4fb !important;
-}
-
-.pin-icon-button--copy {
-  color: #315f9e;
-  background: #edf4fb !important;
-}
-
-.pin-icon-button--open {
-  color: #1f7a57;
-  background: #eaf4ee !important;
 }
 
 .pin-icon-button--edit {

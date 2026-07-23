@@ -2149,12 +2149,21 @@ function renderMyProjectList() {
     body.append(title, meta);
     const actions = document.createElement("div");
     actions.className = "my-project-actions";
-    const copyButton = createPinIconButton("코드 복사", "copy");
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "project-list-action project-list-action--copy";
+    copyButton.textContent = "코드 복사";
     copyButton.setAttribute("aria-label", `${project.code} 프로젝트 코드 복사`);
     copyButton.addEventListener("click", () => copyProjectCode(project.code));
-    const openButton = createPinIconButton("열기", "open");
+    const openButton = document.createElement("button");
+    openButton.type = "button";
+    openButton.className = "project-list-action project-list-action--open";
+    openButton.textContent = "열기";
     openButton.addEventListener("click", () => openServerProject(project.code));
-    const deleteButton = createPinIconButton("삭제", "delete");
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "project-list-action project-list-action--delete";
+    deleteButton.textContent = "삭제";
     deleteButton.addEventListener("click", () => deleteMyProject(project));
     actions.append(copyButton, openButton, deleteButton);
     item.append(body, actions);
@@ -4153,8 +4162,6 @@ function createPinIconButton(label, icon, color = "") {
   }
   const icons = {
     view: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="3"/></svg>',
-    copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
-    open: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v10H3V7Z"/><path d="M8 14h8m0 0-3-3m3 3-3 3"/></svg>',
     edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.2-1 10.7-10.7-3.2-3.2L5 15.8 4 20Z"/><path d="m14.8 6 3.2 3.2"/></svg>',
     delete: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg>',
   };
