@@ -1327,7 +1327,7 @@ function writeProjectsFile(db) {
 function generateProjectCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "P-";
-  for (let index = 0; index < 6; index += 1) {
+  for (let index = 0; index < 4; index += 1) {
     code += alphabet[Math.floor(Math.random() * alphabet.length)];
   }
   return code;

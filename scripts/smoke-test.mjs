@@ -1,12 +1,31 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const port = 5279;
 const baseUrl = `http://127.0.0.1:${port}`;
 const dataDir = mkdtempSync(join(tmpdir(), "route-photo-map-test-"));
+const legacyProjectCode = "P-Z3XS7P";
+writeFileSync(
+  join(dataDir, "projects.json"),
+  JSON.stringify({
+    projects: [
+      {
+        code: legacyProjectCode,
+        name: "legacy-six-character-project",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        ownerUserId: null,
+        sessions: [],
+        primarySessionId: null,
+      },
+    ],
+    shareLinks: [],
+  }),
+  "utf8",
+);
 const child = spawn(process.execPath, ["server.mjs"], {
   cwd: new URL("..", import.meta.url),
   env: {
@@ -45,11 +64,16 @@ try {
   assert.equal(readyResponse.status, 503);
   assert.equal(readyBody.ready, false);
 
+  const legacyProjectResponse = await fetch(`${baseUrl}/api/projects/${legacyProjectCode}`);
+  const legacyProject = await legacyProjectResponse.json();
+  assert.equal(legacyProjectResponse.status, 200);
+  assert.equal(legacyProject.code, legacyProjectCode);
+
   const pageResponse = await fetch(`${baseUrl}/`);
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-stable-share-layout-1/);
+  assert.match(pageHtml, /20260723-short-project-code-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -110,6 +134,7 @@ try {
   });
   assert.equal(createResponse.status, 201);
   const project = await createResponse.json();
+  assert.match(project.code, /^P-[A-HJ-NP-Z2-9]{4}$/);
   const routePoints = [
     { lat: 37.5, lng: 127, timestamp: 1 },
     { lat: 37.51, lng: 127.01, timestamp: 2 },
