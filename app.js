@@ -2281,33 +2281,13 @@ async function createShareLink() {
   }
 }
 
-async function stopShareLink(token) {
+async function endShareLink(token) {
   if (!state.projectCode || !token) {
     return;
   }
-  const ok = window.confirm("공유 링크를 중지할까요?\n\n받은 사람은 더 이상 이 링크로 볼 수 없습니다.");
-  if (!ok) {
-    return;
-  }
-  try {
-    await requestJson(`/api/projects/${encodeURIComponent(state.projectCode)}/share/${encodeURIComponent(token)}`, {
-      method: "DELETE",
-    });
-    state.shareLinks = state.shareLinks.map((share) =>
-      share.token === token ? { ...share, active: false, updatedAt: new Date().toISOString() } : share,
-    );
-    renderSharePanel();
-    shareEls.status.textContent = "공유 링크를 중지했습니다.";
-  } catch {
-    shareEls.status.textContent = "공유 링크를 중지하지 못했습니다.";
-  }
-}
-
-async function deleteShareLink(token) {
-  if (!state.projectCode || !token) {
-    return;
-  }
-  const ok = window.confirm("공유 링크를 삭제할까요?\n\n목록에서 완전히 사라지며, 받은 사람도 더 이상 이 링크로 볼 수 없습니다.");
+  const ok = window.confirm(
+    "공유를 종료할까요?\n\n링크가 목록에서 삭제되며, 받은 사람도 더 이상 이 링크로 볼 수 없습니다.",
+  );
   if (!ok) {
     return;
   }
@@ -2318,9 +2298,9 @@ async function deleteShareLink(token) {
     );
     state.shareLinks = state.shareLinks.filter((share) => share.token !== token);
     renderSharePanel();
-    shareEls.status.textContent = "공유 링크를 삭제했습니다.";
+    shareEls.status.textContent = "공유를 종료하고 링크를 삭제했습니다.";
   } catch {
-    shareEls.status.textContent = "공유 링크를 삭제하지 못했습니다.";
+    shareEls.status.textContent = "공유를 종료하지 못했습니다.";
   }
 }
 
@@ -2387,7 +2367,7 @@ function renderSharePanel() {
     const body = document.createElement("div");
     const title = document.createElement("strong");
     const meta = document.createElement("span");
-    title.textContent = isClientShareActive(share) ? "공유 링크" : "중지/만료된 링크";
+    title.textContent = isClientShareActive(share) ? "공유 링크" : "종료/만료된 링크";
     meta.textContent = getShareMetaText(share);
     body.append(title, meta);
 
@@ -2397,24 +2377,18 @@ function renderSharePanel() {
     copyButton.disabled = !isClientShareActive(share);
     copyButton.addEventListener("click", () => copyShareUrl(share.token));
 
-    const stopButton = document.createElement("button");
-    stopButton.type = "button";
-    stopButton.textContent = "중지";
-    stopButton.disabled = !isClientShareActive(share);
-    stopButton.addEventListener("click", () => stopShareLink(share.token));
-
     const updateButton = document.createElement("button");
     updateButton.type = "button";
     updateButton.textContent = "변경";
     updateButton.disabled = !share.active;
     updateButton.addEventListener("click", () => updateShareExpiry(share.token));
 
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.textContent = "삭제";
-    deleteButton.addEventListener("click", () => deleteShareLink(share.token));
+    const endButton = document.createElement("button");
+    endButton.type = "button";
+    endButton.textContent = "공유 종료";
+    endButton.addEventListener("click", () => endShareLink(share.token));
 
-    item.append(body, copyButton, updateButton, stopButton, deleteButton);
+    item.append(body, copyButton, updateButton, endButton);
     shareEls.list.append(item);
   });
 }

@@ -956,7 +956,7 @@ label[for="photoInput"] {
 
 .share-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 6px;
   padding: 8px;

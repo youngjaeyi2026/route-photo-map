@@ -49,7 +49,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-share-construction-toggle-1/);
+  assert.match(pageHtml, /20260723-simplify-share-actions-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -84,6 +84,9 @@ try {
   assert.match(appSource, /match\(\/\^\\\/view\\\/\(\[A-Za-z0-9_-\]\+\)\\\/\?\$\/\)/);
   assert.match(appSource, /function toggleSharedConstructionVisibility\(\)/);
   assert.match(appSource, /state\.shareView && !state\.shareConstructionVisible/);
+  assert.match(appSource, /async function endShareLink\(token\)/);
+  assert.match(appSource, /endButton\.textContent = "공유 종료"/);
+  assert.doesNotMatch(appSource, /stopShareLink|stopButton\.textContent = "중지"/);
   assert.match(appSource, /\{ name: "회색", value: "#3f4a46" \}/);
   assert.doesNotMatch(appSource, /dashArray:\s*"8 7"/);
   assert.match(css, /\.pin-icon-actions\s*\{[^}]*repeat\(4,\s*34px\)/s);
@@ -94,6 +97,7 @@ try {
   assert.match(css, /\.is-share-view #recordControls\s*\{[^}]*display:\s*grid\s*!important/s);
   assert.match(css, /\.is-share-view \.share-construction-toggle:not\(\[hidden\]\)\s*\{[^}]*display:\s*inline-flex/s);
   assert.match(css, /\.is-share-loading \.control-panel\s*\{[^}]*pointer-events:\s*none/s);
+  assert.match(css, /\.share-item\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto\s*auto\s*auto/s);
 
   const createResponse = await fetch(`${baseUrl}/api/projects`, {
     method: "POST",
