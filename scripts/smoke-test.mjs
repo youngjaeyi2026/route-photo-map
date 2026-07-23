@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-construction-visibility-1/);
+  assert.match(pageHtml, /20260723-review-photo-position-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -116,6 +116,10 @@ try {
   );
   assert.match(appSource, /copyButton\.textContent = "코드 복사"/);
   assert.match(appSource, /async function copyProjectCode\(code\)/);
+  assert.match(appSource, /const usesMapCenter = !options\.position && !state\.tracking/);
+  assert.match(appSource, /usesMapCenter \? "map-center" : "map"/);
+  assert.match(appSource, /options\.label \|\| \(fixedPosition \? "지도 화면 중앙" : "위치 정보 없음"\)/);
+  assert.match(appSource, /if \(position && state\.tracking\) \{\s*state\.selectedPosition/);
   assert.match(appSource, /async function endShareLink\(token\)/);
   assert.match(appSource, /endButton\.textContent = "공유 종료"/);
   assert.doesNotMatch(appSource, /stopShareLink|stopButton\.textContent = "중지"/);
@@ -134,6 +138,8 @@ try {
   assert.match(css, /#followRouteBtn\s*\{[^}]*min-height:\s*42px/s);
   assert.match(css, /#constructionVisibilityBtn\s*\{/);
   assert.match(css, /\.my-project-actions\s*\{[^}]*grid-template-columns:\s*auto\s*auto\s*auto/s);
+  assert.match(css, /\.point-edit-row button,[\s\S]+?font-size:\s*12px;[\s\S]+?font-weight:\s*800/s);
+  assert.doesNotMatch(css, /\.point-edit-row button,[\s\S]{0,220}?font-size:\s*10px/);
   assert.match(css, /\.route-follow-status\s*\{[^}]*background:\s*#fff1ee/s);
   assert.match(css, /\.is-share-view \.timeline-section,[\s\S]+?\.is-share-view \.history-section/s);
   assert.match(css, /\.is-share-view #recordControls\s*\{[^}]*display:\s*grid\s*!important/s);

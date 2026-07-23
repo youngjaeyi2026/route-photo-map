@@ -742,13 +742,14 @@ async function handlePhotoInput(event, options = {}) {
   setStatus("사진을 저장하고 위치를 확인하는 중입니다.");
 
   try {
-    const fixedPosition = options.position || null;
+    const usesMapCenter = !options.position && !state.tracking;
+    const fixedPosition = options.position || (usesMapCenter ? getMapCenterPosition() : null);
     const [locationResult, photoSrc] = await Promise.all([
-      fixedPosition
+      fixedPosition || usesMapCenter
         ? Promise.resolve({
             position: fixedPosition,
-            source: options.source || "map",
-            label: options.label || "지도 선택 위치",
+            source: fixedPosition ? options.source || (usesMapCenter ? "map-center" : "map") : "none",
+            label: options.label || (fixedPosition ? "지도 화면 중앙" : "위치 정보 없음"),
           })
         : getBestPhotoPosition(file),
       resizePhotoForStorage(file),
@@ -765,7 +766,7 @@ async function handlePhotoInput(event, options = {}) {
       locationSource: locationResult.source,
       timestamp: Date.now(),
     });
-    if (position) {
+    if (position && state.tracking) {
       state.selectedPosition = { lat: position.lat, lng: position.lng, timestamp: Date.now() };
     }
     event.target.value = "";
@@ -4687,6 +4688,7 @@ function getLocationSourceLabel(source) {
     exif: "사진 GPS",
     gps: "현재 GPS",
     map: "지도 선택",
+    "map-center": "지도 중앙",
     initial: "접속 위치",
     none: "위치 없음",
   };

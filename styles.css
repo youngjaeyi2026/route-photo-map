@@ -403,7 +403,7 @@ label[for="photoInput"] {
   background: #315f9e;
   font: inherit;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 #addConstructionPinBtn {
@@ -2259,7 +2259,7 @@ label[for="photoInput"] {
   .point-number-row button {
     min-height: 30px;
     padding: 0 6px;
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .photo-tools {
