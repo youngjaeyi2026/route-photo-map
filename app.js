@@ -196,6 +196,9 @@ let lastFollowMapMoveAt = 0;
 let lastLiveStatusAt = 0;
 let routeFollowWatcherId = null;
 let shareViewTimerId = null;
+let projectOpenRequestId = 0;
+let projectSyncQueue = Promise.resolve();
+const pendingProjectSyncs = new Set();
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
 let colorPickerConfirmHandler = null;
 let authEls = {};
@@ -1504,9 +1507,20 @@ async function openServerProject(code) {
     return;
   }
 
+  const requestId = ++projectOpenRequestId;
+  if (pendingProjectSyncs.size > 0) {
+    setProjectStatus("현재 프로젝트의 변경사항을 저장한 뒤 불러옵니다.");
+    await Promise.allSettled([...pendingProjectSyncs]);
+  }
+  if (requestId !== projectOpenRequestId) {
+    return;
+  }
   setProjectStatus("프로젝트 기록을 불러오는 중입니다.");
   try {
     const project = await requestJson(`/api/projects/${encodeURIComponent(normalizedCode)}`);
+    if (requestId !== projectOpenRequestId) {
+      return;
+    }
     applyProject(project);
     updateProjectUrl(project.code);
     persist();
@@ -1519,65 +1533,99 @@ async function openServerProject(code) {
   }
 }
 
-async function syncProjectState(reason = "manual") {
+function syncProjectState(reason = "manual") {
   if (!state.projectCode) {
     setProjectStatus("서버 저장은 공유 프로젝트를 만든 뒤 사용할 수 있습니다.");
-    return false;
+    return Promise.resolve(false);
   }
+  const job = {
+    projectCode: state.projectCode,
+    reason,
+    payload: createProjectSyncPayload(reason),
+  };
+  const operation = projectSyncQueue.then(() => performProjectSync(job));
+  projectSyncQueue = operation.catch(() => false);
+  pendingProjectSyncs.add(operation);
+  operation.then(
+    () => pendingProjectSyncs.delete(operation),
+    () => pendingProjectSyncs.delete(operation),
+  );
+  return operation;
+}
 
-  state.syncDirty = true;
-  state.syncing = true;
-  state.lastSyncError = "";
-  persist();
-  setProjectStatus("서버 동기화 중입니다. 연결이 불안정해도 현재 작업은 로컬에 보관됩니다.");
-
-  try {
-    await preparePhotosForProjectSync();
-    const project = await requestJson(`/api/projects/${encodeURIComponent(state.projectCode)}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        name: state.projectName || "프로젝트A",
-        reason,
-        points: state.points,
-        photos: state.photos,
-        milestones: state.milestones,
-        sessions: state.sessions,
-        primarySessionId: state.primarySessionId,
-      }),
-    });
-    applyProjectMeta(project);
-    state.syncDirty = false;
-    state.syncing = false;
-    state.lastSyncedAt = Date.now();
-    state.lastSyncFailedAt = null;
+async function performProjectSync(job) {
+  const { projectCode: syncProjectCode, reason, payload: initialPayload } = job;
+  if (state.projectCode === syncProjectCode) {
+    state.syncDirty = true;
+    state.syncing = true;
     state.lastSyncError = "";
     persist();
-    if (state.user && reason !== "auto-retry") {
-      loadMyProjects();
+    setProjectStatus("서버 동기화 중입니다. 연결이 불안정해도 현재 작업은 로컬에 보관됩니다.");
+  }
+
+  try {
+    let payload = initialPayload;
+    if (state.projectCode === syncProjectCode) {
+      await preparePhotosForProjectSync();
+      if (state.projectCode === syncProjectCode) {
+        payload = createProjectSyncPayload(reason);
+      }
     }
-    setProjectStatus(`${formatDate(Date.now())} 서버에 저장했습니다. 다른 기기에서는 불러오기를 눌러 확인하세요.`);
+    const project = await requestJson(`/api/projects/${encodeURIComponent(syncProjectCode)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    if (state.projectCode === syncProjectCode) {
+      applyProjectMeta(project);
+      state.syncDirty = false;
+      state.syncing = false;
+      state.lastSyncedAt = Date.now();
+      state.lastSyncFailedAt = null;
+      state.lastSyncError = "";
+      persist();
+      if (state.user && reason !== "auto-retry") {
+        loadMyProjects();
+      }
+      setProjectStatus(`${formatDate(Date.now())} 서버에 저장했습니다. 다른 기기에서는 불러오기를 눌러 확인하세요.`);
+    }
     return true;
   } catch (error) {
-    state.syncDirty = true;
-    state.syncing = false;
-    state.lastSyncFailedAt = Date.now();
-    state.lastSyncError = error?.message || "network";
-    persist();
-    if (error?.message === "request_body_too_large") {
-      setProjectStatus("서버 저장 용량을 초과했습니다. 사진 수를 줄이거나 서버 용량 설정을 확인해 주세요.");
-      return false;
+    if (state.projectCode === syncProjectCode) {
+      state.syncDirty = true;
+      state.syncing = false;
+      state.lastSyncFailedAt = Date.now();
+      state.lastSyncError = error?.message || "network";
+      persist();
     }
-    if (error?.message === "server_not_ready") {
-      setProjectStatus("운영 서버의 TiDB 또는 R2 설정이 완료되지 않아 저장을 중단했습니다.");
-      return false;
+    if (state.projectCode === syncProjectCode) {
+      if (error?.message === "request_body_too_large") {
+        setProjectStatus("서버 저장 용량을 초과했습니다. 사진 수를 줄이거나 서버 용량 설정을 확인해 주세요.");
+        return false;
+      }
+      if (error?.message === "server_not_ready") {
+        setProjectStatus("운영 서버의 TiDB 또는 R2 설정이 완료되지 않아 저장을 중단했습니다.");
+        return false;
+      }
+      if (error?.message === "photo_upload_failed") {
+        setProjectStatus("사진 업로드에 실패했습니다. 네트워크 연결과 R2 설정을 확인해 주세요.");
+        return false;
+      }
+      setProjectStatus("서버 저장에 실패했습니다. 연결 상태를 확인해 주세요.");
     }
-    if (error?.message === "photo_upload_failed") {
-      setProjectStatus("사진 업로드에 실패했습니다. 네트워크 연결과 R2 설정을 확인해 주세요.");
-      return false;
-    }
-    setProjectStatus("서버 저장에 실패했습니다. 연결 상태를 확인해 주세요.");
     return false;
   }
+}
+
+function createProjectSyncPayload(reason) {
+  return {
+    name: state.projectName || "프로젝트A",
+    reason,
+    points: structuredClone(state.points),
+    photos: structuredClone(state.photos),
+    milestones: structuredClone(state.milestones),
+    sessions: structuredClone(state.sessions),
+    primarySessionId: state.primarySessionId,
+  };
 }
 
 async function preparePhotosForProjectSync() {

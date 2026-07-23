@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-text-project-actions-1/);
+  assert.match(pageHtml, /20260723-project-switch-sync-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -116,6 +116,13 @@ try {
   );
   assert.match(appSource, /copyButton\.textContent = "코드 복사"/);
   assert.match(appSource, /async function copyProjectCode\(code\)/);
+  assert.match(appSource, /const pendingProjectSyncs = new Set\(\)/);
+  assert.match(appSource, /projectSyncQueue\.then\(\(\) => performProjectSync\(job\)\)/);
+  assert.match(appSource, /await Promise\.allSettled\(\[\.\.\.pendingProjectSyncs\]\)/);
+  assert.match(appSource, /const requestId = \+\+projectOpenRequestId/);
+  assert.match(appSource, /if \(requestId !== projectOpenRequestId\) \{\s*return;/);
+  assert.match(appSource, /projectCode: state\.projectCode,[\s\S]+?payload: createProjectSyncPayload\(reason\)/);
+  assert.match(appSource, /const \{ projectCode: syncProjectCode, reason, payload: initialPayload \} = job/);
   assert.match(appSource, /openButton\.textContent = "열기"/);
   assert.match(appSource, /deleteButton\.textContent = "삭제"/);
   assert.match(appSource, /memo\.textContent = pin\.memo\?\.trim\(\) \|\| "메모 없음"/);
