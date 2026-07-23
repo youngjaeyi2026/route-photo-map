@@ -1332,6 +1332,7 @@ label[for="photoInput"] {
 }
 
 .pin-list-actions button,
+.pin-color-action,
 .overlay-item button {
   min-height: 30px;
   min-width: 48px;
@@ -1340,6 +1341,32 @@ label[for="photoInput"] {
   background: #ffffff;
   font-size: 12px;
   font-weight: 800;
+}
+
+.pin-color-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.pin-color-action input[type="color"] {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pin-color-action input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.pin-color-action input[type="color"]::-webkit-color-swatch {
+  border: 1px solid rgba(22, 32, 28, 0.18);
+  border-radius: 999px;
 }
 
 .overlay-item {

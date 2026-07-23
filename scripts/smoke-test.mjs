@@ -23,7 +23,7 @@ const child = spawn(process.execPath, ["server.mjs"], {
     R2_ACCESS_KEY_ID: "",
     R2_SECRET_ACCESS_KEY: "",
     DATA_DIR: dataDir,
-    MAX_BODY_BYTES: "256",
+    MAX_BODY_BYTES: "4096",
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -49,11 +49,19 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260720-panel-scroll-2/);
+  assert.match(pageHtml, /20260723-construction-share-1/);
   const cssResponse = await fetch(`${baseUrl}/styles.css`);
   const css = await cssResponse.text();
   assert.equal(cssResponse.status, 200);
   assert.match(css, /\.control-panel\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/s);
+  const appResponse = await fetch(`${baseUrl}/app.js`);
+  const appSource = await appResponse.text();
+  assert.equal(appResponse.status, 200);
+  assert.match(
+    appSource,
+    /state\.milestones = normalizeMilestones\([\s\S]+?const primarySession[\s\S]+?if \(primarySession\)/,
+  );
+  assert.match(appSource, /displayCode[\s\S]+?normalizeConstructionColor/);
 
   const createResponse = await fetch(`${baseUrl}/api/projects`, {
     method: "POST",
@@ -62,6 +70,48 @@ try {
   });
   assert.equal(createResponse.status, 201);
   const project = await createResponse.json();
+  const routePoints = [
+    { lat: 37.5, lng: 127, timestamp: 1 },
+    { lat: 37.51, lng: 127.01, timestamp: 2 },
+  ];
+  const constructionPins = [
+    {
+      id: "construction-1",
+      type: "construction",
+      name: "상수도 공사",
+      displayCode: "D1",
+      color: "#315f9e",
+      lat: 37.505,
+      lng: 127.005,
+      createdAt: 1,
+    },
+  ];
+  const saveResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "smoke-test",
+      points: routePoints,
+      photos: [],
+      milestones: constructionPins,
+      sessions: [{ id: "route-1", points: routePoints, photos: [] }],
+      primarySessionId: "route-1",
+    }),
+  });
+  assert.equal(saveResponse.status, 200);
+  const shareResponse = await fetch(`${baseUrl}/api/projects/${project.code}/share`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expiresIn: "7d" }),
+  });
+  assert.equal(shareResponse.status, 201);
+  const share = await shareResponse.json();
+  const sharedResponse = await fetch(`${baseUrl}/api/share/${share.token}`);
+  const shared = await sharedResponse.json();
+  assert.equal(sharedResponse.status, 200);
+  assert.deepEqual(shared.project.sessions[0].points, routePoints);
+  assert.deepEqual(shared.project.lastState.milestones, constructionPins);
+
   const photoResponse = await fetch(`${baseUrl}/api/projects/${project.code}/photos`, {
     method: "POST",
     headers: { "Content-Type": "image/jpeg" },
@@ -74,12 +124,12 @@ try {
   const oversizedResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: "x".repeat(1000) }),
+    body: JSON.stringify({ name: "x".repeat(5000) }),
   });
   const oversizedBody = await oversizedResponse.json();
   assert.equal(oversizedResponse.status, 413);
   assert.equal(oversizedBody.error, "request_body_too_large");
-  console.log("Smoke test passed: UI serving, readiness, photo storage guard, and size protection work.");
+  console.log("Smoke test passed: UI, shared route/construction data, storage guard, and size protection work.");
 } finally {
   child.kill();
   rmSync(dataDir, { recursive: true, force: true });

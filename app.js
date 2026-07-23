@@ -3,6 +3,7 @@ const SESSIONS_KEY = "route-photo-map-sessions-v1";
 const MAX_STORED_IMAGE_LENGTH = 850000;
 const MAX_EDIT_POINT_MARKERS = 1000;
 const DESTINATION_ARRIVAL_RADIUS_METERS = 20;
+const DEFAULT_CONSTRUCTION_COLOR = "#c34236";
 const OVERLAY_COLORS = ["#315f9e", "#c34236", "#9a5b12", "#5e4fa2", "#0f7f6e", "#c98c2b"];
 
 if (!window.L) {
@@ -1598,17 +1599,19 @@ function applyProject(project) {
   applyProjectMeta(project);
   state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
   state.primarySessionId = project.primarySessionId || state.sessions[0]?.id || null;
+  const lastState = project.lastState || {};
+  state.milestones = normalizeMilestones(
+    Array.isArray(lastState.milestones) ? structuredClone(lastState.milestones) : [],
+  );
   const primarySession = state.sessions.find((session) => session.id === state.primarySessionId);
   if (primarySession) {
     state.points = Array.isArray(primarySession.points) ? structuredClone(primarySession.points) : [];
     state.photos = Array.isArray(primarySession.photos) ? structuredClone(primarySession.photos) : [];
     state.selectedPosition = state.points.at(-1) || null;
   } else if (project.lastState) {
-    state.points = Array.isArray(project.lastState.points) ? project.lastState.points : state.points;
-    state.photos = Array.isArray(project.lastState.photos) ? project.lastState.photos : state.photos;
-    state.milestones = Array.isArray(project.lastState.milestones)
-      ? project.lastState.milestones
-      : state.milestones;
+    state.points = Array.isArray(lastState.points) ? structuredClone(lastState.points) : [];
+    state.photos = Array.isArray(lastState.photos) ? structuredClone(lastState.photos) : [];
+    state.selectedPosition = state.points.at(-1) || null;
   }
   state.undoRouteEdit = null;
   state.continuingSessionId = null;
@@ -3434,6 +3437,14 @@ function addMapPin(type = "milestone") {
   if (memo === null) {
     return;
   }
+  let displayCode = "";
+  if (type === "construction") {
+    const code = window.prompt("지도 표시 코드 (예: C1, D1)", getNextConstructionCode());
+    if (code === null) {
+      return;
+    }
+    displayCode = normalizeConstructionCode(code, getNextConstructionCode());
+  }
 
   state.milestones.push({
     id: crypto.randomUUID(),
@@ -3446,11 +3457,21 @@ function addMapPin(type = "milestone") {
     completed: false,
     arrivalRadius: DESTINATION_ARRIVAL_RADIUS_METERS,
     createdAt: Date.now(),
+    ...(type === "construction"
+      ? {
+          displayCode,
+          color: DEFAULT_CONSTRUCTION_COLOR,
+        }
+      : {}),
   });
   persist();
   renderMilestones();
   syncProjectState(`pin-${type}`);
-  setStatus(`지도 중앙에 ${label}을 추가했습니다. 도착 반경은 ${DESTINATION_ARRIVAL_RADIUS_METERS}m 기준입니다.`);
+  setStatus(
+    type === "construction"
+      ? `지도 중앙에 ${displayCode} 공사구역을 추가했습니다. 목록의 색상 버튼에서 구분 색상을 바꿀 수 있습니다.`
+      : `지도 중앙에 ${label}을 추가했습니다. 도착 반경은 ${DESTINATION_ARRIVAL_RADIUS_METERS}m 기준입니다.`,
+  );
 }
 
 function getPinBasePosition() {
@@ -3546,6 +3567,7 @@ function renderMilestones() {
       html: createMapPinHtml(
         pin.type === "construction" ? "construction" : pin.completed ? "destination-complete" : isActive ? "destination-active" : "milestone",
         pinLabel,
+        pin.type === "construction" ? pin.color : "",
       ),
       iconSize: [34, 38],
       iconAnchor: [17, 38],
@@ -3594,7 +3616,7 @@ function renderMilestones() {
 
     const actions = document.createElement("div");
     actions.className = "pin-list-actions";
-    if (isDestination) {
+    if (isDestination && !state.shareView) {
       const targetButton = document.createElement("button");
       targetButton.type = "button";
       targetButton.textContent = isActive ? "종료" : "목적지";
@@ -3620,15 +3642,32 @@ function renderMilestones() {
       map.setView([pin.lat, pin.lng], 18);
       setStatus(`${pin.name} 위치로 이동했습니다.`);
     });
-    const editButton = document.createElement("button");
-    editButton.type = "button";
-    editButton.textContent = "수정";
-    editButton.addEventListener("click", () => editMapPin(pin.id));
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.textContent = "삭제";
-    deleteButton.addEventListener("click", () => deleteMapPin(pin.id));
-    actions.append(locateButton, editButton, deleteButton);
+    actions.append(locateButton);
+    if (!state.shareView) {
+      if (!isDestination) {
+        const colorLabel = document.createElement("label");
+        colorLabel.className = "pin-color-action";
+        colorLabel.title = `${pinLabel} 색상 변경`;
+        const colorInput = document.createElement("input");
+        colorInput.type = "color";
+        colorInput.value = normalizeConstructionColor(pin.color);
+        colorInput.setAttribute("aria-label", `${pinLabel} 공사구역 색상`);
+        colorInput.addEventListener("change", () => updateConstructionPinColor(pin.id, colorInput.value));
+        const colorText = document.createElement("span");
+        colorText.textContent = "색상";
+        colorLabel.append(colorInput, colorText);
+        actions.append(colorLabel);
+      }
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.textContent = "수정";
+      editButton.addEventListener("click", () => editMapPin(pin.id));
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.textContent = "삭제";
+      deleteButton.addEventListener("click", () => deleteMapPin(pin.id));
+      actions.append(editButton, deleteButton);
+    }
 
     item.append(body, actions);
     els.milestoneList.append(item);
@@ -3809,8 +3848,20 @@ function editMapPin(pinId) {
   if (memo === null) {
     return;
   }
+  let displayCode = pin.displayCode;
+  if (pin.type === "construction") {
+    const code = window.prompt("지도 표시 코드 (예: C1, D1)", getMapPinLabel(pin));
+    if (code === null) {
+      return;
+    }
+    displayCode = normalizeConstructionCode(code, getMapPinLabel(pin));
+  }
   pin.name = name.trim() || getPinTypeLabel(pin.type);
   pin.memo = memo.trim();
+  if (pin.type === "construction") {
+    pin.displayCode = displayCode;
+    pin.color = normalizeConstructionColor(pin.color);
+  }
   pin.editedAt = Date.now();
   persist();
   renderMilestones();
@@ -3846,7 +3897,7 @@ function getPinTypeLabel(type) {
 
 function getMapPinLabel(pin) {
   if (pin.type === "construction") {
-    return `C${getConstructionPinNumber(pin)}`;
+    return normalizeConstructionCode(pin.displayCode, `C${getConstructionPinNumber(pin)}`);
   }
   return `T${pin.priority || "?"}`;
 }
@@ -3859,8 +3910,72 @@ function getConstructionPinNumber(pin) {
   return index >= 0 ? index + 1 : "?";
 }
 
-function createMapPinHtml(type, label) {
-  return `<span class="map-pin map-pin--${type}"><b>${escapeHtml(label)}</b></span>`;
+function getNextConstructionCode() {
+  const usedNumbers = state.milestones
+    .filter((pin) => pin.type === "construction")
+    .map((pin) => getMapPinLabel(pin).match(/^C(\d+)$/i))
+    .filter(Boolean)
+    .map((match) => Number(match[1]));
+  return `C${Math.max(0, ...usedNumbers) + 1}`;
+}
+
+function normalizeConstructionCode(value, fallback = "C?") {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .slice(0, 8)
+    .toUpperCase();
+  return normalized || fallback;
+}
+
+function normalizeConstructionColor(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(normalized) ? normalized : DEFAULT_CONSTRUCTION_COLOR;
+}
+
+function normalizeMilestones(milestones) {
+  const normalized = milestones.map((pin) => ({ ...pin }));
+  const constructions = normalized
+    .filter((pin) => pin.type === "construction")
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const usedCodes = new Set(
+    constructions
+      .map((pin) => normalizeConstructionCode(pin.displayCode || pin.code, ""))
+      .filter(Boolean),
+  );
+  let nextNumber = 1;
+  constructions.forEach((pin) => {
+    let displayCode = normalizeConstructionCode(pin.displayCode || pin.code, "");
+    if (!displayCode) {
+      while (usedCodes.has(`C${nextNumber}`)) {
+        nextNumber += 1;
+      }
+      displayCode = `C${nextNumber}`;
+      usedCodes.add(displayCode);
+      nextNumber += 1;
+    }
+    pin.displayCode = displayCode;
+    pin.color = normalizeConstructionColor(pin.color);
+  });
+  return normalized;
+}
+
+function updateConstructionPinColor(pinId, color) {
+  const pin = state.milestones.find((item) => item.id === pinId && item.type === "construction");
+  if (!pin) {
+    return;
+  }
+  pin.color = normalizeConstructionColor(color);
+  pin.editedAt = Date.now();
+  persist();
+  renderMilestones();
+  syncProjectState("edit-construction-color");
+  setStatus(`${getMapPinLabel(pin)} 공사구역 색상을 변경했습니다.`);
+}
+
+function createMapPinHtml(type, label, color = "") {
+  const background = type === "construction" ? ` style="background:${normalizeConstructionColor(color)}"` : "";
+  return `<span class="map-pin map-pin--${type}"${background}><b>${escapeHtml(label)}</b></span>`;
 }
 
 async function addOverlayProject() {
@@ -4490,7 +4605,7 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
     state.points = Array.isArray(saved.points) ? saved.points : [];
     state.photos = Array.isArray(saved.photos) ? saved.photos : [];
-    state.milestones = Array.isArray(saved.milestones) ? saved.milestones : [];
+    state.milestones = normalizeMilestones(Array.isArray(saved.milestones) ? saved.milestones : []);
     state.overlayProjects = Array.isArray(saved.overlayProjects)
       ? saved.overlayProjects.map((project, index) => normalizeOverlayProject(project, index)).filter(Boolean)
       : [];
