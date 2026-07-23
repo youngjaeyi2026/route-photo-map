@@ -3,20 +3,21 @@ const SESSIONS_KEY = "route-photo-map-sessions-v1";
 const MAX_STORED_IMAGE_LENGTH = 850000;
 const MAX_EDIT_POINT_MARKERS = 1000;
 const DEFAULT_CONSTRUCTION_COLOR = "#c34236";
+const BRIGHT_YELLOW_COLOR = "#f2c400";
 const ROUTE_COMPLETED_COLOR = "#1f7a57";
 const ROUTE_REMAINING_COLOR = "#315f9e";
 const ROUTE_DEVIATION_METERS = 50;
 const REPRESENTATIVE_COLORS = [
   { name: "빨강", value: "#c34236" },
   { name: "주황", value: "#d96c1f" },
-  { name: "노랑", value: "#a97800" },
+  { name: "노랑", value: BRIGHT_YELLOW_COLOR },
   { name: "초록", value: "#1f7a57" },
   { name: "파랑", value: "#315f9e" },
   { name: "보라", value: "#6d4aa2" },
   { name: "갈색", value: "#8b5a2b" },
   { name: "회색", value: "#3f4a46" },
 ];
-const OVERLAY_COLORS = ["#315f9e", "#c34236", "#1f7a57", "#6d4aa2", "#d96c1f", "#3f4a46", "#a97800", "#8b5a2b"];
+const OVERLAY_COLORS = ["#315f9e", "#c34236", "#1f7a57", "#6d4aa2", "#d96c1f", "#3f4a46", BRIGHT_YELLOW_COLOR, "#8b5a2b"];
 
 if (!window.L) {
   window.L = createFallbackMapApi();
@@ -3995,8 +3996,8 @@ function normalizeConstructionCode(value, fallback = "C?") {
 
 function normalizeConstructionColor(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "#c79a00") {
-    return "#a97800";
+  if (normalized === "#c79a00" || normalized === "#a97800") {
+    return BRIGHT_YELLOW_COLOR;
   }
   if (normalized === "#5f6b66") {
     return "#3f4a46";
@@ -4045,7 +4046,9 @@ function updateConstructionPinColor(pinId, color) {
 }
 
 function createMapPinHtml(type, label, color = "") {
-  const background = type === "construction" ? ` style="background:${normalizeConstructionColor(color)}"` : "";
+  const pinColor = normalizeConstructionColor(color);
+  const foreground = pinColor === BRIGHT_YELLOW_COLOR ? ";color:#3b3210" : "";
+  const background = type === "construction" ? ` style="background:${pinColor}${foreground}"` : "";
   return `<span class="map-pin map-pin--${type}"${background}><b>${escapeHtml(label)}</b></span>`;
 }
 

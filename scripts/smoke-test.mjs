@@ -49,7 +49,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-share-route-only-1/);
+  assert.match(pageHtml, /20260723-bright-yellow-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="addConstructionPinBtn"/);
@@ -73,7 +73,10 @@ try {
   assert.match(appSource, /startShareViewVerification[\s\S]+?verifyShareView/);
   assert.match(appSource, /primarySession[\s\S]+?primaryPoints\.length > 0 \? primaryPoints : lastStatePoints/);
   assert.match(appSource, /ROUTE_COMPLETED_COLOR = "#1f7a57"[\s\S]+?ROUTE_REMAINING_COLOR = "#315f9e"/);
-  assert.match(appSource, /\{ name: "노랑", value: "#a97800" \}/);
+  assert.match(appSource, /\{ name: "노랑", value: BRIGHT_YELLOW_COLOR \}/);
+  assert.match(appSource, /BRIGHT_YELLOW_COLOR = "#f2c400"/);
+  assert.match(appSource, /normalized === "#c79a00" \|\| normalized === "#a97800"/);
+  assert.match(appSource, /pinColor === BRIGHT_YELLOW_COLOR \? ";color:#3b3210"/);
   assert.match(appSource, /\{ name: "회색", value: "#3f4a46" \}/);
   assert.doesNotMatch(appSource, /dashArray:\s*"8 7"/);
   assert.match(css, /\.pin-icon-actions\s*\{[^}]*repeat\(4,\s*34px\)/s);
