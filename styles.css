@@ -2418,3 +2418,44 @@ label[for="photoInput"] {
     border-bottom: 0;
   }
 }
+
+body.is-auth-pending:not(.is-share-view),
+body.is-logged-out:not(.is-share-view) {
+  min-height: 100dvh;
+  background: var(--panel);
+}
+
+body.is-auth-pending:not(.is-share-view) .app-shell,
+body.is-logged-out:not(.is-share-view) .app-shell {
+  display: block;
+  min-height: 100dvh;
+}
+
+body.is-auth-pending:not(.is-share-view) .map-stage,
+body.is-logged-out:not(.is-share-view) .map-stage,
+body.is-auth-pending:not(.is-share-view) .control-panel > *:not(.panel-header):not(.auth-section),
+body.is-logged-out:not(.is-share-view) .control-panel > *:not(.panel-header):not(.auth-section) {
+  display: none !important;
+}
+
+body.is-auth-pending:not(.is-share-view) .control-panel,
+body.is-logged-out:not(.is-share-view) .control-panel {
+  width: min(100%, 460px);
+  height: 100dvh;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 28px;
+  justify-content: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-shadow: none;
+}
+
+body.is-auth-pending:not(.is-share-view) .auth-section,
+body.is-logged-out:not(.is-share-view) .auth-section {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}

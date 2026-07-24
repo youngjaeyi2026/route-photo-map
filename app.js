@@ -203,6 +203,8 @@ let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
 let colorPickerConfirmHandler = null;
 let authEls = {};
 let shareEls = {};
+let authResolved = Boolean(initialShareToken);
+let workspaceActivated = false;
 
 if (!initialShareToken) {
   loadState();
@@ -212,8 +214,6 @@ setupAdminPanel();
 setupSharePanel();
 setupColorPicker();
 render();
-showLocationReadiness();
-captureInitialPosition();
 refreshServerHealth();
 refreshAuth();
 
@@ -1948,14 +1948,27 @@ async function refreshAuth() {
   try {
     const result = await requestJson("/api/auth/me");
     state.user = result.user || null;
+    authResolved = true;
+    if (!state.user && !initialShareToken) {
+      resetWorkspaceForSignedOut();
+      render();
+      return;
+    }
     renderAuthPanel();
     if (state.user) {
+      activateWorkspaceAfterLogin();
       await loadMyProjects();
       await loadAdminUsers();
       await loadProjectShares();
     }
   } catch {
     state.user = null;
+    authResolved = true;
+    if (!initialShareToken) {
+      resetWorkspaceForSignedOut();
+      render();
+      return;
+    }
     renderAuthPanel();
   }
 }
@@ -1965,8 +1978,13 @@ function renderAuthPanel() {
     return;
   }
   const user = state.user;
+  renderAuthAccessState();
+  if (!user) {
+    state.authPanelOpen = true;
+  }
   authEls.section.classList.toggle("is-collapsed", !state.authPanelOpen);
   authEls.toggleBtn.textContent = state.authPanelOpen ? "숨기기" : "펼치기";
+  authEls.toggleBtn.hidden = !user;
   authEls.badge.textContent = user ? "로그인" : "비로그인";
   authEls.badge.classList.toggle("is-live", Boolean(user));
   authEls.email.hidden = Boolean(user);
@@ -1975,7 +1993,7 @@ function renderAuthPanel() {
   authEls.logoutBtn.hidden = !user;
   authEls.status.textContent = user
     ? `${user.email} 계정으로 로그인했습니다.${user.role === "admin" ? " 관리자 권한입니다." : ""}`
-    : "아이디와 비밀번호로 로그인하면 내 프로젝트 목록을 불러올 수 있습니다.";
+    : "아이디와 비밀번호로 로그인하면 지도와 전체 작업 기능을 사용할 수 있습니다.";
   if (authEls.adminPanel) {
     authEls.adminPanel.hidden = user?.role !== "admin";
     authEls.adminPanel.classList.toggle("is-collapsed", !state.adminPanelOpen);
@@ -1988,6 +2006,29 @@ function renderAuthPanel() {
   }
   renderAdminUserList();
   renderMyProjectList();
+}
+
+function renderAuthAccessState() {
+  if (initialShareToken || state.shareView) {
+    document.body.classList.remove("is-auth-pending", "is-logged-out", "is-authenticated");
+    return;
+  }
+  document.body.classList.toggle("is-auth-pending", !authResolved);
+  document.body.classList.toggle("is-logged-out", authResolved && !state.user);
+  document.body.classList.toggle("is-authenticated", authResolved && Boolean(state.user));
+  if (authResolved && state.user) {
+    window.requestAnimationFrame(() => map.invalidateSize());
+  }
+}
+
+function activateWorkspaceAfterLogin() {
+  if (workspaceActivated || !state.user || initialShareToken) {
+    return;
+  }
+  workspaceActivated = true;
+  showLocationReadiness();
+  captureInitialPosition();
+  window.requestAnimationFrame(() => map.invalidateSize());
 }
 
 function toggleAuthPanel() {
@@ -2026,8 +2067,10 @@ async function loginWithPassword() {
       body: JSON.stringify({ email, password }),
     });
     state.user = result.user;
+    authResolved = true;
     authEls.password.value = "";
     renderAuthPanel();
+    activateWorkspaceAfterLogin();
     await loadMyProjects();
     await loadAdminUsers();
     await loadProjectShares();
@@ -2044,14 +2087,71 @@ async function loginWithPassword() {
 }
 
 async function logout() {
+  if (state.tracking) {
+    stopTracking({ save: true, clearCurrent: false });
+  }
+  stopRouteFollowWatcher();
+  state.destinationFollow = false;
+  window.speechSynthesis?.cancel();
+  if (state.syncDirty && pendingProjectSyncs.size === 0) {
+    await syncProjectState("logout");
+  }
+  if (pendingProjectSyncs.size > 0) {
+    await Promise.allSettled([...pendingProjectSyncs]);
+  }
   try {
     await requestJson("/api/auth/session", { method: "DELETE" });
   } catch {}
   state.user = null;
   state.myProjects = [];
   state.adminUsers = [];
-  renderAuthPanel();
-  setStatus("로그아웃했습니다.", "info");
+  authResolved = true;
+  workspaceActivated = false;
+  await releaseWakeLock();
+  resetWorkspaceForSignedOut();
+  render();
+}
+
+function resetWorkspaceForSignedOut() {
+  if (state.watcherId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(state.watcherId);
+  }
+  if (state.pollerId !== null) {
+    window.clearInterval(state.pollerId);
+  }
+  stopRouteFollowWatcher();
+  state.watcherId = null;
+  state.pollerId = null;
+  state.tracking = false;
+  state.paused = false;
+  state.destinationFollow = false;
+  state.points = [];
+  state.photos = [];
+  state.milestones = [];
+  state.overlayProjects = [];
+  state.sessions = [];
+  state.primarySessionId = null;
+  state.continuingSessionId = null;
+  state.selectedPosition = null;
+  state.initialPosition = null;
+  state.projectCode = "";
+  state.projectName = "";
+  state.shareLinks = [];
+  state.syncDirty = false;
+  state.syncing = false;
+  state.activeStartedAt = null;
+  state.followProgressIndex = 0;
+  state.routeOffTrack = false;
+  state.routeDeviationSamples = 0;
+  state.routeRecoverySamples = 0;
+  state.adminPanelOpen = false;
+  state.sharePanelOpen = false;
+  state.recordPanelOpen = true;
+  state.pointEditPanelOpen = false;
+  state.pointEditMode = false;
+  updateProjectUrl("");
+  currentMarker.setLatLng([37.5665, 126.978]);
+  persist();
 }
 
 async function loadAdminUsers() {

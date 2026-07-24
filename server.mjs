@@ -207,6 +207,10 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/projects") {
+    if (databaseUrl && !currentUser) {
+      sendJson(response, 401, { error: "login_required" });
+      return;
+    }
     const body = await readJsonBody(request);
     const project = await createProject(body?.name || "프로젝트A", currentUser);
     sendJson(response, 201, project);
@@ -319,6 +323,10 @@ async function handleApi(request, response, url) {
     const project = await getProject(code);
     if (!project) {
       sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    if (!canManageProject(currentUser, project)) {
+      sendJson(response, 401, { error: "login_required" });
       return;
     }
     sendJson(response, 200, project);

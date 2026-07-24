@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -73,13 +73,14 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260723-project-rename-confirm-1/);
+  assert.match(pageHtml, /20260724-login-gate-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
   assert.match(pageHtml, /id="constructionVisibilityBtn"/);
   assert.match(pageHtml, /id="addConstructionPinBtn"/);
   assert.match(pageHtml, /document\.body\.classList\.add\("is-share-view", "is-share-loading"\)/);
+  assert.match(pageHtml, /document\.body\.classList\.add\("is-auth-pending"\)/);
   assert.match(pageHtml, /id="colorPickerConfirmBtn"[^>]*>선택 완료</);
   assert.doesNotMatch(pageHtml, /id="addMilestoneBtn"|id="destinationPhotoInput"|id="milestoneSection"/);
   const elementIds = [...pageHtml.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
@@ -88,6 +89,19 @@ try {
   const css = await cssResponse.text();
   assert.equal(cssResponse.status, 200);
   assert.match(css, /\.control-panel\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/s);
+  assert.match(
+    css,
+    /body\.is-logged-out:not\(\.is-share-view\) \.map-stage[\s\S]+?display:\s*none !important/,
+  );
+  const serverSource = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(
+    serverSource,
+    /request\.method === "POST" && url\.pathname === "\/api\/projects"[\s\S]+?databaseUrl && !currentUser[\s\S]+?login_required/,
+  );
+  assert.match(
+    serverSource,
+    /projectMatch && request\.method === "GET"[\s\S]+?!canManageProject\(currentUser, project\)[\s\S]+?login_required/,
+  );
   const appResponse = await fetch(`${baseUrl}/app.js`);
   const appSource = await appResponse.text();
   assert.equal(appResponse.status, 200);
@@ -108,6 +122,14 @@ try {
   assert.match(appSource, /if \(!initialShareToken\) \{\s*loadState\(\)/);
   assert.match(appSource, /match\(\/\^\\\/view\\\/\(\[A-Za-z0-9_-\]\+\)\\\/\?\$\/\)/);
   assert.match(appSource, /function toggleConstructionVisibility\(\)/);
+  assert.match(
+    appSource,
+    /function renderAuthAccessState\(\)[\s\S]+?is-auth-pending[\s\S]+?is-logged-out[\s\S]+?is-authenticated/,
+  );
+  assert.match(
+    appSource,
+    /function resetWorkspaceForSignedOut\(\)[\s\S]+?state\.points = \[\][\s\S]+?state\.projectCode = ""/,
+  );
   assert.match(
     appSource,
     /function renameCurrentProject\(\)[\s\S]+?window\.confirm\([\s\S]+?기존 이름:[\s\S]+?새 이름:[\s\S]+?프로젝트명 변경을 취소했습니다/,
