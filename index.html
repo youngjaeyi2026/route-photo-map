@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260724-login-gate-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260727-project-editors-1" />
   </head>
   <body>
     <script>
@@ -56,6 +56,18 @@
             </div>
           </div>
           <p id="projectStatus" class="status-text">기록 완료 시 자동 저장됩니다. 다른 기기에서는 같은 공유 코드로 불러오기를 눌러 확인합니다.</p>
+          <div id="projectCollaboration" class="project-collaboration" hidden>
+            <div class="project-collaboration__title">
+              <h3>공동 편집</h3>
+              <span id="projectAccessBadge" class="badge">소유자</span>
+            </div>
+            <div id="projectInviteControls" class="project-invite-controls">
+              <input id="projectInviteEmail" type="text" placeholder="가입된 사용자 아이디" aria-label="공동 편집 사용자 아이디" />
+              <button id="projectInviteBtn" type="button">편집자 초대</button>
+            </div>
+            <p id="projectCollaborationStatus" class="status-text">가입된 아이디를 편집자로 초대할 수 있습니다.</p>
+            <div id="projectMemberList" class="project-member-list"></div>
+          </div>
         </section>
 
         <section class="status-strip" aria-live="polite">
@@ -260,6 +272,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260724-login-gate-1"></script>
+    <script src="/app.js?v=20260727-project-editors-1"></script>
   </body>
 </html>

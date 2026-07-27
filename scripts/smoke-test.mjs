@@ -73,12 +73,14 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260724-login-gate-1/);
+  assert.match(pageHtml, /20260727-project-editors-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
   assert.match(pageHtml, /id="constructionVisibilityBtn"/);
   assert.match(pageHtml, /id="addConstructionPinBtn"/);
+  assert.match(pageHtml, /id="projectCollaboration"/);
+  assert.match(pageHtml, /id="projectInviteBtn"/);
   assert.match(pageHtml, /document\.body\.classList\.add\("is-share-view", "is-share-loading"\)/);
   assert.match(pageHtml, /document\.body\.classList\.add\("is-auth-pending"\)/);
   assert.match(pageHtml, /id="colorPickerConfirmBtn"[^>]*>선택 완료</);
@@ -100,8 +102,10 @@ try {
   );
   assert.match(
     serverSource,
-    /projectMatch && request\.method === "GET"[\s\S]+?!canManageProject\(currentUser, project\)[\s\S]+?login_required/,
+    /projectMatch && request\.method === "GET"[\s\S]+?getProjectAccessRole\(currentUser, project\)[\s\S]+?project_access_denied/,
   );
+  assert.match(serverSource, /CREATE TABLE IF NOT EXISTS project_members/);
+  assert.match(serverSource, /error: "project_conflict"/);
   const appResponse = await fetch(`${baseUrl}/app.js`);
   const appSource = await appResponse.text();
   assert.equal(appResponse.status, 200);
@@ -130,6 +134,11 @@ try {
     appSource,
     /function resetWorkspaceForSignedOut\(\)[\s\S]+?state\.points = \[\][\s\S]+?state\.projectCode = ""/,
   );
+  assert.match(
+    appSource,
+    /function inviteProjectEditor\(\)[\s\S]+?\/members[\s\S]+?function removeProjectEditor/,
+  );
+  assert.match(appSource, /다른 사용자의 프로젝트이므로 열 수 없습니다/);
   assert.match(
     appSource,
     /function renameCurrentProject\(\)[\s\S]+?window\.confirm\([\s\S]+?기존 이름:[\s\S]+?새 이름:[\s\S]+?프로젝트명 변경을 취소했습니다/,
@@ -213,6 +222,15 @@ try {
   assert.equal(createResponse.status, 201);
   const project = await createResponse.json();
   assert.match(project.code, /^P-[A-HJ-NP-Z2-9]{4}$/);
+  const membersResponse = await fetch(`${baseUrl}/api/projects/${project.code}/members`);
+  assert.equal(membersResponse.status, 200);
+  assert.deepEqual((await membersResponse.json()).members, []);
+  const addMemberResponse = await fetch(`${baseUrl}/api/projects/${project.code}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "editor@example.com" }),
+  });
+  assert.equal(addMemberResponse.status, 503);
   const routePoints = [
     { lat: 37.5, lng: 127, timestamp: 1 },
     { lat: 37.51, lng: 127.01, timestamp: 2 },
@@ -252,6 +270,17 @@ try {
     }),
   });
   assert.equal(saveResponse.status, 200);
+  await saveResponse.json();
+  const conflictResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "stale-update",
+      baseUpdatedAt: "2000-01-01T00:00:00.000Z",
+    }),
+  });
+  assert.equal(conflictResponse.status, 409);
+  assert.equal((await conflictResponse.json()).error, "project_conflict");
   const shareResponse = await fetch(`${baseUrl}/api/projects/${project.code}/share`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

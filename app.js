@@ -38,6 +38,9 @@ const state = {
   activePhotoId: null,
   projectCode: "",
   projectName: "프로젝트A",
+  projectAccessRole: "",
+  projectRevision: "",
+  projectMembers: [],
   serverHealth: null,
   syncDirty: false,
   syncing: false,
@@ -107,6 +110,13 @@ const els = {
   projectCode: document.querySelector("#projectCode"),
   projectBadge: document.querySelector("#projectBadge"),
   projectStatus: document.querySelector("#projectStatus"),
+  projectCollaboration: document.querySelector("#projectCollaboration"),
+  projectAccessBadge: document.querySelector("#projectAccessBadge"),
+  projectInviteControls: document.querySelector("#projectInviteControls"),
+  projectInviteEmail: document.querySelector("#projectInviteEmail"),
+  projectInviteBtn: document.querySelector("#projectInviteBtn"),
+  projectCollaborationStatus: document.querySelector("#projectCollaborationStatus"),
+  projectMemberList: document.querySelector("#projectMemberList"),
   createProjectBtn: document.querySelector("#createProjectBtn"),
   renameProjectBtn: document.querySelector("#renameProjectBtn"),
   openProjectBtn: document.querySelector("#openProjectBtn"),
@@ -326,6 +336,12 @@ els.createProjectBtn.addEventListener("click", createServerProject);
 els.renameProjectBtn?.addEventListener("click", renameCurrentProject);
 els.openProjectBtn.addEventListener("click", () => openServerProject(els.projectCode.value));
 els.syncProjectBtn.addEventListener("click", () => syncProjectState("manual"));
+els.projectInviteBtn?.addEventListener("click", inviteProjectEditor);
+els.projectInviteEmail?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    inviteProjectEditor();
+  }
+});
 document.addEventListener("click", (event) => {
   if (event.target?.closest("#recordToggleBtn")) {
     event.preventDefault();
@@ -1432,6 +1448,7 @@ async function createServerProject() {
     if (state.user) {
       await loadMyProjects();
       await loadProjectShares();
+      await loadProjectMembers();
     }
     setProjectStatus(`공유 코드 ${project.code} 프로젝트를 만들었습니다.`);
   } catch {
@@ -1499,6 +1516,9 @@ function resetForNewProject() {
   state.segmentEndIndex = null;
   state.pointAddMode = false;
   state.recordPanelOpen = true;
+  state.projectAccessRole = "";
+  state.projectRevision = "";
+  state.projectMembers = [];
   stopRouteFollowWatcher();
   if (state.initialPosition) {
     currentMarker.setLatLng([state.initialPosition.lat, state.initialPosition.lng]);
@@ -1533,10 +1553,22 @@ async function openServerProject(code) {
     updateProjectUrl(project.code);
     persist();
     render();
-    loadProjectShares();
+    if (state.projectAccessRole === "owner") {
+      loadProjectShares();
+      loadProjectMembers();
+    } else {
+      state.shareLinks = [];
+      state.projectMembers = [];
+      renderSharePanel();
+      renderProjectCollaboration();
+    }
     fitToData();
     setProjectStatus(`${project.code} 기록을 불러왔습니다.`);
-  } catch {
+  } catch (error) {
+    if (error?.status === 403 || error?.payload?.error === "project_access_denied") {
+      setProjectStatus("다른 사용자의 프로젝트이므로 열 수 없습니다. 작성자에게 공유 링크나 편집자 초대를 요청해 주세요.");
+      return;
+    }
     setProjectStatus("프로젝트를 찾지 못했습니다. 공유 코드를 확인해 주세요.");
   }
 }
@@ -1618,6 +1650,10 @@ async function performProjectSync(job) {
         setProjectStatus("사진 업로드에 실패했습니다. 네트워크 연결과 R2 설정을 확인해 주세요.");
         return false;
       }
+      if (error?.status === 409 || error?.payload?.error === "project_conflict") {
+        setProjectStatus("다른 편집자가 먼저 저장했습니다. 기존 내용을 덮어쓰지 않도록 저장을 중단했습니다. 프로젝트를 다시 불러와 최신 내용을 확인해 주세요.");
+        return false;
+      }
       setProjectStatus("서버 저장에 실패했습니다. 연결 상태를 확인해 주세요.");
     }
     return false;
@@ -1633,6 +1669,7 @@ function createProjectSyncPayload(reason) {
     milestones: structuredClone(state.milestones),
     sessions: structuredClone(state.sessions),
     primarySessionId: state.primarySessionId,
+    baseUpdatedAt: state.projectRevision || null,
   };
 }
 
@@ -1754,12 +1791,15 @@ function applyProject(project) {
 function applyProjectMeta(project) {
   state.projectCode = project.code || "";
   state.projectName = project.name || "프로젝트A";
+  state.projectAccessRole = project.accessRole || (project.ownerUserId === state.user?.id ? "owner" : "");
+  state.projectRevision = project.updatedAt || "";
   state.shareLinks = [];
   if (!state.shareView) {
     persist();
   }
   renderProjectState();
   renderSharePanel();
+  renderProjectCollaboration();
 }
 
 function renderProjectState() {
@@ -1772,17 +1812,138 @@ function renderProjectState() {
     els.recordTitle.textContent = state.shareView ? "노선 보기" : "기록";
   }
   if (els.renameProjectBtn) {
-    els.renameProjectBtn.disabled = !state.projectCode || Boolean(state.shareView);
+    els.renameProjectBtn.disabled =
+      !state.projectCode || Boolean(state.shareView) || state.projectAccessRole !== "owner";
   }
   els.projectBadge.textContent = state.projectCode || getStorageBadgeLabel();
   if (state.shareView) {
     els.projectBadge.textContent = "공유 보기";
+  } else if (state.projectAccessRole === "editor") {
+    els.projectBadge.textContent = "공유받음";
   }
   const serverReady = state.serverHealth?.environment !== "production" || state.serverHealth?.ready !== false;
   els.projectBadge.classList.toggle(
     "is-live",
     serverReady && Boolean(state.projectCode || state.serverHealth?.storage === "tidb"),
   );
+}
+
+async function loadProjectMembers() {
+  if (!state.projectCode || state.projectAccessRole !== "owner" || state.shareView) {
+    state.projectMembers = [];
+    renderProjectCollaboration();
+    return;
+  }
+  try {
+    const result = await requestJson(
+      `/api/projects/${encodeURIComponent(state.projectCode)}/members`,
+    );
+    state.projectMembers = Array.isArray(result.members) ? result.members : [];
+    els.projectCollaborationStatus.textContent =
+      state.projectMembers.length > 0
+        ? `편집자 ${state.projectMembers.length}명이 함께 작업할 수 있습니다.`
+        : "가입된 아이디를 편집자로 초대할 수 있습니다.";
+  } catch {
+    state.projectMembers = [];
+    els.projectCollaborationStatus.textContent = "공동 편집 사용자 목록을 불러오지 못했습니다.";
+  }
+  renderProjectCollaboration();
+}
+
+async function inviteProjectEditor() {
+  if (!state.projectCode || state.projectAccessRole !== "owner") {
+    return;
+  }
+  const email = els.projectInviteEmail?.value.trim();
+  if (!email) {
+    els.projectCollaborationStatus.textContent = "초대할 가입 아이디를 입력해 주세요.";
+    els.projectInviteEmail?.focus();
+    return;
+  }
+  els.projectCollaborationStatus.textContent = "편집자를 추가하는 중입니다.";
+  try {
+    const result = await requestJson(
+      `/api/projects/${encodeURIComponent(state.projectCode)}/members`,
+      {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      },
+    );
+    state.projectMembers = [
+      ...state.projectMembers.filter((member) => member.id !== result.member.id),
+      result.member,
+    ];
+    els.projectInviteEmail.value = "";
+    els.projectCollaborationStatus.textContent = `${result.member.email} 사용자를 편집자로 추가했습니다.`;
+    renderProjectCollaboration();
+  } catch (error) {
+    const reason = error?.payload?.error;
+    els.projectCollaborationStatus.textContent =
+      reason === "member_not_found"
+        ? "가입되어 있고 활성화된 사용자를 찾지 못했습니다."
+        : reason === "member_is_owner"
+          ? "프로젝트 소유자는 편집자로 다시 추가할 수 없습니다."
+          : "편집자를 추가하지 못했습니다.";
+  }
+}
+
+async function removeProjectEditor(member) {
+  if (!state.projectCode || state.projectAccessRole !== "owner") {
+    return;
+  }
+  const ok = window.confirm(`${member.email} 사용자의 공동 편집 권한을 해제할까요?`);
+  if (!ok) {
+    return;
+  }
+  try {
+    await requestJson(
+      `/api/projects/${encodeURIComponent(state.projectCode)}/members/${encodeURIComponent(member.id)}`,
+      { method: "DELETE" },
+    );
+    state.projectMembers = state.projectMembers.filter((item) => item.id !== member.id);
+    els.projectCollaborationStatus.textContent = `${member.email} 사용자의 편집 권한을 해제했습니다.`;
+    renderProjectCollaboration();
+  } catch {
+    els.projectCollaborationStatus.textContent = "편집 권한을 해제하지 못했습니다.";
+  }
+}
+
+function renderProjectCollaboration() {
+  if (!els.projectCollaboration) {
+    return;
+  }
+  const hasProject = Boolean(state.projectCode && !state.shareView);
+  els.projectCollaboration.hidden = !hasProject;
+  if (!hasProject) {
+    return;
+  }
+  const isOwner = state.projectAccessRole === "owner";
+  els.projectAccessBadge.textContent = isOwner ? "소유자" : "편집자";
+  els.projectInviteControls.hidden = !isOwner;
+  if (!isOwner) {
+    els.projectCollaborationStatus.textContent =
+      "소유자가 편집 권한을 공유했습니다. 공유 링크 관리와 프로젝트 삭제는 소유자만 할 수 있습니다.";
+  }
+  els.projectMemberList.innerHTML = "";
+  if (!isOwner) {
+    return;
+  }
+  state.projectMembers.forEach((member) => {
+    const item = document.createElement("article");
+    item.className = "project-member-item";
+    const body = document.createElement("div");
+    const title = document.createElement("strong");
+    const role = document.createElement("span");
+    title.textContent = member.email;
+    role.textContent = "편집자";
+    body.append(title, role);
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.textContent = "해제";
+    removeButton.addEventListener("click", () => removeProjectEditor(member));
+    item.append(body, removeButton);
+    els.projectMemberList.append(item);
+  });
 }
 
 function getStorageBadgeLabel() {
@@ -2136,6 +2297,9 @@ function resetWorkspaceForSignedOut() {
   state.initialPosition = null;
   state.projectCode = "";
   state.projectName = "";
+  state.projectAccessRole = "";
+  state.projectRevision = "";
+  state.projectMembers = [];
   state.shareLinks = [];
   state.syncDirty = false;
   state.syncing = false;
@@ -2296,12 +2460,14 @@ function renderMyProjectList() {
   state.myProjects.forEach((project) => {
     const item = document.createElement("article");
     item.className = "my-project-item";
+    item.classList.toggle("is-shared-project", project.accessRole === "editor");
     const body = document.createElement("div");
     const title = document.createElement("strong");
     const meta = document.createElement("span");
     title.textContent = project.name || "프로젝트";
     title.title = project.name || "프로젝트";
-    meta.textContent = `${project.code} · ${formatDate(getProjectRecordDisplayTime(project))}`;
+    const accessLabel = project.accessRole === "editor" ? "공유받음 · " : "";
+    meta.textContent = `${accessLabel}${project.code} · ${formatDate(getProjectRecordDisplayTime(project))}`;
     body.append(title, meta);
     const actions = document.createElement("div");
     actions.className = "my-project-actions";
@@ -2316,12 +2482,15 @@ function renderMyProjectList() {
     openButton.className = "project-list-action project-list-action--open";
     openButton.textContent = "열기";
     openButton.addEventListener("click", () => openServerProject(project.code));
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "project-list-action project-list-action--delete";
-    deleteButton.textContent = "삭제";
-    deleteButton.addEventListener("click", () => deleteMyProject(project));
-    actions.append(copyButton, openButton, deleteButton);
+    actions.append(copyButton, openButton);
+    if (project.accessRole !== "editor") {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "project-list-action project-list-action--delete";
+      deleteButton.textContent = "삭제";
+      deleteButton.addEventListener("click", () => deleteMyProject(project));
+      actions.append(deleteButton);
+    }
     item.append(body, actions);
     authEls.list.append(item);
   });
@@ -2352,6 +2521,9 @@ async function deleteMyProject(project) {
     state.myProjects = state.myProjects.filter((item) => item.code !== project.code);
     if (state.projectCode === project.code) {
       state.projectCode = "";
+      state.projectAccessRole = "";
+      state.projectRevision = "";
+      state.projectMembers = [];
       state.points = [];
       state.photos = [];
       state.milestones = [];
@@ -2427,7 +2599,12 @@ function setupSharePanel() {
 }
 
 async function loadProjectShares() {
-  if (!state.projectCode || !state.user || state.shareView) {
+  if (
+    !state.projectCode ||
+    !state.user ||
+    state.shareView ||
+    state.projectAccessRole !== "owner"
+  ) {
     state.shareLinks = [];
     renderSharePanel();
     return;
@@ -2527,11 +2704,12 @@ function renderSharePanel() {
     return;
   }
   const isShareView = Boolean(state.shareView);
-  shareEls.section.hidden = isShareView;
-  if (isShareView) {
+  const isEditor = Boolean(state.projectCode && state.projectAccessRole === "editor");
+  shareEls.section.hidden = isShareView || isEditor;
+  if (isShareView || isEditor) {
     return;
   }
-  const canShare = Boolean(state.user && state.projectCode);
+  const canShare = Boolean(state.user && state.projectCode && state.projectAccessRole === "owner");
   shareEls.section.classList.toggle("is-collapsed", !state.sharePanelOpen);
   shareEls.toggleBtn.textContent = state.sharePanelOpen ? "숨기기" : "펼치기";
   shareEls.createBtn.disabled = !canShare;
@@ -2668,6 +2846,9 @@ function endSharedView(message) {
   state.selectedPosition = null;
   state.projectCode = "";
   state.projectName = "";
+  state.projectAccessRole = "";
+  state.projectRevision = "";
+  state.projectMembers = [];
   state.destinationFollow = false;
   state.constructionPinsVisible = true;
   state.followProgressIndex = 0;
@@ -2806,6 +2987,9 @@ function clearData() {
   state.pointAddMode = false;
   state.projectCode = "";
   state.projectName = "";
+  state.projectAccessRole = "";
+  state.projectRevision = "";
+  state.projectMembers = [];
   state.shareLinks = [];
   state.syncDirty = false;
   state.syncing = false;
@@ -4984,6 +5168,8 @@ function getPersistPayload() {
     photoView: state.photoView,
     projectCode: state.projectCode,
     projectName: state.projectName,
+    projectAccessRole: state.projectAccessRole,
+    projectRevision: state.projectRevision,
     syncDirty: state.syncDirty,
     lastSyncedAt: state.lastSyncedAt,
     lastSyncFailedAt: state.lastSyncFailedAt,
@@ -5054,6 +5240,9 @@ function loadState() {
     state.photoView = saved.photoView || "list";
     state.projectCode = saved.projectCode || "";
     state.projectName = typeof saved.projectName === "string" ? saved.projectName : "프로젝트A";
+    state.projectAccessRole = saved.projectAccessRole || "";
+    state.projectRevision = saved.projectRevision || "";
+    state.projectMembers = [];
     state.syncDirty = Boolean(saved.syncDirty);
     state.syncing = false;
     state.lastSyncedAt = saved.lastSyncedAt || null;
@@ -5088,6 +5277,9 @@ function loadState() {
     state.photoView = "list";
     state.projectCode = "";
     state.projectName = "프로젝트A";
+    state.projectAccessRole = "";
+    state.projectRevision = "";
+    state.projectMembers = [];
   }
 }
 

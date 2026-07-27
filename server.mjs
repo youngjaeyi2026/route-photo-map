@@ -213,8 +213,45 @@ async function handleApi(request, response, url) {
     }
     const body = await readJsonBody(request);
     const project = await createProject(body?.name || "프로젝트A", currentUser);
+    project.accessRole = "owner";
     sendJson(response, 201, project);
     return;
+  }
+
+  const projectMembersMatch = url.pathname.match(
+    /^\/api\/projects\/([A-Z0-9-]+)\/members(?:\/([^/]+))?$/,
+  );
+  if (projectMembersMatch) {
+    const code = normalizeProjectCode(projectMembersMatch[1]);
+    const memberUserId = projectMembersMatch[2] ? decodeURIComponent(projectMembersMatch[2]) : "";
+    const project = await getProject(code);
+    if (!project) {
+      sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    if (!canManageProject(currentUser, project)) {
+      sendJson(response, 403, { error: "project_owner_required" });
+      return;
+    }
+    if (request.method === "GET" && !memberUserId) {
+      sendJson(response, 200, { members: await listProjectMembers(code) });
+      return;
+    }
+    if (request.method === "POST" && !memberUserId) {
+      const body = await readJsonBody(request);
+      const result = await addProjectMember(code, body?.email, project);
+      if (!result.ok) {
+        sendJson(response, result.status || 400, { error: result.error });
+        return;
+      }
+      sendJson(response, 201, { member: result.member });
+      return;
+    }
+    if (request.method === "DELETE" && memberUserId) {
+      await removeProjectMember(code, memberUserId);
+      sendJson(response, 200, { ok: true });
+      return;
+    }
   }
 
   const projectShareMatch = url.pathname.match(/^\/api\/projects\/([A-Z0-9-]+)\/share(?:\/([A-Za-z0-9_-]+))?$/);
@@ -292,7 +329,7 @@ async function handleApi(request, response, url) {
       sendJson(response, 404, { error: "not_found" });
       return;
     }
-    if (!canManageProject(currentUser, project)) {
+    if (!(await canEditProject(currentUser, project))) {
       sendJson(response, 403, { error: "project_access_denied" });
       return;
     }
@@ -325,10 +362,14 @@ async function handleApi(request, response, url) {
       sendJson(response, 404, { error: "not_found" });
       return;
     }
-    if (!canManageProject(currentUser, project)) {
-      sendJson(response, 401, { error: "login_required" });
+    const accessRole = await getProjectAccessRole(currentUser, project);
+    if (!accessRole) {
+      sendJson(response, currentUser ? 403 : 401, {
+        error: currentUser ? "project_access_denied" : "login_required",
+      });
       return;
     }
+    project.accessRole = accessRole;
     sendJson(response, 200, project);
     return;
   }
@@ -340,12 +381,29 @@ async function handleApi(request, response, url) {
       sendJson(response, 404, { error: "not_found" });
       return;
     }
-    if (!canManageProject(currentUser, existingProject)) {
+    const accessRole = await getProjectAccessRole(currentUser, existingProject);
+    if (!accessRole) {
       sendJson(response, 403, { error: "project_access_denied" });
       return;
     }
     const body = await readJsonBody(request);
-    const project = await saveProjectState(code, body, currentUser);
+    if (
+      body?.baseUpdatedAt &&
+      existingProject.updatedAt &&
+      new Date(body.baseUpdatedAt).getTime() !== new Date(existingProject.updatedAt).getTime()
+    ) {
+      sendJson(response, 409, {
+        error: "project_conflict",
+        updatedAt: existingProject.updatedAt,
+      });
+      return;
+    }
+    const project = await saveProjectState(
+      code,
+      accessRole === "owner" ? body : { ...body, name: existingProject.name },
+      currentUser,
+    );
+    project.accessRole = accessRole;
     sendJson(response, 200, project);
     return;
   }
@@ -408,6 +466,7 @@ async function deleteProject(code) {
   if (databaseUrl) {
     const pool = await getMysqlPool();
     await ensureDatabase();
+    await pool.execute("DELETE FROM project_members WHERE project_code = ?", [code]);
     await pool.execute("DELETE FROM share_links WHERE project_code = ?", [code]);
     await pool.execute("DELETE FROM projects WHERE code = ?", [code]);
     return;
@@ -857,6 +916,16 @@ async function ensureDatabase() {
       INDEX idx_share_links_expires_at (expires_at)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   `);
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS project_members (
+      project_code VARCHAR(24) NOT NULL,
+      user_id VARCHAR(64) NOT NULL,
+      role VARCHAR(32) NOT NULL DEFAULT 'editor',
+      created_at DATETIME(3) NOT NULL,
+      PRIMARY KEY (project_code, user_id),
+      INDEX idx_project_members_user_id (user_id)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
   await ensureColumn("projects", "owner_user_id", "VARCHAR(64) NULL");
 }
 
@@ -898,6 +967,8 @@ function rowToProject(row) {
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
     ownerUserId: row.owner_user_id || null,
+    ownerEmail: row.owner_email || "",
+    accessRole: row.access_role || "",
     sessions: parseJson(row.sessions_json, []),
     primarySessionId: row.primary_session_id || null,
     lastState: parseJson(row.last_state_json, null),
@@ -1063,12 +1134,29 @@ async function listUserProjects(user) {
   const pool = await getMysqlPool();
   await ensureDatabase();
   const [rows] = await pool.execute(
-    `SELECT code, name, created_at, updated_at, primary_session_id, sessions_json, last_state_json, owner_user_id
+    `SELECT projects.code,
+            projects.name,
+            projects.created_at,
+            projects.updated_at,
+            projects.primary_session_id,
+            projects.sessions_json,
+            projects.last_state_json,
+            projects.owner_user_id,
+            owners.email AS owner_email,
+            CASE
+              WHEN projects.owner_user_id = ? THEN 'owner'
+              ELSE project_members.role
+            END AS access_role
        FROM projects
-      WHERE owner_user_id = ?
-      ORDER BY updated_at DESC
+       LEFT JOIN project_members
+         ON project_members.project_code = projects.code
+        AND project_members.user_id = ?
+       LEFT JOIN users AS owners ON owners.id = projects.owner_user_id
+      WHERE projects.owner_user_id = ?
+         OR project_members.user_id = ?
+      ORDER BY projects.updated_at DESC
       LIMIT 100`,
-    [user.id],
+    [user.id, user.id, user.id, user.id],
   );
   return rows.map(rowToProject);
 }
@@ -1219,6 +1307,106 @@ function canManageProject(user, project) {
     return false;
   }
   return user.role === "admin" || !project.ownerUserId || project.ownerUserId === user.id;
+}
+
+async function getProjectAccessRole(user, project) {
+  if (!databaseUrl) {
+    return "owner";
+  }
+  if (!user || !project) {
+    return "";
+  }
+  if (user.role === "admin" || !project.ownerUserId || project.ownerUserId === user.id) {
+    return "owner";
+  }
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  const [rows] = await pool.execute(
+    `SELECT role
+       FROM project_members
+      WHERE project_code = ?
+        AND user_id = ?
+      LIMIT 1`,
+    [project.code, user.id],
+  );
+  return rows[0]?.role === "editor" ? "editor" : "";
+}
+
+async function canEditProject(user, project) {
+  return Boolean(await getProjectAccessRole(user, project));
+}
+
+async function listProjectMembers(code) {
+  if (!databaseUrl) {
+    return [];
+  }
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  const [rows] = await pool.execute(
+    `SELECT users.id, users.email, project_members.role, project_members.created_at
+       FROM project_members
+       JOIN users ON users.id = project_members.user_id
+      WHERE project_members.project_code = ?
+      ORDER BY project_members.created_at ASC`,
+    [code],
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+  }));
+}
+
+async function addProjectMember(code, emailValue, project) {
+  if (!databaseUrl) {
+    return { ok: false, status: 503, error: "database_required" };
+  }
+  const email = normalizeEmail(emailValue);
+  if (!email) {
+    return { ok: false, status: 400, error: "member_email_required" };
+  }
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  const [users] = await pool.execute(
+    "SELECT id, email, status FROM users WHERE email = ? LIMIT 1",
+    [email],
+  );
+  const user = users[0];
+  if (!user || user.status !== "active") {
+    return { ok: false, status: 404, error: "member_not_found" };
+  }
+  if (user.id === project.ownerUserId) {
+    return { ok: false, status: 400, error: "member_is_owner" };
+  }
+  const now = new Date();
+  await pool.execute(
+    `INSERT INTO project_members (project_code, user_id, role, created_at)
+     VALUES (?, ?, 'editor', ?)
+     ON DUPLICATE KEY UPDATE role = 'editor'`,
+    [code, user.id, toMysqlDate(now)],
+  );
+  return {
+    ok: true,
+    member: {
+      id: user.id,
+      email: user.email,
+      role: "editor",
+      createdAt: now.toISOString(),
+    },
+  };
+}
+
+async function removeProjectMember(code, userId) {
+  if (!databaseUrl) {
+    return;
+  }
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  await pool.execute(
+    "DELETE FROM project_members WHERE project_code = ? AND user_id = ?",
+    [code, userId],
+  );
 }
 
 function generateShareToken() {
