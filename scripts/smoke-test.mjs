@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260727-invite-button-style-1/);
+  assert.match(pageHtml, /20260727-project-transfer-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -81,6 +81,8 @@ try {
   assert.match(pageHtml, /id="addConstructionPinBtn"/);
   assert.match(pageHtml, /id="projectCollaboration"/);
   assert.match(pageHtml, /id="projectInviteBtn"/);
+  assert.match(pageHtml, /id="projectTransferBlock"/);
+  assert.match(pageHtml, /id="projectTransferBtn"/);
   assert.match(pageHtml, /document\.body\.classList\.add\("is-share-view", "is-share-loading"\)/);
   assert.match(pageHtml, /document\.body\.classList\.add\("is-auth-pending"\)/);
   assert.match(pageHtml, /id="colorPickerConfirmBtn"[^>]*>선택 완료</);
@@ -105,6 +107,8 @@ try {
     /projectMatch && request\.method === "GET"[\s\S]+?getProjectAccessRole\(currentUser, project\)[\s\S]+?project_access_denied/,
   );
   assert.match(serverSource, /CREATE TABLE IF NOT EXISTS project_members/);
+  assert.match(serverSource, /CREATE TABLE IF NOT EXISTS project_transfers/);
+  assert.match(serverSource, /projectTransferMatch[\s\S]+?\/transfer[\s\S]+?transferProjectCopy/);
   assert.match(serverSource, /error: "project_conflict"/);
   const appResponse = await fetch(`${baseUrl}/app.js`);
   const appSource = await appResponse.text();
@@ -138,6 +142,11 @@ try {
     appSource,
     /function inviteProjectEditor\(\)[\s\S]+?\/members[\s\S]+?function removeProjectEditor/,
   );
+  assert.match(
+    appSource,
+    /async function transferProjectCopy\(\)[\s\S]+?\/transfer[\s\S]+?recipientEmail/,
+  );
+  assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);
   assert.match(appSource, /다른 사용자의 프로젝트이므로 열 수 없습니다/);
   assert.match(
     appSource,
@@ -202,6 +211,11 @@ try {
     css,
     /\.project-invite-controls button\s*\{[^}]*border-radius:\s*8px;[^}]*color:\s*var\(--green-dark\);[^}]*background:\s*#eaf4ee/s,
   );
+  assert.match(css, /\.project-transfer-block\s*\{[^}]*border-top:\s*1px solid var\(--line\)/s);
+  assert.match(
+    css,
+    /\.project-member-item button\s*\{[^}]*border-radius:\s*8px;[^}]*background:\s*#fff2ef/s,
+  );
   assert.match(css, /\.my-project-item strong\s*\{[^}]*-webkit-line-clamp:\s*2/s);
   assert.match(
     css,
@@ -235,6 +249,13 @@ try {
     body: JSON.stringify({ email: "editor@example.com" }),
   });
   assert.equal(addMemberResponse.status, 503);
+  const transferResponse = await fetch(`${baseUrl}/api/projects/${project.code}/transfer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "recipient@example.com" }),
+  });
+  assert.equal(transferResponse.status, 503);
+  assert.equal((await transferResponse.json()).error, "database_required");
   const routePoints = [
     { lat: 37.5, lng: 127, timestamp: 1 },
     { lat: 37.51, lng: 127.01, timestamp: 2 },

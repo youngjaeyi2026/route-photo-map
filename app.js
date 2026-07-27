@@ -117,6 +117,10 @@ const els = {
   projectInviteBtn: document.querySelector("#projectInviteBtn"),
   projectCollaborationStatus: document.querySelector("#projectCollaborationStatus"),
   projectMemberList: document.querySelector("#projectMemberList"),
+  projectTransferBlock: document.querySelector("#projectTransferBlock"),
+  projectTransferEmail: document.querySelector("#projectTransferEmail"),
+  projectTransferBtn: document.querySelector("#projectTransferBtn"),
+  projectTransferStatus: document.querySelector("#projectTransferStatus"),
   createProjectBtn: document.querySelector("#createProjectBtn"),
   renameProjectBtn: document.querySelector("#renameProjectBtn"),
   openProjectBtn: document.querySelector("#openProjectBtn"),
@@ -340,6 +344,12 @@ els.projectInviteBtn?.addEventListener("click", inviteProjectEditor);
 els.projectInviteEmail?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     inviteProjectEditor();
+  }
+});
+els.projectTransferBtn?.addEventListener("click", transferProjectCopy);
+els.projectTransferEmail?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    transferProjectCopy();
   }
 });
 document.addEventListener("click", (event) => {
@@ -1908,6 +1918,53 @@ async function removeProjectEditor(member) {
   }
 }
 
+async function transferProjectCopy() {
+  if (!state.projectCode || state.projectAccessRole !== "owner") {
+    return;
+  }
+  const email = els.projectTransferEmail?.value.trim();
+  if (!email) {
+    els.projectTransferStatus.textContent = "프로젝트를 전달받을 가입 아이디를 입력해 주세요.";
+    els.projectTransferEmail?.focus();
+    return;
+  }
+  const confirmed = window.confirm(
+    `${email} 사용자에게 프로젝트 사본을 전달할까요?\n\n현재 프로젝트는 원본으로 그대로 보관되고, 상대방 소유의 새 프로젝트 코드가 만들어집니다. 공유 링크와 편집자 목록은 복사되지 않습니다.`,
+  );
+  if (!confirmed) {
+    return;
+  }
+  const saved = await syncProjectState("transfer");
+  if (!saved) {
+    els.projectTransferStatus.textContent = "최신 기록을 저장하지 못해 프로젝트 전달을 중단했습니다.";
+    return;
+  }
+  els.projectTransferBtn.disabled = true;
+  els.projectTransferStatus.textContent = "프로젝트 사본을 만드는 중입니다.";
+  try {
+    const result = await requestJson(
+      `/api/projects/${encodeURIComponent(state.projectCode)}/transfer`,
+      {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      },
+    );
+    els.projectTransferEmail.value = "";
+    els.projectTransferStatus.textContent =
+      `${result.recipientEmail} 사용자에게 ${result.project.code} 프로젝트를 전달했습니다. 원본은 현재 계정에 유지됩니다.`;
+  } catch (error) {
+    const reason = error?.payload?.error;
+    els.projectTransferStatus.textContent =
+      reason === "recipient_not_found"
+        ? "가입되어 있고 활성화된 사용자를 찾지 못했습니다."
+        : reason === "recipient_is_owner"
+          ? "현재 프로젝트 소유자에게는 다시 전달할 수 없습니다."
+          : "프로젝트를 전달하지 못했습니다.";
+  } finally {
+    els.projectTransferBtn.disabled = false;
+  }
+}
+
 function renderProjectCollaboration() {
   if (!els.projectCollaboration) {
     return;
@@ -1920,6 +1977,7 @@ function renderProjectCollaboration() {
   const isOwner = state.projectAccessRole === "owner";
   els.projectAccessBadge.textContent = isOwner ? "소유자" : "편집자";
   els.projectInviteControls.hidden = !isOwner;
+  els.projectTransferBlock.hidden = !isOwner;
   if (!isOwner) {
     els.projectCollaborationStatus.textContent =
       "소유자가 편집 권한을 공유했습니다. 공유 링크 관리와 프로젝트 삭제는 소유자만 할 수 있습니다.";
@@ -2466,7 +2524,11 @@ function renderMyProjectList() {
     const meta = document.createElement("span");
     title.textContent = project.name || "프로젝트";
     title.title = project.name || "프로젝트";
-    const accessLabel = project.accessRole === "editor" ? "공유받음 · " : "";
+    const accessLabel = project.transferredAt
+      ? "전달받음 · "
+      : project.accessRole === "editor"
+        ? "공유받음 · "
+        : "";
     meta.textContent = `${accessLabel}${project.code} · ${formatDate(getProjectRecordDisplayTime(project))}`;
     body.append(title, meta);
     const actions = document.createElement("div");

@@ -218,6 +218,33 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  const projectTransferMatch = url.pathname.match(
+    /^\/api\/projects\/([A-Z0-9-]+)\/transfer$/,
+  );
+  if (projectTransferMatch && request.method === "POST") {
+    const code = normalizeProjectCode(projectTransferMatch[1]);
+    const project = await getProject(code);
+    if (!project) {
+      sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    if (!canManageProject(currentUser, project)) {
+      sendJson(response, 403, { error: "project_owner_required" });
+      return;
+    }
+    const body = await readJsonBody(request);
+    const result = await transferProjectCopy(project, currentUser, body?.email);
+    if (!result.ok) {
+      sendJson(response, result.status || 400, { error: result.error });
+      return;
+    }
+    sendJson(response, 201, {
+      project: result.project,
+      recipientEmail: result.recipientEmail,
+    });
+    return;
+  }
+
   const projectMembersMatch = url.pathname.match(
     /^\/api\/projects\/([A-Z0-9-]+)\/members(?:\/([^/]+))?$/,
   );
@@ -454,6 +481,73 @@ async function createProject(name, user = null) {
   return project;
 }
 
+async function transferProjectCopy(sourceProject, sender, recipientEmailValue) {
+  if (!databaseUrl) {
+    return { ok: false, status: 503, error: "database_required" };
+  }
+  const recipientEmail = normalizeEmail(recipientEmailValue);
+  if (!recipientEmail) {
+    return { ok: false, status: 400, error: "recipient_email_required" };
+  }
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  const [users] = await pool.execute(
+    "SELECT id, email, status FROM users WHERE email = ? LIMIT 1",
+    [recipientEmail],
+  );
+  const recipient = users[0];
+  if (!recipient || recipient.status !== "active") {
+    return { ok: false, status: 404, error: "recipient_not_found" };
+  }
+  if (recipient.id === sourceProject.ownerUserId) {
+    return { ok: false, status: 400, error: "recipient_is_owner" };
+  }
+
+  let code = "";
+  do {
+    code = generateProjectCode();
+  } while (await getProject(code));
+  const now = new Date().toISOString();
+  const transferredName = `${sourceProject.name || "프로젝트"} 전달본`.slice(0, 255);
+  const project = await prepareProjectPayload(code, {
+    code,
+    name: transferredName,
+    createdAt: now,
+    updatedAt: now,
+    ownerUserId: recipient.id,
+    primarySessionId: sourceProject.primarySessionId || sourceProject.sessions?.[0]?.id || null,
+    sessions: structuredClone(sourceProject.sessions || []),
+    lastState: sourceProject.lastState
+      ? {
+          ...structuredClone(sourceProject.lastState),
+          savedAt: now,
+        }
+      : null,
+  });
+  await upsertProject(project);
+  await pool.execute(
+    `INSERT INTO project_transfers
+      (id, source_project_code, new_project_code, sender_user_id, recipient_user_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      `PT-${randomBytes(12).toString("hex")}`,
+      sourceProject.code,
+      project.code,
+      sender?.id || sourceProject.ownerUserId || null,
+      recipient.id,
+      toMysqlDate(now),
+    ],
+  );
+  project.accessRole = "owner";
+  project.transferredAt = now;
+  project.transferredFromCode = sourceProject.code;
+  return {
+    ok: true,
+    project,
+    recipientEmail: recipient.email,
+  };
+}
+
 async function getProject(code) {
   if (databaseUrl) {
     return getProjectFromDatabase(code);
@@ -467,6 +561,7 @@ async function deleteProject(code) {
     const pool = await getMysqlPool();
     await ensureDatabase();
     await pool.execute("DELETE FROM project_members WHERE project_code = ?", [code]);
+    await pool.execute("DELETE FROM project_transfers WHERE new_project_code = ?", [code]);
     await pool.execute("DELETE FROM share_links WHERE project_code = ?", [code]);
     await pool.execute("DELETE FROM projects WHERE code = ?", [code]);
     return;
@@ -926,6 +1021,18 @@ async function ensureDatabase() {
       INDEX idx_project_members_user_id (user_id)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   `);
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS project_transfers (
+      id VARCHAR(64) PRIMARY KEY,
+      source_project_code VARCHAR(24) NOT NULL,
+      new_project_code VARCHAR(24) NOT NULL UNIQUE,
+      sender_user_id VARCHAR(64) NULL,
+      recipient_user_id VARCHAR(64) NOT NULL,
+      created_at DATETIME(3) NOT NULL,
+      INDEX idx_project_transfers_recipient_user_id (recipient_user_id),
+      INDEX idx_project_transfers_source_project_code (source_project_code)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
   await ensureColumn("projects", "owner_user_id", "VARCHAR(64) NULL");
 }
 
@@ -969,6 +1076,9 @@ function rowToProject(row) {
     ownerUserId: row.owner_user_id || null,
     ownerEmail: row.owner_email || "",
     accessRole: row.access_role || "",
+    transferredFromCode: row.transferred_from_code || "",
+    transferredAt: row.transferred_at ? new Date(row.transferred_at).toISOString() : null,
+    transferredByEmail: row.transferred_by_email || "",
     sessions: parseJson(row.sessions_json, []),
     primarySessionId: row.primary_session_id || null,
     lastState: parseJson(row.last_state_json, null),
@@ -1143,6 +1253,9 @@ async function listUserProjects(user) {
             projects.last_state_json,
             projects.owner_user_id,
             owners.email AS owner_email,
+            project_transfers.source_project_code AS transferred_from_code,
+            project_transfers.created_at AS transferred_at,
+            senders.email AS transferred_by_email,
             CASE
               WHEN projects.owner_user_id = ? THEN 'owner'
               ELSE project_members.role
@@ -1152,6 +1265,8 @@ async function listUserProjects(user) {
          ON project_members.project_code = projects.code
         AND project_members.user_id = ?
        LEFT JOIN users AS owners ON owners.id = projects.owner_user_id
+       LEFT JOIN project_transfers ON project_transfers.new_project_code = projects.code
+       LEFT JOIN users AS senders ON senders.id = project_transfers.sender_user_id
       WHERE projects.owner_user_id = ?
          OR project_members.user_id = ?
       ORDER BY projects.updated_at DESC

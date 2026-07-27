@@ -2526,6 +2526,23 @@ body.is-logged-out:not(.is-share-view) .auth-section {
   transform: translateY(1px);
 }
 
+.project-transfer-block {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.project-transfer-block[hidden] {
+  display: none;
+}
+
+.project-transfer-block h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
 .project-member-list {
   display: grid;
   gap: 6px;
@@ -2557,8 +2574,17 @@ body.is-logged-out:not(.is-share-view) .auth-section {
 
 .project-member-item button {
   min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #f0cbc6;
+  border-radius: 8px;
   color: var(--red);
   background: #fff2ef;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.project-member-item button:hover {
+  background: #f8dfdc;
 }
 
 .my-project-item.is-shared-project .my-project-actions {

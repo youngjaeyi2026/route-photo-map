@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260727-invite-button-style-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260727-project-transfer-1" />
   </head>
   <body>
     <script>
@@ -67,6 +67,14 @@
             </div>
             <p id="projectCollaborationStatus" class="status-text">가입된 아이디를 편집자로 초대할 수 있습니다.</p>
             <div id="projectMemberList" class="project-member-list"></div>
+            <div id="projectTransferBlock" class="project-transfer-block">
+              <h3>프로젝트 전달</h3>
+              <div class="project-invite-controls project-transfer-controls">
+                <input id="projectTransferEmail" type="text" placeholder="전달받을 사용자 아이디" aria-label="프로젝트를 전달받을 사용자 아이디" />
+                <button id="projectTransferBtn" type="button">프로젝트 전달</button>
+              </div>
+              <p id="projectTransferStatus" class="status-text">원본은 보관하고 상대방 소유의 편집용 사본을 만듭니다.</p>
+            </div>
           </div>
         </section>
 
@@ -272,6 +280,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260727-invite-button-style-1"></script>
+    <script src="/app.js?v=20260727-project-transfer-1"></script>
   </body>
 </html>
