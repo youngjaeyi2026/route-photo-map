@@ -2493,7 +2493,37 @@ body.is-logged-out:not(.is-share-view) .auth-section {
 
 .project-invite-controls input,
 .project-invite-controls button {
-  min-height: 34px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.project-invite-controls input {
+  min-width: 0;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #ffffff;
+}
+
+.project-invite-controls button {
+  padding: 0 13px;
+  border-color: #cfe2d6;
+  border-radius: 8px;
+  color: var(--green-dark);
+  background: #eaf4ee;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.project-invite-controls button:hover {
+  border-color: #b8d4c3;
+  background: #dfeee5;
+}
+
+.project-invite-controls button:active {
+  transform: translateY(1px);
 }
 
 .project-member-list {

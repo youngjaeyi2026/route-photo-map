@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260727-project-editors-1/);
+  assert.match(pageHtml, /20260727-invite-button-style-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -198,6 +198,10 @@ try {
   assert.match(css, /\.my-project-actions\s*\{[^}]*grid-template-columns:\s*auto\s*auto\s*auto/s);
   assert.match(css, /\.my-project-item button\s*\{[^}]*height:\s*30px;[^}]*padding:\s*0\s*8px/s);
   assert.match(css, /\.project-list-action--copy\s*\{/);
+  assert.match(
+    css,
+    /\.project-invite-controls button\s*\{[^}]*border-radius:\s*8px;[^}]*color:\s*var\(--green-dark\);[^}]*background:\s*#eaf4ee/s,
+  );
   assert.match(css, /\.my-project-item strong\s*\{[^}]*-webkit-line-clamp:\s*2/s);
   assert.match(
     css,
