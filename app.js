@@ -1919,7 +1919,11 @@ async function removeProjectEditor(member) {
 }
 
 async function transferProjectCopy() {
-  if (!state.projectCode || state.projectAccessRole !== "owner") {
+  if (
+    !state.projectCode ||
+    state.projectAccessRole !== "owner" ||
+    els.projectTransferBtn?.disabled
+  ) {
     return;
   }
   const email = els.projectTransferEmail?.value.trim();
@@ -1934,12 +1938,14 @@ async function transferProjectCopy() {
   if (!confirmed) {
     return;
   }
+  els.projectTransferBtn.disabled = true;
+  els.projectTransferStatus.textContent = "최신 기록을 저장한 뒤 프로젝트 사본을 만듭니다.";
   const saved = await syncProjectState("transfer");
   if (!saved) {
     els.projectTransferStatus.textContent = "최신 기록을 저장하지 못해 프로젝트 전달을 중단했습니다.";
+    els.projectTransferBtn.disabled = false;
     return;
   }
-  els.projectTransferBtn.disabled = true;
   els.projectTransferStatus.textContent = "프로젝트 사본을 만드는 중입니다.";
   try {
     const result = await requestJson(
