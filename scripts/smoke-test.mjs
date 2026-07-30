@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260727-project-transfer-2/);
+  assert.match(pageHtml, /20260730-password-4-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -110,6 +110,11 @@ try {
   assert.match(serverSource, /CREATE TABLE IF NOT EXISTS project_transfers/);
   assert.match(serverSource, /projectTransferMatch[\s\S]+?\/transfer[\s\S]+?transferProjectCopy/);
   assert.match(serverSource, /error: "project_conflict"/);
+  assert.match(serverSource, /const minPasswordLength = 4;/);
+  assert.match(
+    serverSource,
+    /async function resetUserPassword[\s\S]+?temporaryPassword\.length < minPasswordLength[\s\S]+?error: "password_too_short"/,
+  );
   const appResponse = await fetch(`${baseUrl}/app.js`);
   const appSource = await appResponse.text();
   assert.equal(appResponse.status, 200);
@@ -145,6 +150,10 @@ try {
   assert.match(
     appSource,
     /async function transferProjectCopy\(\)[\s\S]+?\/transfer[\s\S]+?recipientEmail/,
+  );
+  assert.match(
+    appSource,
+    /async function resetAdminUserPassword[\s\S]+?normalizedPassword\.length < 4[\s\S]+?password: normalizedPassword/,
   );
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);
   assert.match(appSource, /다른 사용자의 프로젝트이므로 열 수 없습니다/);

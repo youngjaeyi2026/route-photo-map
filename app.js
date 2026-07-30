@@ -2305,7 +2305,7 @@ async function loginWithPassword() {
     const message = authError === "account_disabled"
       ? "비활성화된 계정입니다."
       : authError === "password_too_short"
-        ? `새 계정의 비밀번호는 ${error.payload.minPasswordLength || 8}자 이상이어야 합니다.`
+        ? `새 계정의 비밀번호는 ${error.payload.minPasswordLength || 4}자 이상이어야 합니다.`
         : "로그인에 실패했습니다. 아이디 또는 비밀번호를 확인해 주세요.";
     authEls.status.textContent = message;
   }
@@ -2475,17 +2475,26 @@ async function resetAdminUserPassword(user) {
   if (password === null) {
     return;
   }
+  const normalizedPassword = password.trim();
+  if (normalizedPassword && normalizedPassword.length < 4) {
+    authEls.adminStatus.textContent = "새 비밀번호는 4자 이상으로 입력해 주세요.";
+    return;
+  }
   try {
     const result = await requestJson(`/api/admin/users/${encodeURIComponent(user.id)}/password`, {
       method: "POST",
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password: normalizedPassword }),
     });
     state.adminUsers = state.adminUsers.map((item) => (item.id === result.user.id ? result.user : item));
     renderAdminUserList();
     window.prompt("새 비밀번호입니다. 사용자에게 전달해 주세요.", result.temporaryPassword);
     authEls.adminStatus.textContent = "비밀번호를 초기화했습니다.";
-  } catch {
-    authEls.adminStatus.textContent = "비밀번호를 초기화하지 못했습니다. 4자 이상으로 입력해 주세요.";
+  } catch (error) {
+    const minLength = error?.payload?.minPasswordLength || 4;
+    authEls.adminStatus.textContent =
+      error?.payload?.error === "password_too_short"
+        ? `비밀번호는 ${minLength}자 이상으로 입력해 주세요.`
+        : "비밀번호를 초기화하지 못했습니다. 다시 시도해 주세요.";
   }
 }
 

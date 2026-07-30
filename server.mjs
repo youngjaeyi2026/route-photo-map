@@ -43,7 +43,7 @@ const shareExpiryOptions = new Map([
   ["30d", 1000 * 60 * 60 * 24 * 30],
   ["none", null],
 ]);
-const minPasswordLength = Number(process.env.MIN_PASSWORD_LENGTH || 8);
+const minPasswordLength = 4;
 
 mkdirSync(dataDir, { recursive: true });
 
@@ -168,7 +168,10 @@ async function handleApi(request, response, url) {
     const body = await readJsonBody(request);
     const result = await resetUserPassword(adminUserPasswordMatch[1], body?.password);
     if (!result.ok) {
-      sendJson(response, result.status || 400, { error: result.error });
+      sendJson(response, result.status || 400, {
+        error: result.error,
+        ...(result.error === "password_too_short" ? { minPasswordLength } : {}),
+      });
       return;
     }
     sendJson(response, 200, { user: result.user, temporaryPassword: result.temporaryPassword });
@@ -1340,7 +1343,7 @@ async function resetUserPassword(userId, passwordValue) {
   }
   const temporaryPassword = String(passwordValue || "").trim() || generateTemporaryPassword();
   if (temporaryPassword.length < minPasswordLength) {
-    return { ok: false, status: 400, error: "invalid_password" };
+    return { ok: false, status: 400, error: "password_too_short" };
   }
   const pool = await getMysqlPool();
   await ensureDatabase();
