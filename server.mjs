@@ -563,6 +563,7 @@ async function deleteProject(code) {
   if (databaseUrl) {
     const pool = await getMysqlPool();
     await ensureDatabase();
+    await pool.execute("DELETE FROM project_revisions WHERE project_code = ?", [code]);
     await pool.execute("DELETE FROM project_members WHERE project_code = ?", [code]);
     await pool.execute("DELETE FROM project_transfers WHERE new_project_code = ?", [code]);
     await pool.execute("DELETE FROM share_links WHERE project_code = ?", [code]);
@@ -586,13 +587,30 @@ async function saveProjectState(code, body, user = null) {
     sessions: [],
     primarySessionId: null,
   };
+  const incomingSessions = Array.isArray(body?.sessions) ? body.sessions.slice(0, 50) : previous.sessions || [];
+  const previousSessionCount = Array.isArray(previous.sessions) ? previous.sessions.length : 0;
+  const allowsSessionReduction = body?.allowSessionReduction === true && body?.reason === "delete-session";
+  const previousRecordItemCount = countProjectRecordItems(previous.sessions, previous.lastState);
+  const incomingRecordItemCount = countProjectRecordItems(incomingSessions, {
+    points: Array.isArray(body?.points) ? body.points : [],
+    photos: Array.isArray(body?.photos) ? body.photos : [],
+  });
+  if (
+    !allowsSessionReduction &&
+    (incomingSessions.length < previousSessionCount ||
+      (previousRecordItemCount > 0 && incomingRecordItemCount === 0))
+  ) {
+    const error = new Error("record_loss_guard");
+    error.status = 409;
+    throw error;
+  }
 
   const prepared = await prepareProjectPayload(normalizedCode, {
     ...previous,
     ownerUserId: previous.ownerUserId || user?.id || null,
     name: String(body?.name || previous.name || "프로젝트A").trim(),
     updatedAt: now,
-    sessions: Array.isArray(body?.sessions) ? body.sessions.slice(0, 50) : previous.sessions || [],
+    sessions: incomingSessions,
     primarySessionId:
       body?.primarySessionId ||
       previous.primarySessionId ||
@@ -608,7 +626,13 @@ async function saveProjectState(code, body, user = null) {
   });
 
   if (databaseUrl) {
+    if (allowsSessionReduction && previousSessionCount > incomingSessions.length) {
+      await saveProjectRevision(previous, user, `before-${body.reason}`);
+    }
     await upsertProject(prepared);
+    if (shouldSaveProjectRevision(body?.reason, prepared)) {
+      await saveProjectRevision(prepared, user, body.reason);
+    }
   } else {
     const db = readProjectsFile();
     const index = db.projects.findIndex((item) => item.code === normalizedCode);
@@ -621,6 +645,23 @@ async function saveProjectState(code, body, user = null) {
   }
 
   return prepared;
+}
+
+function countProjectRecordItems(sessions, lastState) {
+  const sessionItems = (Array.isArray(sessions) ? sessions : []).reduce(
+    (total, session) =>
+      total +
+      (Array.isArray(session?.points) ? session.points.length : 0) +
+      (Array.isArray(session?.photos) ? session.photos.length : 0),
+    0,
+  );
+  if (sessionItems > 0) {
+    return sessionItems;
+  }
+  return (
+    (Array.isArray(lastState?.points) ? lastState.points.length : 0) +
+    (Array.isArray(lastState?.photos) ? lastState.photos.length : 0)
+  );
 }
 
 async function createShareLink(project, user, expiresIn) {
@@ -963,6 +1004,61 @@ async function upsertProject(project) {
   );
 }
 
+function shouldSaveProjectRevision(reason, project) {
+  return (
+    Array.isArray(project.sessions) &&
+    project.sessions.length > 0 &&
+    new Set(["completed", "manual", "local-recovery", "delete-session"]).has(String(reason || ""))
+  );
+}
+
+async function saveProjectRevision(project, user, reason) {
+  if (!databaseUrl || !project?.code) {
+    return;
+  }
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  const revision = {
+    code: project.code,
+    name: project.name,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+    ownerUserId: project.ownerUserId || null,
+    primarySessionId: project.primarySessionId || null,
+    sessions: project.sessions || [],
+    lastState: project.lastState || null,
+  };
+  try {
+    await pool.execute(
+      `INSERT INTO project_revisions
+        (id, project_code, saved_by_user_id, reason, snapshot_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        `PR-${randomBytes(12).toString("hex")}`,
+        project.code,
+        user?.id || project.ownerUserId || null,
+        String(reason || "save").slice(0, 64),
+        JSON.stringify(revision),
+        toMysqlDate(new Date().toISOString()),
+      ],
+    );
+    const [oldRows] = await pool.execute(
+      `SELECT id
+         FROM project_revisions
+        WHERE project_code = ?
+        ORDER BY created_at DESC
+        LIMIT 100 OFFSET 20`,
+      [project.code],
+    );
+    if (oldRows.length > 0) {
+      const placeholders = oldRows.map(() => "?").join(", ");
+      await pool.execute(`DELETE FROM project_revisions WHERE id IN (${placeholders})`, oldRows.map((row) => row.id));
+    }
+  } catch (error) {
+    log(`WARN project revision backup failed for ${project.code}: ${error.message}`);
+  }
+}
+
 async function ensureDatabase() {
   const pool = await getMysqlPool();
   await pool.execute(`
@@ -1034,6 +1130,17 @@ async function ensureDatabase() {
       created_at DATETIME(3) NOT NULL,
       INDEX idx_project_transfers_recipient_user_id (recipient_user_id),
       INDEX idx_project_transfers_source_project_code (source_project_code)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS project_revisions (
+      id VARCHAR(64) PRIMARY KEY,
+      project_code VARCHAR(24) NOT NULL,
+      saved_by_user_id VARCHAR(64) NULL,
+      reason VARCHAR(64) NOT NULL,
+      snapshot_json LONGTEXT NOT NULL,
+      created_at DATETIME(3) NOT NULL,
+      INDEX idx_project_revisions_project_created (project_code, created_at)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   `);
   await ensureColumn("projects", "owner_user_id", "VARCHAR(64) NULL");

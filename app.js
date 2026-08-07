@@ -1,5 +1,7 @@
 ﻿const STORAGE_KEY = "route-photo-map-state-v1";
 const SESSIONS_KEY = "route-photo-map-sessions-v1";
+const PROJECT_RECOVERY_KEY = "route-photo-map-project-recovery-v1";
+const MAX_PROJECT_RECOVERY_BACKUPS = 8;
 const MAX_STORED_IMAGE_LENGTH = 850000;
 const MAX_EDIT_POINT_MARKERS = 1000;
 const DEFAULT_CONSTRUCTION_COLOR = "#c34236";
@@ -213,6 +215,7 @@ let shareViewTimerId = null;
 let projectOpenRequestId = 0;
 let projectSyncQueue = Promise.resolve();
 const pendingProjectSyncs = new Set();
+let recordCompletionPending = false;
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
 let colorPickerConfirmHandler = null;
 let authEls = {};
@@ -287,7 +290,7 @@ els.fitBtn.addEventListener("click", () => {
   fitToData();
 });
 els.autoFollowBtn?.addEventListener("click", toggleAutoFollow);
-els.saveBtn.addEventListener("click", () => saveCurrentSession("manual"));
+els.saveBtn.addEventListener("click", saveRecordNow);
 els.exportBtn.addEventListener("click", exportData);
 els.clearBtn.addEventListener("click", clearData);
 els.photoInput.addEventListener("change", handlePhotoInput);
@@ -471,7 +474,7 @@ function startTracking() {
         setStatus(getLocationErrorMessage(error));
         return;
       }
-      stopTracking();
+      void stopTracking();
       setStatus(`위치 권한 또는 GPS 신호를 확인해 주세요. (${error.message})`);
     },
     {
@@ -484,18 +487,21 @@ function startTracking() {
   state.pollerId = window.setInterval(pollCurrentPosition, 10000);
 }
 
-function confirmStopTracking() {
+async function confirmStopTracking() {
   const confirmed = window.confirm(
-    "기록을 완료할까요?\n\n현재 위치점과 사진은 기록으로 저장되고, 화면은 다음 기록을 위해 초기화됩니다.",
+    "기록을 완료할까요?\n\n현재 위치점과 사진을 보관하고 서버 저장이 확인된 후에만 화면을 초기화합니다.",
   );
   if (!confirmed) {
     return;
   }
-  stopTracking({ save: true, clearCurrent: true });
+  await stopTracking({ save: true, clearCurrent: true });
 }
 
-function stopTracking(options = {}) {
+async function stopTracking(options = {}) {
   const { save = true, clearCurrent = false } = options;
+  if (save && recordCompletionPending) {
+    return false;
+  }
   if (state.watcherId !== null) {
     navigator.geolocation.clearWatch(state.watcherId);
   }
@@ -506,21 +512,64 @@ function stopTracking(options = {}) {
   state.pollerId = null;
   state.tracking = false;
   state.paused = false;
+  if (save) {
+    recordCompletionPending = true;
+    els.trackBtn.disabled = true;
+  }
+  renderTrackingState();
   const saved = save ? saveCurrentSession("completed") : null;
-  if (clearCurrent && saved !== false) {
+  let serverSaved = !save;
+  if (save && saved !== false) {
+    setStatus("기록을 보관했습니다. 서버 저장을 확인하는 중입니다.", "active");
+    serverSaved = await syncProjectState("completed");
+  }
+  if (save) {
+    recordCompletionPending = false;
+    els.trackBtn.disabled = false;
+  }
+  if (clearCurrent && saved !== false && serverSaved) {
     resetCurrentRecord();
-    syncProjectState("completed");
   }
   render();
   if (state.destinationFollow) {
     startRouteFollowWatcher();
   }
-  if (clearCurrent) {
-    setStatus("기록을 저장하고 현재 화면을 초기화했습니다.");
-    return;
+  if (clearCurrent && saved !== false && serverSaved) {
+    setStatus("서버 저장을 확인했습니다. 현재 화면을 다음 기록 상태로 초기화했습니다.", "success");
+    return true;
+  }
+  if (clearCurrent && saved !== false && !serverSaved) {
+    setStatus("서버 저장을 확인하지 못했습니다. 기록을 화면과 복구본에 그대로 유지합니다.", "error");
+    return false;
   }
   renderTrackingState();
-  setStatus("기록을 멈췄습니다. 사진은 마지막 위치 또는 지도에서 선택한 위치에 저장됩니다.");
+  if (!save) {
+    setStatus("기록을 멈췄습니다. 사진은 마지막 위치 또는 지도에서 선택한 위치에 저장됩니다.");
+  }
+  return serverSaved;
+}
+
+async function saveRecordNow() {
+  if (els.saveBtn.disabled) {
+    return;
+  }
+  const saved = saveCurrentSession("manual");
+  if (saved === false) {
+    return;
+  }
+  els.saveBtn.disabled = true;
+  setStatus("기록을 보관했습니다. 서버 저장을 확인하는 중입니다.", "active");
+  try {
+    const serverSaved = await syncProjectState("manual");
+    setStatus(
+      serverSaved
+        ? "서버 저장을 확인했습니다. 기록 보기에서 다시 불러올 수 있습니다."
+        : "서버 저장을 확인하지 못했습니다. 기록을 화면과 복구본에 그대로 유지합니다.",
+      serverSaved ? "success" : "error",
+    );
+  } finally {
+    els.saveBtn.disabled = false;
+  }
 }
 
 function resetCurrentRecord() {
@@ -1248,9 +1297,9 @@ function saveCurrentSession(reason = "manual") {
       state.continuingSessionId = updatedSession.id;
       state.activeStartedAt = null;
       persist();
+      saveProjectRecoveryBackup("session-updated");
       renderSessions();
-      setStatus("이어가기 기록을 저장했습니다.");
-      syncProjectState(reason);
+      setStatus("이어가기 기록을 이 기기에 보관했습니다.");
       return updatedSession;
     }
     state.continuingSessionId = null;
@@ -1280,9 +1329,9 @@ function saveCurrentSession(reason = "manual") {
     }
     state.activeStartedAt = null;
     persist();
+    saveProjectRecoveryBackup("session-created");
     renderSessions();
-    setStatus("현재 기록을 저장했습니다.");
-    syncProjectState(reason);
+    setStatus("현재 기록을 이 기기에 보관했습니다.");
     return session;
     setStatus("현재 기록을 저장했습니다.");
   } catch {
@@ -1407,13 +1456,16 @@ function editSessionDetails(sessionId) {
   setStatus("기록명과 메모를 수정했습니다.");
 }
 
-function deleteSession(sessionId) {
+async function deleteSession(sessionId) {
   const ok = window.confirm(
     "저장된 기록을 삭제할까요?\n\n삭제한 기록은 이 기기와 공유 프로젝트 기록에서 사라집니다.",
   );
   if (!ok) {
     return;
   }
+  const previousSessions = structuredClone(state.sessions);
+  const previousPrimarySessionId = state.primarySessionId;
+  const previousContinuingSessionId = state.continuingSessionId;
   state.sessions = state.sessions.filter((item) => item.id !== sessionId);
   if (state.continuingSessionId === sessionId) {
     state.continuingSessionId = null;
@@ -1423,8 +1475,18 @@ function deleteSession(sessionId) {
   }
   persist();
   renderSessions();
-  syncProjectState("delete");
-  setStatus("저장된 기록을 삭제했습니다.");
+  const deleted = await syncProjectState("delete-session");
+  if (deleted) {
+    saveProjectRecoveryBackup("session-deleted", true);
+    setStatus("서버에서 저장된 기록을 삭제했습니다.");
+    return;
+  }
+  state.sessions = previousSessions;
+  state.primarySessionId = previousPrimarySessionId;
+  state.continuingSessionId = previousContinuingSessionId;
+  persist();
+  renderSessions();
+  setStatus("서버에서 삭제를 확인하지 못해 기록을 복원했습니다.", "error");
 }
 
 async function createServerProject() {
@@ -1442,7 +1504,7 @@ async function createServerProject() {
     }
   }
   if (state.tracking) {
-    stopTracking({ save: false, clearCurrent: false });
+    await stopTracking({ save: false, clearCurrent: false });
   }
   const name = els.projectName.value.trim() || "프로젝트A";
   resetForNewProject();
@@ -1546,6 +1608,9 @@ async function openServerProject(code) {
   }
 
   const requestId = ++projectOpenRequestId;
+  if (state.projectCode === normalizedCode) {
+    saveProjectRecoveryBackup("before-server-open");
+  }
   if (pendingProjectSyncs.size > 0) {
     setProjectStatus("현재 프로젝트의 변경사항을 저장한 뒤 불러옵니다.");
     await Promise.allSettled([...pendingProjectSyncs]);
@@ -1558,6 +1623,26 @@ async function openServerProject(code) {
     const project = await requestJson(`/api/projects/${encodeURIComponent(normalizedCode)}`);
     if (requestId !== projectOpenRequestId) {
       return;
+    }
+    const recoveryBackup = getProjectRecoveryBackup(normalizedCode);
+    if (shouldOfferProjectRecovery(project, recoveryBackup)) {
+      const recover = window.confirm(
+        "서버 기록보다 이 PC의 복구본에 더 많은 기록이 있습니다.\n\nPC 복구본을 불러와 서버에 다시 저장할까요?",
+      );
+      if (recover) {
+        applyProjectRecoveryBackup(project, recoveryBackup);
+        updateProjectUrl(project.code);
+        persist();
+        render();
+        fitToData();
+        const recovered = await syncProjectState("local-recovery");
+        setProjectStatus(
+          recovered
+            ? `${project.code} PC 복구본을 서버에 다시 저장했습니다.`
+            : `${project.code} PC 복구본을 불러왔지만 서버 저장은 실패했습니다. 화면을 닫지 말고 다시 저장해 주세요.`,
+        );
+        return;
+      }
     }
     applyProject(project);
     updateProjectUrl(project.code);
@@ -1633,6 +1718,7 @@ async function performProjectSync(job) {
       state.lastSyncFailedAt = null;
       state.lastSyncError = "";
       persist();
+      saveProjectRecoveryBackup("server-confirmed", true);
       if (state.user && reason !== "auto-retry") {
         loadMyProjects();
       }
@@ -1661,6 +1747,10 @@ async function performProjectSync(job) {
         return false;
       }
       if (error?.status === 409 || error?.payload?.error === "project_conflict") {
+        if (error?.payload?.error === "record_loss_guard") {
+          setProjectStatus("서버가 저장된 기록 감소를 감지해 덮어쓰기를 차단했습니다. 프로젝트를 다시 불러와 복구본을 확인해 주세요.");
+          return false;
+        }
         setProjectStatus("다른 편집자가 먼저 저장했습니다. 기존 내용을 덮어쓰지 않도록 저장을 중단했습니다. 프로젝트를 다시 불러와 최신 내용을 확인해 주세요.");
         return false;
       }
@@ -1680,6 +1770,7 @@ function createProjectSyncPayload(reason) {
     sessions: structuredClone(state.sessions),
     primarySessionId: state.primarySessionId,
     baseUpdatedAt: state.projectRevision || null,
+    allowSessionReduction: reason === "delete-session",
   };
 }
 
@@ -1757,12 +1848,12 @@ async function dataUrlToBlob(dataUrl) {
   return response.blob();
 }
 
-function retryPendingProjectSync() {
+async function retryPendingProjectSync() {
   if (!state.projectCode || !state.syncDirty || state.syncing) {
-    return;
+    return false;
   }
   setProjectStatus("온라인 상태로 돌아왔습니다. 서버 동기화를 다시 시도합니다.");
-  syncProjectState("auto-retry");
+  return syncProjectState("auto-retry");
 }
 
 function applyProject(project) {
@@ -2182,6 +2273,7 @@ async function refreshAuth() {
     renderAuthPanel();
     if (state.user) {
       activateWorkspaceAfterLogin();
+      await retryPendingProjectSync();
       await loadMyProjects();
       await loadAdminUsers();
       await loadProjectShares();
@@ -2296,6 +2388,7 @@ async function loginWithPassword() {
     authEls.password.value = "";
     renderAuthPanel();
     activateWorkspaceAfterLogin();
+    await retryPendingProjectSync();
     await loadMyProjects();
     await loadAdminUsers();
     await loadProjectShares();
@@ -2313,7 +2406,7 @@ async function loginWithPassword() {
 
 async function logout() {
   if (state.tracking) {
-    stopTracking({ save: true, clearCurrent: false });
+    await stopTracking({ save: true, clearCurrent: false });
   }
   stopRouteFollowWatcher();
   state.destinationFollow = false;
@@ -2595,6 +2688,7 @@ async function deleteMyProject(project) {
   }
   try {
     await requestJson(`/api/projects/${encodeURIComponent(project.code)}`, { method: "DELETE" });
+    removeProjectRecoveryBackup(project.code);
     state.myProjects = state.myProjects.filter((item) => item.code !== project.code);
     if (state.projectCode === project.code) {
       state.projectCode = "";
@@ -5252,6 +5346,134 @@ function getPersistPayload() {
     lastSyncFailedAt: state.lastSyncFailedAt,
     lastSyncError: state.lastSyncError,
   };
+}
+
+function saveProjectRecoveryBackup(reason = "local", serverConfirmed = false) {
+  if (!state.projectCode) {
+    return;
+  }
+  const hasRecordData =
+    state.sessions.length > 0 ||
+    state.points.length > 0 ||
+    state.photos.length > 0 ||
+    state.milestones.length > 0;
+  if (!hasRecordData) {
+    return;
+  }
+  const store = readProjectRecoveryStore();
+  const backup = {
+    code: state.projectCode,
+    name: state.projectName,
+    ownerUserId: state.user?.id || store[state.projectCode]?.ownerUserId || "",
+    savedAt: Date.now(),
+    reason,
+    serverConfirmed,
+    projectRevision: state.projectRevision || "",
+    points: structuredClone(state.points),
+    photos: createRecoveryPhotoList(state.photos),
+    milestones: structuredClone(state.milestones),
+    sessions: state.sessions.map((session) => ({
+      ...structuredClone(session),
+      photos: createRecoveryPhotoList(session.photos || []),
+    })),
+    primarySessionId: state.primarySessionId,
+  };
+  store[state.projectCode] = backup;
+  const ordered = Object.values(store).sort((a, b) => Number(b.savedAt || 0) - Number(a.savedAt || 0));
+  const trimmed = Object.fromEntries(
+    ordered.slice(0, MAX_PROJECT_RECOVERY_BACKUPS).map((item) => [item.code, item]),
+  );
+  try {
+    localStorage.setItem(PROJECT_RECOVERY_KEY, JSON.stringify(trimmed));
+  } catch (error) {
+    console.warn("Project recovery backup failed", error);
+  }
+}
+
+function readProjectRecoveryStore() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROJECT_RECOVERY_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getProjectRecoveryBackup(code) {
+  const backup = readProjectRecoveryStore()[normalizeProjectCode(code)];
+  if (!backup) {
+    return null;
+  }
+  if (backup.ownerUserId && state.user?.id && backup.ownerUserId !== state.user.id) {
+    return null;
+  }
+  return backup;
+}
+
+function removeProjectRecoveryBackup(code) {
+  const normalizedCode = normalizeProjectCode(code);
+  const store = readProjectRecoveryStore();
+  if (!store[normalizedCode]) {
+    return;
+  }
+  delete store[normalizedCode];
+  try {
+    localStorage.setItem(PROJECT_RECOVERY_KEY, JSON.stringify(store));
+  } catch {}
+}
+
+function createRecoveryPhotoList(photos) {
+  return (photos || []).map((photo) => {
+    const cloned = structuredClone(photo);
+    if (typeof cloned.src === "string" && cloned.src.startsWith("data:image/")) {
+      cloned.src = createPlaceholderPhotoSrc(cloned.displayName || cloned.name || "photo");
+      cloned.recoveryImageUnavailable = true;
+    }
+    return cloned;
+  });
+}
+
+function shouldOfferProjectRecovery(project, backup) {
+  if (!backup) {
+    return false;
+  }
+  const serverSessions = Array.isArray(project.sessions) ? project.sessions : [];
+  const backupSessions = Array.isArray(backup.sessions) ? backup.sessions : [];
+  if (backupSessions.length > serverSessions.length) {
+    return true;
+  }
+  const serverSessionPoints = serverSessions.reduce(
+    (total, session) => total + (Array.isArray(session.points) ? session.points.length : 0),
+    0,
+  );
+  const backupSessionPoints = backupSessions.reduce(
+    (total, session) => total + (Array.isArray(session.points) ? session.points.length : 0),
+    0,
+  );
+  if (backupSessionPoints > serverSessionPoints) {
+    return true;
+  }
+  const serverPoints = Array.isArray(project.lastState?.points) ? project.lastState.points.length : 0;
+  return serverSessions.length === 0 && (backup.points || []).length > serverPoints;
+}
+
+function applyProjectRecoveryBackup(project, backup) {
+  applyProject(project);
+  state.sessions = Array.isArray(backup.sessions) ? structuredClone(backup.sessions) : [];
+  state.primarySessionId = backup.primarySessionId || state.sessions[0]?.id || null;
+  state.points = Array.isArray(backup.points) ? structuredClone(backup.points) : [];
+  state.photos = Array.isArray(backup.photos) ? structuredClone(backup.photos) : [];
+  state.milestones = normalizeMilestones(
+    Array.isArray(backup.milestones) ? structuredClone(backup.milestones) : [],
+  );
+  const primarySession = state.sessions.find((session) => session.id === state.primarySessionId);
+  if (primarySession) {
+    state.points = structuredClone(primarySession.points || state.points);
+    state.photos = structuredClone(primarySession.photos || state.photos);
+  }
+  state.selectedPosition = state.points.at(-1) || null;
+  state.syncDirty = true;
+  saveProjectRecoveryBackup("recovery-loaded");
 }
 
 function compactLargePhotos(payload) {

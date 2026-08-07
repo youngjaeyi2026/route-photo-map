@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260730-password-4-1/);
+  assert.match(pageHtml, /20260807-record-safety-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
@@ -108,6 +108,9 @@ try {
   );
   assert.match(serverSource, /CREATE TABLE IF NOT EXISTS project_members/);
   assert.match(serverSource, /CREATE TABLE IF NOT EXISTS project_transfers/);
+  assert.match(serverSource, /CREATE TABLE IF NOT EXISTS project_revisions/);
+  assert.match(serverSource, /new Error\("record_loss_guard"\)/);
+  assert.match(serverSource, /LIMIT 100 OFFSET 20/);
   assert.match(serverSource, /projectTransferMatch[\s\S]+?\/transfer[\s\S]+?transferProjectCopy/);
   assert.match(serverSource, /error: "project_conflict"/);
   assert.match(serverSource, /const minPasswordLength = 4;/);
@@ -155,6 +158,13 @@ try {
     appSource,
     /async function resetAdminUserPassword[\s\S]+?normalizedPassword\.length < 4[\s\S]+?password: normalizedPassword/,
   );
+  assert.match(
+    appSource,
+    /async function stopTracking[\s\S]+?await syncProjectState\("completed"\)[\s\S]+?resetCurrentRecord\(\)/,
+  );
+  assert.match(appSource, /function saveProjectRecoveryBackup[\s\S]+?PROJECT_RECOVERY_KEY/);
+  assert.match(appSource, /function shouldOfferProjectRecovery[\s\S]+?backupSessions\.length > serverSessions\.length/);
+  assert.match(appSource, /await retryPendingProjectSync\(\)/);
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);
   assert.match(appSource, /다른 사용자의 프로젝트이므로 열 수 없습니다/);
   assert.match(
@@ -305,6 +315,40 @@ try {
   });
   assert.equal(saveResponse.status, 200);
   await saveResponse.json();
+  const guardedEmptySaveResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "should-not-empty",
+      points: [],
+      photos: [],
+      milestones: [],
+      sessions: [],
+      primarySessionId: null,
+      reason: "manual",
+    }),
+  });
+  assert.equal(guardedEmptySaveResponse.status, 409);
+  assert.equal((await guardedEmptySaveResponse.json()).error, "record_loss_guard");
+  const guardedProjectResponse = await fetch(`${baseUrl}/api/projects/${project.code}`);
+  const guardedProject = await guardedProjectResponse.json();
+  assert.equal(guardedProject.sessions.length, 1);
+  assert.equal(guardedProject.sessions[0].id, "route-1");
+  const guardedContentLossResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "should-not-empty-content",
+      points: [],
+      photos: [],
+      milestones: [],
+      sessions: [{ id: "route-1", points: [], photos: [] }],
+      primarySessionId: "route-1",
+      reason: "manual",
+    }),
+  });
+  assert.equal(guardedContentLossResponse.status, 409);
+  assert.equal((await guardedContentLossResponse.json()).error, "record_loss_guard");
   const conflictResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -361,6 +405,23 @@ try {
   const photoBody = await photoResponse.json();
   assert.equal(photoResponse.status, 503);
   assert.equal(photoBody.error, "r2_not_configured");
+
+  const explicitDeleteSessionResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "smoke-test",
+      points: [],
+      photos: [],
+      milestones: constructionPins,
+      sessions: [],
+      primarySessionId: null,
+      reason: "delete-session",
+      allowSessionReduction: true,
+    }),
+  });
+  assert.equal(explicitDeleteSessionResponse.status, 200);
+  assert.equal((await explicitDeleteSessionResponse.json()).sessions.length, 0);
 
   const oversizedResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
     method: "PUT",
