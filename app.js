@@ -54,6 +54,7 @@ const state = {
   shareLinks: [],
   shareView: initialShareToken ? { loading: true } : null,
   constructionPinsVisible: true,
+  photoPinsVisible: true,
   adminUsers: [],
   adminPanelOpen: false,
   authPanelOpen: true,
@@ -91,6 +92,11 @@ const els = {
   locateBtn: document.querySelector("#locateBtn"),
   fitBtn: document.querySelector("#fitBtn"),
   autoFollowBtn: document.querySelector("#autoFollowBtn"),
+  followMapControls: document.querySelector("#followMapControls"),
+  followExitBtn: document.querySelector("#followExitBtn"),
+  followPhotoToggleBtn: document.querySelector("#followPhotoToggleBtn"),
+  followConstructionToggleBtn: document.querySelector("#followConstructionToggleBtn"),
+  followSafetyNotice: document.querySelector("#followSafetyNotice"),
   saveBtn: document.querySelector("#saveBtn"),
   exportBtn: document.querySelector("#exportBtn"),
   clearBtn: document.querySelector("#clearBtn"),
@@ -153,6 +159,8 @@ const els = {
   historyList: document.querySelector("#historyList"),
   photoItemTemplate: document.querySelector("#photoItemTemplate"),
   followRouteBtn: document.querySelector("#followRouteBtn"),
+  shareInfoControls: document.querySelector("#shareInfoControls"),
+  sharePhotoToggleBtn: document.querySelector("#sharePhotoToggleBtn"),
   shareConstructionToggleBtn: document.querySelector("#shareConstructionToggleBtn"),
   constructionVisibilityBtn: document.querySelector("#constructionVisibilityBtn"),
   routeFollowStatus: document.querySelector("#routeFollowStatus"),
@@ -366,6 +374,10 @@ document.addEventListener("click", (event) => {
   }
 });
 els.followRouteBtn?.addEventListener("click", toggleRouteFollow);
+els.followExitBtn?.addEventListener("click", () => stopRouteFollowing("답사 모드를 종료했습니다."));
+els.followPhotoToggleBtn?.addEventListener("click", togglePhotoPinVisibility);
+els.followConstructionToggleBtn?.addEventListener("click", toggleConstructionVisibility);
+els.sharePhotoToggleBtn?.addEventListener("click", togglePhotoPinVisibility);
 els.shareConstructionToggleBtn?.addEventListener("click", toggleConstructionVisibility);
 els.constructionVisibilityBtn?.addEventListener("click", toggleConstructionVisibility);
 els.addConstructionPinBtn?.addEventListener("click", () => addMapPin("construction"));
@@ -1571,6 +1583,7 @@ function resetForNewProject() {
   state.photos = [];
   state.milestones = [];
   state.constructionPinsVisible = true;
+  state.photoPinsVisible = true;
   state.sessions = [];
   state.primarySessionId = null;
   state.continuingSessionId = null;
@@ -1866,6 +1879,7 @@ function applyProject(project) {
     Array.isArray(lastState.milestones) ? structuredClone(lastState.milestones) : [],
   );
   state.constructionPinsVisible = true;
+  state.photoPinsVisible = true;
   state.points = [];
   state.photos = [];
   state.selectedPosition = null;
@@ -2747,6 +2761,10 @@ function setupSharePanel() {
         <input id="shareCustomDate" type="date" aria-label="공유 종료 날짜" hidden />
         <button id="shareCreateBtn" type="button">공유 링크 만들기</button>
       </div>
+      <div class="share-content-options" aria-label="공유 정보 선택">
+        <label><input id="shareIncludePhotos" type="checkbox" /> 사진 공유</label>
+        <label><input id="shareIncludeConstruction" type="checkbox" /> 공사구역 공유</label>
+      </div>
       <p id="shareStatus" class="status-text">로그인 후 프로젝트를 저장하면 공유 링크를 만들 수 있습니다.</p>
       <div id="shareList" class="share-list"></div>
     </div>
@@ -2759,6 +2777,8 @@ function setupSharePanel() {
     expiry: section.querySelector("#shareExpiry"),
     customDate: section.querySelector("#shareCustomDate"),
     createBtn: section.querySelector("#shareCreateBtn"),
+    includePhotos: section.querySelector("#shareIncludePhotos"),
+    includeConstruction: section.querySelector("#shareIncludeConstruction"),
     status: section.querySelector("#shareStatus"),
     list: section.querySelector("#shareList"),
   };
@@ -2806,7 +2826,11 @@ async function createShareLink() {
   try {
     const share = await requestJson(`/api/projects/${encodeURIComponent(state.projectCode)}/share`, {
       method: "POST",
-      body: JSON.stringify({ expiresIn }),
+      body: JSON.stringify({
+        expiresIn,
+        includePhotos: shareEls.includePhotos.checked,
+        includeConstruction: shareEls.includeConstruction.checked,
+      }),
     });
     state.shareLinks = [share, ...state.shareLinks.filter((item) => item.token !== share.token)];
     renderSharePanel();
@@ -2886,6 +2910,8 @@ function renderSharePanel() {
   shareEls.createBtn.disabled = !canShare;
   shareEls.expiry.disabled = !canShare;
   shareEls.customDate.disabled = !canShare;
+  shareEls.includePhotos.disabled = !canShare;
+  shareEls.includeConstruction.disabled = !canShare;
   renderShareExpiryControls();
   shareEls.badge.textContent = state.shareLinks.some(isClientShareActive) ? "공유 중" : "보기 전용";
   shareEls.badge.classList.toggle("is-live", state.shareLinks.some(isClientShareActive));
@@ -2905,7 +2931,12 @@ function renderSharePanel() {
     const title = document.createElement("strong");
     const meta = document.createElement("span");
     title.textContent = isClientShareActive(share) ? "공유 링크" : "종료/만료된 링크";
-    meta.textContent = getShareMetaText(share);
+    const sharedContents = [
+      "동선",
+      share.includePhotos ? "사진" : "",
+      share.includeConstruction ? "공사구역" : "",
+    ].filter(Boolean).join(" · ");
+    meta.textContent = `${getShareMetaText(share)} · ${sharedContents}`;
     body.append(title, meta);
 
     const copyButton = document.createElement("button");
@@ -3022,6 +3053,7 @@ function endSharedView(message) {
   state.projectMembers = [];
   state.destinationFollow = false;
   state.constructionPinsVisible = true;
+  state.photoPinsVisible = true;
   state.followProgressIndex = 0;
   currentMarker.setLatLng([37.5665, 126.978]);
   document.body.classList.add("is-share-view", "is-share-ended");
@@ -3138,6 +3170,7 @@ function clearData() {
   state.photos = [];
   state.milestones = [];
   state.constructionPinsVisible = true;
+  state.photoPinsVisible = true;
   state.overlayProjects = [];
   state.sessions = [];
   state.primarySessionId = null;
@@ -3195,6 +3228,7 @@ function render() {
   renderMilestones();
   renderProjectOverlays();
   renderRouteFollowStatus();
+  renderFollowMode();
   renderStats();
   renderTrackingState();
   renderPanelVisibility();
@@ -3963,7 +3997,7 @@ function renderPhotos() {
 function renderPhotoMapMarkers(photos = getVisiblePhotos()) {
   hidePhotoTray();
   photoLayer.clearLayers();
-  if (state.photoFilter === "hidden") {
+  if (!state.photoPinsVisible || state.photoFilter === "hidden") {
     hidePhotoTray();
     return;
   }
@@ -4348,7 +4382,21 @@ function toggleConstructionVisibility() {
   state.constructionPinsVisible = !state.constructionPinsVisible;
   renderMilestones();
   renderProjectOverlays();
+  renderFollowMode();
   setStatus(`공사구역 핀을 ${state.constructionPinsVisible ? "표시했습니다." : "숨겼습니다."}`);
+}
+
+function togglePhotoPinVisibility() {
+  if (state.shareView && (state.shareView.loading || state.shareView.revoked || !state.shareView.includePhotos)) {
+    return;
+  }
+  if (state.photos.length === 0) {
+    return;
+  }
+  state.photoPinsVisible = !state.photoPinsVisible;
+  renderPhotoMapMarkers(getVisiblePhotos());
+  renderFollowMode();
+  setStatus(`사진 위치를 지도에서 ${state.photoPinsVisible ? "표시했습니다." : "숨겼습니다."}`);
 }
 
 function renderConstructionVisibilityControls(pinCount) {
@@ -4360,11 +4408,60 @@ function renderConstructionVisibilityControls(pinCount) {
     els.constructionVisibilityBtn.setAttribute("aria-pressed", String(isVisible));
   }
   if (els.shareConstructionToggleBtn) {
-    const canToggle = Boolean(state.shareView && !state.shareView.loading && !state.shareView.revoked && pinCount > 0);
+    const canToggle = Boolean(
+      state.shareView &&
+      state.shareView.includeConstruction &&
+      !state.shareView.loading &&
+      !state.shareView.revoked &&
+      pinCount > 0,
+    );
     els.shareConstructionToggleBtn.hidden = !canToggle;
     els.shareConstructionToggleBtn.disabled = !canToggle;
     els.shareConstructionToggleBtn.textContent = isVisible ? "공사구역 숨기기" : "공사구역 보기";
     els.shareConstructionToggleBtn.setAttribute("aria-pressed", String(isVisible));
+  }
+}
+
+function renderFollowMode() {
+  const isFollowMode = Boolean(state.destinationFollow);
+  const followModeChanged = document.body.classList.contains("is-follow-mode") !== isFollowMode;
+  document.body.classList.toggle("is-follow-mode", isFollowMode);
+  if (els.followMapControls) {
+    els.followMapControls.hidden = !isFollowMode;
+  }
+  if (els.followSafetyNotice) {
+    els.followSafetyNotice.hidden = !isFollowMode;
+  }
+
+  const hasPhotos = state.photos.length > 0 && (!state.shareView || state.shareView.includePhotos);
+  const hasConstruction =
+    getVisibleConstructionPinCount() > 0 && (!state.shareView || state.shareView.includeConstruction);
+  const photoText = state.photoPinsVisible ? "사진 숨기기" : "사진 보기";
+  const constructionText = state.constructionPinsVisible ? "공사구역 숨기기" : "공사구역 보기";
+
+  [els.followPhotoToggleBtn, els.sharePhotoToggleBtn].forEach((button) => {
+    if (!button) {
+      return;
+    }
+    button.hidden = !(button === els.followPhotoToggleBtn ? isFollowMode && hasPhotos : !isFollowMode && Boolean(state.shareView) && hasPhotos);
+    button.textContent = photoText;
+    button.setAttribute("aria-pressed", String(state.photoPinsVisible));
+  });
+  if (els.followConstructionToggleBtn) {
+    els.followConstructionToggleBtn.hidden = !(isFollowMode && hasConstruction);
+    els.followConstructionToggleBtn.textContent = constructionText;
+    els.followConstructionToggleBtn.setAttribute("aria-pressed", String(state.constructionPinsVisible));
+  }
+  if (els.shareInfoControls) {
+    els.shareInfoControls.hidden = isFollowMode || !state.shareView || (!hasPhotos && !hasConstruction);
+  }
+  if (els.shareConstructionToggleBtn && state.shareView) {
+    els.shareConstructionToggleBtn.hidden = isFollowMode || !hasConstruction;
+    els.shareConstructionToggleBtn.textContent = constructionText;
+    els.shareConstructionToggleBtn.setAttribute("aria-pressed", String(state.constructionPinsVisible));
+  }
+  if (followModeChanged) {
+    window.requestAnimationFrame(() => map.invalidateSize());
   }
 }
 
@@ -4395,6 +4492,7 @@ function stopRouteFollowing(message = "답사 따라가기를 종료했습니다
   renderRouteLines();
   renderRouteFollowStatus();
   renderTrackingState();
+  renderFollowMode();
   setStatus(message);
 }
 
@@ -5213,10 +5311,14 @@ function renderSessions() {
 function fitToData() {
   const bounds = L.latLngBounds([]);
   state.points.forEach((point) => bounds.extend([point.lat, point.lng]));
-  state.photos.filter(hasPhotoPosition).forEach((photo) => bounds.extend([photo.lat, photo.lng]));
-  state.milestones
-    .filter((pin) => pin.type === "construction")
-    .forEach((pin) => bounds.extend([pin.lat, pin.lng]));
+  if (state.photoPinsVisible) {
+    state.photos.filter(hasPhotoPosition).forEach((photo) => bounds.extend([photo.lat, photo.lng]));
+  }
+  if (state.constructionPinsVisible) {
+    state.milestones
+      .filter((pin) => pin.type === "construction")
+      .forEach((pin) => bounds.extend([pin.lat, pin.lng]));
+  }
   state.overlayProjects
     .filter((project) => project.visible !== false)
     .forEach((project) => {

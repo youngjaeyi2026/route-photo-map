@@ -109,6 +109,59 @@ button {
   gap: 8px;
 }
 
+.follow-map-controls {
+  position: absolute;
+  z-index: 650;
+  top: 18px;
+  right: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: min(520px, calc(100% - 180px));
+}
+
+.follow-map-controls[hidden],
+.follow-safety-notice[hidden] {
+  display: none;
+}
+
+.follow-map-control {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid rgba(49, 95, 158, 0.3);
+  border-radius: 10px;
+  color: #244f82;
+  background: rgba(238, 245, 252, 0.96);
+  box-shadow: 0 8px 20px rgba(22, 32, 28, 0.16);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.follow-map-control--exit {
+  color: #ffffff;
+  border-color: #315f9e;
+  background: #315f9e;
+}
+
+.follow-safety-notice {
+  position: absolute;
+  z-index: 640;
+  right: 50%;
+  bottom: 22px;
+  translate: 50% 0;
+  margin: 0;
+  padding: 9px 14px;
+  border: 1px solid rgba(184, 66, 56, 0.24);
+  border-radius: 10px;
+  color: #96372f;
+  background: rgba(255, 241, 238, 0.95);
+  box-shadow: 0 8px 20px rgba(22, 32, 28, 0.14);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .photo-tray {
   position: absolute;
   z-index: 620;
@@ -1001,6 +1054,40 @@ label[for="photoInput"] {
   background: #eaf3fb;
 }
 
+.share-content-options,
+.share-info-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.share-content-options label {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7faf8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.share-info-controls[hidden] {
+  display: none;
+}
+
+.share-info-controls button {
+  min-height: 36px;
+  border: 1px solid #cddceb;
+  border-radius: 8px;
+  color: #285b86;
+  background: #eaf3fb;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .share-list {
   display: grid;
   gap: 8px;
@@ -1047,6 +1134,7 @@ label[for="photoInput"] {
 .is-share-view .settings-section,
 .is-share-view .timeline-section,
 .is-share-view .history-section,
+.is-share-view .project-section,
 .is-share-view .project-controls,
 .is-share-view .record-section .section-title-actions,
 .is-share-view .record-action-grid,
@@ -1058,6 +1146,10 @@ label[for="photoInput"] {
 .is-share-view .photo-actions button:not(:first-child),
 .is-share-view #photoModalMemoBtn,
 .is-share-view #photoModalTagBtn {
+  display: none !important;
+}
+
+.is-share-view .record-section > .section-title {
   display: none !important;
 }
 
@@ -1084,11 +1176,31 @@ label[for="photoInput"] {
 }
 
 .is-share-view .status-strip {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
-.is-share-view .status-strip > div:last-child {
+.is-share-view .status-strip > div:not(:first-child) {
   display: none;
+}
+
+.is-share-view .status-strip > div:first-child {
+  border-right: 0;
+}
+
+body.is-follow-mode .app-shell {
+  display: block;
+  height: 100dvh;
+  min-height: 100dvh;
+}
+
+body.is-follow-mode .map-stage {
+  width: 100vw;
+  height: 100dvh !important;
+  min-height: 100dvh;
+}
+
+body.is-follow-mode .control-panel {
+  display: none !important;
 }
 
 .is-share-ended .record-section,
@@ -2358,6 +2470,28 @@ label[for="photoInput"] {
 }
 
 @media (max-width: 460px) {
+  .follow-map-controls {
+    top: 12px;
+    right: 12px;
+    display: grid;
+    max-width: 150px;
+  }
+
+  .follow-map-control {
+    min-height: 40px;
+    padding: 0 11px;
+    font-size: 12px;
+  }
+
+  .follow-safety-notice {
+    right: 12px;
+    bottom: 18px;
+    left: 12px;
+    translate: 0 0;
+    text-align: center;
+    white-space: normal;
+  }
+
   .photo-item {
     grid-template-columns: 64px minmax(0, 1fr) 34px;
   }

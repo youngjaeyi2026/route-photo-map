@@ -312,7 +312,14 @@ async function handleApi(request, response, url) {
       return;
     }
     const body = await readJsonBody(request);
-    sendJson(response, 201, await createShareLink(project, currentUser, body?.expiresIn || "5d"));
+    sendJson(
+      response,
+      201,
+      await createShareLink(project, currentUser, body?.expiresIn || "5d", {
+        includePhotos: body?.includePhotos === true,
+        includeConstruction: body?.includeConstruction === true,
+      }),
+    );
     return;
   }
 
@@ -664,7 +671,7 @@ function countProjectRecordItems(sessions, lastState) {
   );
 }
 
-async function createShareLink(project, user, expiresIn) {
+async function createShareLink(project, user, expiresIn, options = {}) {
   const now = new Date().toISOString();
   const token = generateShareToken();
   const expiresAt = resolveShareExpiresAt(expiresIn);
@@ -673,6 +680,8 @@ async function createShareLink(project, user, expiresIn) {
     projectCode: project.code,
     ownerUserId: user?.id || project.ownerUserId || null,
     expiresAt,
+    includePhotos: options.includePhotos === true,
+    includeConstruction: options.includeConstruction === true,
     active: true,
     createdAt: now,
     updatedAt: now,
@@ -787,12 +796,14 @@ async function getSharedProject(token) {
       active: share.active,
       createdAt: share.createdAt,
       updatedAt: share.updatedAt,
+      includePhotos: share.includePhotos,
+      includeConstruction: share.includeConstruction,
     },
-    project: createSharedProjectView(project),
+    project: createSharedProjectView(project, share),
   };
 }
 
-function createSharedProjectView(project) {
+function createSharedProjectView(project, share) {
   const sessions = Array.isArray(project.sessions) ? project.sessions : [];
   const primarySession =
     sessions.find((session) => session.id === project.primarySessionId) ||
@@ -803,6 +814,11 @@ function createSharedProjectView(project) {
       ? primarySession.points
       : project.lastState?.points,
   );
+  const sourcePhotos =
+    Array.isArray(primarySession?.photos) && primarySession.photos.length > 0
+      ? primarySession.photos
+      : project.lastState?.photos;
+  const sharedPhotos = share.includePhotos ? sanitizeSharedPhotos(sourcePhotos) : [];
   const sharedSession = {
     id: "shared-route",
     name: "공유 노선",
@@ -810,9 +826,9 @@ function createSharedProjectView(project) {
     endedAt: primarySession?.endedAt || project.updatedAt || null,
     distanceMeters: Number(primarySession?.distanceMeters || 0),
     points: routePoints,
-    photos: [],
+    photos: sharedPhotos,
   };
-  const milestones = Array.isArray(project.lastState?.milestones)
+  const milestones = share.includeConstruction && Array.isArray(project.lastState?.milestones)
     ? project.lastState.milestones
         .filter((pin) => pin?.type === "construction")
         .map((pin) => ({
@@ -838,11 +854,36 @@ function createSharedProjectView(project) {
     sessions: [sharedSession],
     lastState: {
       points: routePoints,
-      photos: [],
+      photos: sharedPhotos,
       milestones,
       savedAt: project.lastState?.savedAt || project.updatedAt || null,
     },
   };
+}
+
+function sanitizeSharedPhotos(photos) {
+  if (!Array.isArray(photos)) {
+    return [];
+  }
+  return photos
+    .map((photo) => ({
+      id: photo.id || randomBytes(8).toString("hex"),
+      name: photo.name || "사진",
+      displayName: photo.displayName || photo.name || "사진",
+      src: String(photo.src || ""),
+      lat: Number(photo.lat),
+      lng: Number(photo.lng),
+      locationSource: photo.locationSource || "map",
+      memo: String(photo.memo || ""),
+      tags: String(photo.tags || ""),
+      timestamp: photo.timestamp || null,
+    }))
+    .filter(
+      (photo) =>
+        photo.src &&
+        Number.isFinite(photo.lat) &&
+        Number.isFinite(photo.lng),
+    );
 }
 
 function sanitizeSharedRoutePoints(points) {
@@ -1144,6 +1185,8 @@ async function ensureDatabase() {
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   `);
   await ensureColumn("projects", "owner_user_id", "VARCHAR(64) NULL");
+  await ensureColumn("share_links", "include_photos", "TINYINT(1) NOT NULL DEFAULT 0");
+  await ensureColumn("share_links", "include_construction", "TINYINT(1) NOT NULL DEFAULT 0");
 }
 
 async function getMysqlPool() {
@@ -1200,11 +1243,13 @@ async function upsertShareLink(share) {
   await ensureDatabase();
   await pool.execute(
     `INSERT INTO share_links
-      (token, project_code, owner_user_id, expires_at, active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+      (token, project_code, owner_user_id, expires_at, active, include_photos, include_construction, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
       expires_at = VALUES(expires_at),
       active = VALUES(active),
+      include_photos = VALUES(include_photos),
+      include_construction = VALUES(include_construction),
       updated_at = VALUES(updated_at)`,
     [
       share.token,
@@ -1212,6 +1257,8 @@ async function upsertShareLink(share) {
       share.ownerUserId || null,
       share.expiresAt ? toMysqlDate(share.expiresAt) : null,
       share.active ? 1 : 0,
+      share.includePhotos ? 1 : 0,
+      share.includeConstruction ? 1 : 0,
       toMysqlDate(share.createdAt || new Date().toISOString()),
       toMysqlDate(share.updatedAt || new Date().toISOString()),
     ],
@@ -1246,6 +1293,8 @@ function rowToShareLink(row) {
     ownerUserId: row.owner_user_id || null,
     expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
     active: Boolean(row.active),
+    includePhotos: Boolean(row.include_photos),
+    includeConstruction: Boolean(row.include_construction),
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   });
@@ -1648,6 +1697,8 @@ function normalizeShareLink(share) {
     ownerUserId: share.ownerUserId || null,
     expiresAt: share.expiresAt || null,
     active: share.active !== false,
+    includePhotos: share.includePhotos === true,
+    includeConstruction: share.includeConstruction === true,
     createdAt: share.createdAt || new Date().toISOString(),
     updatedAt: share.updatedAt || share.createdAt || new Date().toISOString(),
   };

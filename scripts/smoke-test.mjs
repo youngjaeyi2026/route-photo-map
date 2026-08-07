@@ -73,9 +73,14 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260807-record-safety-1/);
+  assert.match(pageHtml, /20260807-share-follow-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
+  assert.match(pageHtml, /id="followMapControls"/);
+  assert.match(pageHtml, /id="followExitBtn"/);
+  assert.match(pageHtml, /id="followPhotoToggleBtn"/);
+  assert.match(pageHtml, /id="followConstructionToggleBtn"/);
+  assert.match(pageHtml, /id="sharePhotoToggleBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
   assert.match(pageHtml, /id="constructionVisibilityBtn"/);
   assert.match(pageHtml, /id="addConstructionPinBtn"/);
@@ -111,6 +116,9 @@ try {
   assert.match(serverSource, /CREATE TABLE IF NOT EXISTS project_revisions/);
   assert.match(serverSource, /new Error\("record_loss_guard"\)/);
   assert.match(serverSource, /LIMIT 100 OFFSET 20/);
+  assert.match(serverSource, /include_photos/);
+  assert.match(serverSource, /include_construction/);
+  assert.match(serverSource, /function sanitizeSharedPhotos/);
   assert.match(serverSource, /projectTransferMatch[\s\S]+?\/transfer[\s\S]+?transferProjectCopy/);
   assert.match(serverSource, /error: "project_conflict"/);
   assert.match(serverSource, /const minPasswordLength = 4;/);
@@ -165,6 +173,10 @@ try {
   assert.match(appSource, /function saveProjectRecoveryBackup[\s\S]+?PROJECT_RECOVERY_KEY/);
   assert.match(appSource, /function shouldOfferProjectRecovery[\s\S]+?backupSessions\.length > serverSessions\.length/);
   assert.match(appSource, /await retryPendingProjectSync\(\)/);
+  assert.match(appSource, /includePhotos: shareEls\.includePhotos\.checked/);
+  assert.match(appSource, /includeConstruction: shareEls\.includeConstruction\.checked/);
+  assert.match(appSource, /function renderFollowMode\(\)[\s\S]+?is-follow-mode/);
+  assert.match(appSource, /function togglePhotoPinVisibility\(\)/);
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);
   assert.match(appSource, /다른 사용자의 프로젝트이므로 열 수 없습니다/);
   assert.match(
@@ -245,7 +257,11 @@ try {
   assert.match(css, /\.route-follow-status\s*\{[^}]*background:\s*#fff1ee/s);
   assert.match(css, /\.is-share-view \.timeline-section,[\s\S]+?\.is-share-view \.history-section/s);
   assert.match(css, /\.is-share-view #recordControls\s*\{[^}]*display:\s*grid\s*!important/s);
-  assert.match(css, /\.is-share-view \.share-construction-toggle:not\(\[hidden\]\)\s*\{[^}]*display:\s*inline-flex/s);
+  assert.match(css, /\.is-share-view \.project-section/);
+  assert.match(css, /\.is-share-view \.status-strip > div:not\(:first-child\)/);
+  assert.match(css, /body\.is-follow-mode \.control-panel\s*\{[^}]*display:\s*none !important/s);
+  assert.match(css, /\.follow-map-controls\s*\{/);
+  assert.match(css, /\.share-content-options/);
   assert.match(css, /\.is-share-loading \.control-panel\s*\{[^}]*pointer-events:\s*none/s);
   assert.match(css, /\.share-item\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto\s*auto\s*auto/s);
   assert.match(css, /#shareCreateBtn\s*\{[^}]*grid-column:\s*2;[^}]*grid-row:\s*1/s);
@@ -375,10 +391,29 @@ try {
   assert.deepEqual(shared.project.sessions[0].points, routePoints);
   assert.deepEqual(shared.project.sessions[0].photos, []);
   assert.deepEqual(shared.project.lastState.photos, []);
-  assert.equal(shared.project.lastState.milestones.length, 1);
-  assert.equal(shared.project.lastState.milestones[0].displayCode, "D1");
-  assert.equal(shared.project.lastState.milestones[0].color, "#315f9e");
+  assert.deepEqual(shared.project.lastState.milestones, []);
+  assert.equal(shared.share.includePhotos, false);
+  assert.equal(shared.share.includeConstruction, false);
   assert.doesNotMatch(sharedText, /private-photo|공유 금지 사진|example\.invalid/);
+  const detailedShareResponse = await fetch(`${baseUrl}/api/projects/${project.code}/share`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expiresIn: "1d", includePhotos: true, includeConstruction: true }),
+  });
+  assert.equal(detailedShareResponse.status, 201);
+  const detailedShare = await detailedShareResponse.json();
+  assert.equal(detailedShare.includePhotos, true);
+  assert.equal(detailedShare.includeConstruction, true);
+  const detailedSharedResponse = await fetch(`${baseUrl}/api/share/${detailedShare.token}`);
+  const detailedShared = await detailedSharedResponse.json();
+  assert.equal(detailedShared.share.includePhotos, true);
+  assert.equal(detailedShared.share.includeConstruction, true);
+  assert.equal(detailedShared.project.sessions[0].photos.length, 1);
+  assert.equal(detailedShared.project.sessions[0].photos[0].id, "private-photo");
+  assert.equal(detailedShared.project.lastState.milestones.length, 1);
+  assert.equal(detailedShared.project.lastState.milestones[0].displayCode, "D1");
+  assert.equal(detailedShared.project.lastState.milestones[0].color, "#315f9e");
+
   const customExpiry = new Date(Date.now() + 1000 * 60 * 60 * 36).toISOString();
   const updateShareResponse = await fetch(`${baseUrl}/api/projects/${project.code}/share/${share.token}`, {
     method: "PATCH",
@@ -431,7 +466,7 @@ try {
   const oversizedBody = await oversizedResponse.json();
   assert.equal(oversizedResponse.status, 413);
   assert.equal(oversizedBody.error, "request_body_too_large");
-  console.log("Smoke test passed: route-only sharing, photo privacy, expiry/revocation, field UI, and storage guards work.");
+  console.log("Smoke test passed: selective sharing, follow-mode UI, privacy, expiry/revocation, and storage guards work.");
 } finally {
   child.kill();
   rmSync(dataDir, { recursive: true, force: true });

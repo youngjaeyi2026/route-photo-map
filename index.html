@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260807-record-safety-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260807-share-follow-1" />
   </head>
   <body>
     <script>
@@ -31,6 +31,12 @@
             <span aria-hidden="true">◎</span>
           </button>
         </div>
+        <div id="followMapControls" class="follow-map-controls" hidden>
+          <button id="followExitBtn" class="follow-map-control follow-map-control--exit" type="button">답사 종료</button>
+          <button id="followPhotoToggleBtn" class="follow-map-control" type="button" aria-pressed="true" hidden>사진 숨기기</button>
+          <button id="followConstructionToggleBtn" class="follow-map-control" type="button" aria-pressed="true" hidden>공사구역 숨기기</button>
+        </div>
+        <p id="followSafetyNotice" class="follow-safety-notice" hidden>운전 중에는 화면을 조작하지 마세요.</p>
       </section>
 
       <aside class="control-panel" aria-label="기록 패널">
@@ -96,15 +102,6 @@
         <section id="recordSection" class="panel-section record-section">
           <div class="section-title">
             <h2 id="recordTitle">기록</h2>
-            <button
-              id="shareConstructionToggleBtn"
-              class="section-toggle share-construction-toggle"
-              type="button"
-              aria-pressed="true"
-              hidden
-            >
-              공사구역 숨기기
-            </button>
             <div class="section-title-actions">
               <span id="trackingBadge" class="badge">대기</span>
               <button id="recordToggleBtn" class="section-toggle" type="button">숨기기</button>
@@ -136,6 +133,10 @@
                 >
                   공사구역 숨기기
                 </button>
+              </div>
+              <div id="shareInfoControls" class="share-info-controls" hidden>
+                <button id="sharePhotoToggleBtn" type="button" aria-pressed="true" hidden>사진 숨기기</button>
+                <button id="shareConstructionToggleBtn" type="button" aria-pressed="true" hidden>공사구역 숨기기</button>
               </div>
               <div id="routeFollowStatus" class="route-follow-status">기록된 동선을 불러오면 답사 따라가기를 시작할 수 있습니다.</div>
             </div>
@@ -280,6 +281,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260807-record-safety-1"></script>
+    <script src="/app.js?v=20260807-share-follow-1"></script>
   </body>
 </html>
