@@ -73,13 +73,14 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260807-share-spacing-1/);
+  assert.match(pageHtml, /20260807-follow-construction-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="followMapControls"/);
   assert.match(pageHtml, /id="followExitBtn"/);
   assert.match(pageHtml, /id="followPhotoToggleBtn"/);
   assert.match(pageHtml, /id="followConstructionToggleBtn"/);
+  assert.match(pageHtml, /id="constructionDetailModal"/);
   assert.match(pageHtml, /id="sharePhotoToggleBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
   assert.match(pageHtml, /id="constructionVisibilityBtn"/);
@@ -176,6 +177,11 @@ try {
   assert.match(appSource, /includePhotos: shareEls\.includePhotos\.checked/);
   assert.match(appSource, /includeConstruction: shareEls\.includeConstruction\.checked/);
   assert.match(appSource, /function renderFollowMode\(\)[\s\S]+?is-follow-mode/);
+  assert.match(appSource, /function temporarilyPauseFollowCamera\(\)[\s\S]+?FOLLOW_INTERACTION_RESUME_MS/);
+  assert.match(appSource, /state\.destinationFollow[\s\S]+?temporarilyPauseFollowCamera\(\)/);
+  assert.match(appSource, /const CONSTRUCTION_NAME_ZOOM = 16/);
+  assert.match(appSource, /function createConstructionMarkerIcon\(pin\)[\s\S]+?construction-name-icon/);
+  assert.match(appSource, /function openConstructionDetail\(pin, projectName = ""\)/);
   assert.match(appSource, /function togglePhotoPinVisibility\(\)/);
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);
   assert.match(appSource, /다른 사용자의 프로젝트이므로 열 수 없습니다/);
@@ -263,6 +269,8 @@ try {
   assert.match(css, /\.follow-map-controls\s*\{/);
   assert.match(css, /\.share-content-options/);
   assert.match(css, /\.share-content-options\s*\{[^}]*margin-top:\s*6px/s);
+  assert.match(css, /\.construction-name-icon span\s*\{/);
+  assert.match(css, /\.construction-detail__panel\s*\{/);
   assert.match(css, /\.is-share-loading \.control-panel\s*\{[^}]*pointer-events:\s*none/s);
   assert.match(css, /\.share-item\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto\s*auto\s*auto/s);
   assert.match(css, /#shareCreateBtn\s*\{[^}]*grid-column:\s*2;[^}]*grid-row:\s*1/s);

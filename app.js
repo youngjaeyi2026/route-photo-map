@@ -9,6 +9,8 @@ const BRIGHT_YELLOW_COLOR = "#f2c400";
 const ROUTE_COMPLETED_COLOR = "#1f7a57";
 const ROUTE_REMAINING_COLOR = "#315f9e";
 const ROUTE_DEVIATION_METERS = 50;
+const FOLLOW_INTERACTION_RESUME_MS = 4000;
+const CONSTRUCTION_NAME_ZOOM = 16;
 const REPRESENTATIVE_COLORS = [
   { name: "빨강", value: "#c34236" },
   { name: "주황", value: "#d96c1f" },
@@ -38,6 +40,7 @@ const state = {
   photoFilter: "all",
   photoView: "list",
   activePhotoId: null,
+  activeConstructionPinId: null,
   projectCode: "",
   projectName: "프로젝트A",
   projectAccessRole: "",
@@ -114,6 +117,12 @@ const els = {
   photoModalMemoBtn: document.querySelector("#photoModalMemoBtn"),
   photoModalTagBtn: document.querySelector("#photoModalTagBtn"),
   photoModalLocateBtn: document.querySelector("#photoModalLocateBtn"),
+  constructionDetailModal: document.querySelector("#constructionDetailModal"),
+  constructionDetailClose: document.querySelector("#constructionDetailClose"),
+  constructionDetailCode: document.querySelector("#constructionDetailCode"),
+  constructionDetailTitle: document.querySelector("#constructionDetailTitle"),
+  constructionDetailMeta: document.querySelector("#constructionDetailMeta"),
+  constructionDetailMemo: document.querySelector("#constructionDetailMemo"),
   projectName: document.querySelector("#projectName"),
   projectCode: document.querySelector("#projectCode"),
   projectBadge: document.querySelector("#projectBadge"),
@@ -217,6 +226,9 @@ const projectOverlayLayer = L.layerGroup().addTo(map);
 const pointLayer = L.layerGroup().addTo(map);
 let programmaticMapMove = false;
 let lastFollowMapMoveAt = 0;
+let followInteractionPauseUntil = 0;
+let followInteractionResumeTimer = null;
+let constructionNamesExpanded = map.getZoom() >= CONSTRUCTION_NAME_ZOOM;
 let lastLiveStatusAt = 0;
 let routeFollowWatcherId = null;
 let shareViewTimerId = null;
@@ -264,6 +276,10 @@ map.on("dragstart zoomstart", () => {
   if (programmaticMapMove || (!state.tracking && !state.destinationFollow) || !state.autoFollow) {
     return;
   }
+  if (state.destinationFollow) {
+    temporarilyPauseFollowCamera();
+    return;
+  }
   state.autoFollow = false;
   persist();
   renderTrackingState();
@@ -272,6 +288,12 @@ map.on("dragstart zoomstart", () => {
 
 map.on("moveend zoomend", () => {
   renderPhotoMapMarkers(getVisiblePhotos());
+  const nextConstructionNamesExpanded = map.getZoom() >= CONSTRUCTION_NAME_ZOOM;
+  if (nextConstructionNamesExpanded !== constructionNamesExpanded) {
+    constructionNamesExpanded = nextConstructionNamesExpanded;
+    renderMilestones();
+    renderProjectOverlays();
+  }
   if (state.pointEditMode) {
     renderPointEditing();
   }
@@ -339,12 +361,21 @@ els.photoModalLocateBtn.addEventListener("click", () => {
     closePhotoModal();
   }
 });
+els.constructionDetailClose?.addEventListener("click", closeConstructionDetail);
+els.constructionDetailModal?.addEventListener("click", (event) => {
+  if (event.target.hasAttribute("data-construction-detail-close")) {
+    closeConstructionDetail();
+  }
+});
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !els.photoModal.hidden) {
     closePhotoModal();
   }
   if (event.key === "Escape" && els.colorPickerModal && !els.colorPickerModal.hidden) {
     closeRepresentativeColorPicker();
+  }
+  if (event.key === "Escape" && els.constructionDetailModal && !els.constructionDetailModal.hidden) {
+    closeConstructionDetail();
   }
 });
 els.createProjectBtn.addEventListener("click", createServerProject);
@@ -757,7 +788,13 @@ function updateRouteFollowing(point) {
 }
 
 function followLatestPoint(point) {
-  if ((!state.tracking && !state.destinationFollow) || state.paused || !state.autoFollow || !point) {
+  if (
+    (!state.tracking && !state.destinationFollow) ||
+    state.paused ||
+    !state.autoFollow ||
+    !point ||
+    (state.destinationFollow && Date.now() < followInteractionPauseUntil)
+  ) {
     return;
   }
   const now = Date.now();
@@ -767,6 +804,25 @@ function followLatestPoint(point) {
   lastFollowMapMoveAt = now;
   const zoom = Math.max(map.getZoom(), 17);
   setMapView([point.lat, point.lng], zoom);
+}
+
+function temporarilyPauseFollowCamera() {
+  followInteractionPauseUntil = Date.now() + FOLLOW_INTERACTION_RESUME_MS;
+  if (followInteractionResumeTimer !== null) {
+    window.clearTimeout(followInteractionResumeTimer);
+  }
+  followInteractionResumeTimer = window.setTimeout(() => {
+    followInteractionResumeTimer = null;
+    followInteractionPauseUntil = 0;
+    if (!state.destinationFollow || !state.autoFollow) {
+      return;
+    }
+    const latest = getLatestPosition();
+    if (latest) {
+      followLatestPoint(latest);
+      setStatus("답사 자동 따라가기를 계속합니다.");
+    }
+  }, FOLLOW_INTERACTION_RESUME_MS);
 }
 
 function toggleAutoFollow() {
@@ -4250,13 +4306,7 @@ function renderMilestones() {
     const typeLabel = getPinTypeLabel(pin.type);
     const pinLabel = getMapPinLabel(pin);
     if (state.constructionPinsVisible) {
-      const icon = L.divIcon({
-        className: "",
-        html: createMapPinHtml("construction", pinLabel, pin.color),
-        iconSize: [34, 38],
-        iconAnchor: [17, 38],
-        popupAnchor: [0, -34],
-      });
+      const icon = createConstructionMarkerIcon(pin);
       let pinWasDragged = false;
       L.marker([pin.lat, pin.lng], {
         icon,
@@ -4276,8 +4326,7 @@ function renderMilestones() {
           if (state.pointEditMode || pinWasDragged) {
             return;
           }
-          map.setView([pin.lat, pin.lng], Math.max(map.getZoom(), 18));
-          setStatus(`${pin.name} 위치로 이동했습니다.`);
+          openConstructionDetail(pin);
         })
         .addTo(milestoneLayer);
     }
@@ -4482,6 +4531,11 @@ function getVisibleConstructionPinCount() {
 
 function stopRouteFollowing(message = "답사 따라가기를 종료했습니다.") {
   state.destinationFollow = false;
+  followInteractionPauseUntil = 0;
+  if (followInteractionResumeTimer !== null) {
+    window.clearTimeout(followInteractionResumeTimer);
+    followInteractionResumeTimer = null;
+  }
   state.followProgressIndex = 0;
   state.routeOffTrack = false;
   state.routeDeviationSamples = 0;
@@ -4724,6 +4778,60 @@ function createMapPinHtml(type, label, color = "") {
   return `<span class="map-pin map-pin--${type}"${background}><b>${escapeHtml(label)}</b></span>`;
 }
 
+function createConstructionMarkerIcon(pin) {
+  const code = getMapPinLabel(pin);
+  const name = String(pin.name || "").trim();
+  const showName = map.getZoom() >= CONSTRUCTION_NAME_ZOOM && name && name !== "공사구역";
+  if (!showName) {
+    return L.divIcon({
+      className: "",
+      html: createMapPinHtml("construction", code, pin.color),
+      iconSize: [34, 38],
+      iconAnchor: [17, 38],
+      popupAnchor: [0, -34],
+    });
+  }
+
+  const label = name.length > 14 ? `${name.slice(0, 13)}…` : name;
+  const width = Math.min(172, Math.max(58, label.length * 13 + 22));
+  const pinColor = normalizeConstructionColor(pin.color);
+  const foreground = pinColor === BRIGHT_YELLOW_COLOR ? "#3b3210" : "#ffffff";
+  return L.divIcon({
+    className: "construction-name-icon",
+    html: `<span style="background:${pinColor};color:${foreground}">${escapeHtml(label)}</span>`,
+    iconSize: [width, 34],
+    iconAnchor: [width / 2, 34],
+    popupAnchor: [0, -32],
+  });
+}
+
+function openConstructionDetail(pin, projectName = "") {
+  if (!pin || !els.constructionDetailModal) {
+    return;
+  }
+  state.activeConstructionPinId = pin.id || null;
+  const code = getMapPinLabel(pin);
+  const pinColor = normalizeConstructionColor(pin.color);
+  els.constructionDetailCode.textContent = projectName ? `${projectName} · ${code}` : code;
+  els.constructionDetailCode.style.background = pinColor;
+  els.constructionDetailCode.style.color = pinColor === BRIGHT_YELLOW_COLOR ? "#3b3210" : "#ffffff";
+  els.constructionDetailTitle.textContent = pin.name?.trim() || "공사구역";
+  els.constructionDetailMeta.textContent = `${Number(pin.lat).toFixed(5)}, ${Number(pin.lng).toFixed(5)}`;
+  els.constructionDetailMemo.textContent = pin.memo?.trim() || "등록된 메모가 없습니다.";
+  els.constructionDetailMemo.classList.toggle("is-empty", !pin.memo?.trim());
+  els.constructionDetailModal.hidden = false;
+  document.body.classList.add("is-construction-detail-open");
+}
+
+function closeConstructionDetail() {
+  if (!els.constructionDetailModal) {
+    return;
+  }
+  els.constructionDetailModal.hidden = true;
+  state.activeConstructionPinId = null;
+  document.body.classList.remove("is-construction-detail-open");
+}
+
 function setupColorPicker() {
   if (!els.colorPickerModal) {
     return;
@@ -4890,20 +4998,13 @@ function renderProjectOverlays() {
         .filter((pin) => pin.type === "construction")
         .forEach((pin) => {
           const pinLabel = getMapPinLabel(pin);
-          const icon = L.divIcon({
-            className: "",
-            html: createMapPinHtml("construction", pinLabel, pin.color),
-            iconSize: [34, 38],
-            iconAnchor: [17, 38],
-            popupAnchor: [0, -34],
-          });
+          const icon = createConstructionMarkerIcon(pin);
           L.marker([pin.lat, pin.lng], {
             icon,
             title: `${project.name} · ${pin.name || pinLabel}`,
           })
             .on("click", () => {
-              map.setView([pin.lat, pin.lng], Math.max(map.getZoom(), 18));
-              setStatus(`${project.name}의 ${pin.name || pinLabel} 위치로 이동했습니다.`);
+              openConstructionDetail(pin, project.name);
             })
             .addTo(projectOverlayLayer);
         });

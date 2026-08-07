@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260807-share-spacing-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260807-follow-construction-1" />
   </head>
   <body>
     <script>
@@ -268,6 +268,22 @@
       </article>
     </div>
 
+    <div id="constructionDetailModal" class="construction-detail" hidden>
+      <button
+        class="construction-detail__backdrop"
+        type="button"
+        data-construction-detail-close
+        aria-label="공사구역 상세 닫기"
+      ></button>
+      <article class="construction-detail__panel" role="dialog" aria-modal="true" aria-labelledby="constructionDetailTitle">
+        <button id="constructionDetailClose" class="construction-detail__close" type="button" aria-label="닫기">×</button>
+        <span id="constructionDetailCode" class="construction-detail__code"></span>
+        <h2 id="constructionDetailTitle"></h2>
+        <span id="constructionDetailMeta" class="construction-detail__meta"></span>
+        <p id="constructionDetailMemo" class="construction-detail__memo"></p>
+      </article>
+    </div>
+
     <div id="colorPickerModal" class="color-picker-modal" hidden>
       <button class="color-picker-backdrop" type="button" data-color-picker-close aria-label="색상 선택 닫기"></button>
       <section class="color-picker-card" role="dialog" aria-modal="true" aria-labelledby="colorPickerTitle">
@@ -281,6 +297,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260807-share-spacing-1"></script>
+    <script src="/app.js?v=20260807-follow-construction-1"></script>
   </body>
 </html>
