@@ -1061,6 +1061,10 @@ label[for="photoInput"] {
   gap: 8px;
 }
 
+.share-content-options {
+  margin-top: 6px;
+}
+
 .share-content-options label {
   display: flex;
   min-height: 34px;

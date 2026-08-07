@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260807-share-follow-1/);
+  assert.match(pageHtml, /20260807-share-spacing-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="followMapControls"/);
@@ -262,6 +262,7 @@ try {
   assert.match(css, /body\.is-follow-mode \.control-panel\s*\{[^}]*display:\s*none !important/s);
   assert.match(css, /\.follow-map-controls\s*\{/);
   assert.match(css, /\.share-content-options/);
+  assert.match(css, /\.share-content-options\s*\{[^}]*margin-top:\s*6px/s);
   assert.match(css, /\.is-share-loading \.control-panel\s*\{[^}]*pointer-events:\s*none/s);
   assert.match(css, /\.share-item\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto\s*auto\s*auto/s);
   assert.match(css, /#shareCreateBtn\s*\{[^}]*grid-column:\s*2;[^}]*grid-row:\s*1/s);
