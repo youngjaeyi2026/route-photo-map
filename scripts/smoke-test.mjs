@@ -73,7 +73,8 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260810-explicit-record-delete-1/);
+  assert.match(pageHtml, /20260810-multi-photo-add-1/);
+  assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="followMapControls"/);
@@ -195,6 +196,9 @@ try {
   assert.match(appSource, /async function performPendingSessionDelete\(projectCode, sessionId\)/);
   assert.match(appSource, /통신이 불안정해 삭제 대기 중입니다/);
   assert.match(appSource, /function retryPendingSaves\(\)/);
+  assert.match(appSource, /async function handlePhotoInput\(event, options = \{\}\)[\s\S]+?Array\.from\(event\.target\.files \|\| \[\]\)/);
+  assert.match(appSource, /for \(const \[index, file\] of files\.entries\(\)\)/);
+  assert.match(appSource, /위치 편집에서 사진별 위치를 조정할 수 있습니다/);
   assert.match(appSource, /function createSinglePhotoMarker\(photo\)[\s\S]+?const size = 42;[\s\S]+?photo-single-marker/);
   assert.match(appSource, /function togglePhotoPinVisibility\(\)/);
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);

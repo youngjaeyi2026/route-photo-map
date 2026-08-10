@@ -906,58 +906,69 @@ function shouldAcceptPoint(latest, nextPoint) {
 }
 
 async function handlePhotoInput(event, options = {}) {
-  const file = event.target.files?.[0];
-  if (!file) {
+  const files = Array.from(event.target.files || []);
+  if (files.length === 0) {
     return;
   }
 
-  setStatus("사진을 저장하고 위치를 확인하는 중입니다.");
-
-  try {
-    const usesMapCenter = !options.position && !state.tracking;
-    const fixedPosition = options.position || (usesMapCenter ? getMapCenterPosition() : null);
-    const [locationResult, photoSrc] = await Promise.all([
-      fixedPosition || usesMapCenter
-        ? Promise.resolve({
-            position: fixedPosition,
-            source: fixedPosition ? options.source || (usesMapCenter ? "map-center" : "map") : "none",
-            label: options.label || (fixedPosition ? "지도 화면 중앙" : "위치 정보 없음"),
-          })
-        : getBestPhotoPosition(file),
-      resizePhotoForStorage(file),
-    ]);
-    const position = locationResult.position;
-    const photo = {
-      id: crypto.randomUUID(),
-      displayName: getNextProjectPhotoName(),
-      originalName: file.name || "",
-      name: file.name || "현장 사진",
-      src: photoSrc,
-      lat: position?.lat ?? null,
-      lng: position?.lng ?? null,
-      locationSource: locationResult.source,
-      timestamp: Date.now(),
-    };
-    photo.localPhotoCached = await cacheLocalPhoto(photo);
-    state.photos.unshift(photo);
-    if (position && state.tracking) {
-      state.selectedPosition = { lat: position.lat, lng: position.lng, timestamp: Date.now() };
+  event.target.value = "";
+  let addedCount = 0;
+  let failedCount = 0;
+  let lastLocationLabel = "지도 화면 중앙";
+  for (const [index, file] of files.entries()) {
+    setStatus(`사진을 저장하고 위치를 확인하는 중입니다. (${index + 1}/${files.length})`, "active");
+    try {
+      const usesMapCenter = !options.position && !state.tracking;
+      const fixedPosition = options.position || (usesMapCenter ? getMapCenterPosition() : null);
+      const [locationResult, photoSrc] = await Promise.all([
+        fixedPosition || usesMapCenter
+          ? Promise.resolve({
+              position: fixedPosition,
+              source: fixedPosition ? options.source || (usesMapCenter ? "map-center" : "map") : "none",
+              label: options.label || (fixedPosition ? "지도 화면 중앙" : "위치 정보 없음"),
+            })
+          : getBestPhotoPosition(file),
+        resizePhotoForStorage(file),
+      ]);
+      const position = locationResult.position;
+      const photo = {
+        id: crypto.randomUUID(),
+        displayName: getNextProjectPhotoName(),
+        originalName: file.name || "",
+        name: file.name || "현장 사진",
+        src: photoSrc,
+        lat: position?.lat ?? null,
+        lng: position?.lng ?? null,
+        locationSource: locationResult.source,
+        timestamp: Date.now() + index,
+      };
+      photo.localPhotoCached = await cacheLocalPhoto(photo);
+      state.photos.unshift(photo);
+      if (position && state.tracking) {
+        state.selectedPosition = { lat: position.lat, lng: position.lng, timestamp: Date.now() };
+      }
+      lastLocationLabel = locationResult.label;
+      addedCount += 1;
+    } catch (error) {
+      console.warn("Photo batch item failed", error);
+      failedCount += 1;
     }
-    event.target.value = "";
-    const locallySaved = persist();
-    render();
-    setStatus(
-      locallySaved
-        ? `${locationResult.label}에 사진을 저장했습니다.`
-        : "사진은 현재 화면에 유지하고 있습니다. 기록 저장을 눌러 서버 저장을 완료해 주세요.",
-      locallySaved ? "success" : "warning",
-    );
-  } catch {
-    setStatus("기록 저장에 실패했습니다. 사진 용량을 줄인 뒤 다시 시도해 주세요.");
-    return false;
-  } finally {
-    event.target.value = "";
   }
+
+  const locallySaved = persist();
+  render();
+  if (addedCount === 0) {
+    setStatus("선택한 사진을 추가하지 못했습니다. 사진 파일 형식과 용량을 확인해 주세요.", "error");
+    return false;
+  }
+  const resultText = `${lastLocationLabel}에 사진 ${addedCount}장을 추가했습니다.${failedCount ? ` ${failedCount}장은 처리하지 못했습니다.` : ""}`;
+  setStatus(
+    locallySaved
+      ? `${resultText} 위치 편집에서 사진별 위치를 조정할 수 있습니다.`
+      : `${resultText} 화면을 닫지 말고 기록 저장을 눌러 서버 저장을 완료해 주세요.`,
+    locallySaved && failedCount === 0 ? "success" : "warning",
+  );
+  return true;
 }
 
 async function getBestPhotoPosition(file) {
