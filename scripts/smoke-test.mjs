@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260811-overlay-photo-compare-1/);
+  assert.match(pageHtml, /20260811-naver-compare-fix-1/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
@@ -227,7 +227,8 @@ try {
   assert.match(appSource, /function waitForNaverPanoramaApi\(timeoutMs = 12000\)[\s\S]+?window\.setTimeout\(checkApi, 50\)/);
   assert.match(appSource, /function openPhotoInNaverPanorama\(photo\)[\s\S]+?new naverMaps\.Panorama/);
   assert.match(appSource, /async function openPhotoInNaverComparison\(photo, mode = "satellite"\)/);
-  assert.match(appSource, /mapTypeId: naverMaps\.MapTypeId\.SATELLITE/);
+  assert.match(appSource, /NaverStyleMapTypeOptions\.getSatelliteMap\(\)/);
+  assert.match(appSource, /activeNaverComparisonMap\.setMapTypeId\(satelliteMapTypeId\)/);
   assert.match(appSource, /function renderOverlayPhotoMarkers\(project\)/);
   assert.match(appSource, /function createOverlayVisibilityButton\(project, property, label\)/);
   assert.match(appSource, /photoModalReadOnly = Boolean\(options\.readOnly\)/);

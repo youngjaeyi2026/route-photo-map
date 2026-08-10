@@ -5880,17 +5880,28 @@ async function openPhotoInNaverComparison(photo, mode = "satellite") {
       activeNaverComparisonMap = new naverMaps.Map(els.naverPanoramaViewer, {
         center: new naverMaps.LatLng(Number(photo.lat), Number(photo.lng)),
         zoom: 18,
-        mapTypeId: naverMaps.MapTypeId.SATELLITE,
+        mapTypeId: naverMaps.MapTypeId.NORMAL,
         zoomControl: true,
         mapDataControl: true,
         scaleControl: true,
         logoControl: true,
       });
+      const satelliteMapTypeId = naverMaps.MapTypeId.SATELLITE;
+      if (naverMaps.NaverStyleMapTypeOptions?.getSatelliteMap) {
+        activeNaverComparisonMap.mapTypes.set(
+          satelliteMapTypeId,
+          naverMaps.NaverStyleMapTypeOptions.getSatelliteMap(),
+        );
+      }
+      activeNaverComparisonMap.setMapTypeId(satelliteMapTypeId);
       activeNaverComparisonMarker = new naverMaps.Marker({
         position: new naverMaps.LatLng(Number(photo.lat), Number(photo.lng)),
         map: activeNaverComparisonMap,
         title: getPhotoDisplayName(photo),
       });
+      await waitForAnimationFrame();
+      naverMaps.Event.trigger(activeNaverComparisonMap, "resize");
+      activeNaverComparisonMap.refresh?.(true);
       els.naverPanoramaViewer.removeAttribute("aria-busy");
       els.naverPanoramaStatus.textContent = "기록 사진과 같은 위치의 위성지도입니다.";
       return;
@@ -5912,10 +5923,11 @@ async function openPhotoInNaverComparison(photo, mode = "satellite") {
         ? "사진 위치에서 가장 가까운 거리뷰입니다."
         : "사진 위치 주변 300m 이내에 제공되는 거리뷰가 없습니다.";
     });
-  } catch {
+  } catch (error) {
     if (requestId !== naverComparisonRequestId) {
       return;
     }
+    console.warn("Naver photo comparison failed", error);
     els.naverPanoramaViewer.removeAttribute("aria-busy");
     els.naverPanoramaStatus.textContent = "네이버 비교 화면을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
   }
