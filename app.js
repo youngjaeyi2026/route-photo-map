@@ -124,6 +124,7 @@ const els = {
   photoModalMemoBtn: document.querySelector("#photoModalMemoBtn"),
   photoModalTagBtn: document.querySelector("#photoModalTagBtn"),
   photoModalLocateBtn: document.querySelector("#photoModalLocateBtn"),
+  photoModalNaverBtn: document.querySelector("#photoModalNaverBtn"),
   constructionDetailModal: document.querySelector("#constructionDetailModal"),
   constructionDetailClose: document.querySelector("#constructionDetailClose"),
   constructionDetailCode: document.querySelector("#constructionDetailCode"),
@@ -387,6 +388,12 @@ els.photoModalLocateBtn.addEventListener("click", () => {
   if (photo && hasPhotoPosition(photo)) {
     map.setView([photo.lat, photo.lng], 18);
     closePhotoModal();
+  }
+});
+els.photoModalNaverBtn?.addEventListener("click", () => {
+  const photo = getActiveModalPhoto();
+  if (photo && hasPhotoPosition(photo)) {
+    openPhotoInNaverMap(photo);
   }
 });
 els.constructionDetailClose?.addEventListener("click", closeConstructionDetail);
@@ -5316,7 +5323,7 @@ function syncPhotoFilterOptions() {
   const baseOptions = [
     ["all", "전체"],
     ["hidden", "사진 숨김"],
-    ["positioned", "위치 있음"],
+    ["positioned", "네이버 지도 가능"],
     ["missing", "위치 없음"],
     ["map", "현재 지도"],
     ["memo", "메모 있음"],
@@ -5367,6 +5374,9 @@ function openPhotoModal(photo, options = {}) {
   els.photoModalMemo.classList.toggle("is-empty", !photo.memo?.trim());
   renderModalTags(photo);
   els.photoModalLocateBtn.disabled = !hasPosition;
+  if (els.photoModalNaverBtn) {
+    els.photoModalNaverBtn.disabled = !hasPosition;
+  }
   renderPhotoModalNavigation();
   els.photoModal.hidden = false;
   document.body.classList.add("is-photo-modal-open");
@@ -5442,6 +5452,22 @@ function renderPhotoModalNavigation() {
 
 function getActiveModalPhoto() {
   return state.photos.find((photo) => photo.id === state.activePhotoId) || null;
+}
+
+function openPhotoInNaverMap(photo) {
+  if (!hasPhotoPosition(photo)) {
+    return;
+  }
+  const lat = Number(photo.lat).toFixed(7);
+  const lng = Number(photo.lng).toFixed(7);
+  const naverMapUrl = `https://map.naver.com/p?c=${encodeURIComponent(`${lng},${lat},18.00,0,0,0,dh`)}`;
+  const openedWindow = window.open(naverMapUrl, "_blank");
+  if (openedWindow) {
+    openedWindow.opener = null;
+  }
+  if (!openedWindow) {
+    window.location.href = naverMapUrl;
+  }
 }
 
 function renderModalTags(photo) {

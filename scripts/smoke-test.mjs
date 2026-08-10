@@ -73,11 +73,13 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260810-photo-modal-navigation-1/);
+  assert.match(pageHtml, /20260810-photo-naver-link-1/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
   assert.match(pageHtml, /id="photoModalNext"/);
   assert.match(pageHtml, /id="photoModalCount"/);
+  assert.match(pageHtml, /id="photoModalNaverBtn"/);
+  assert.match(pageHtml, /<option value="positioned">네이버 지도 가능<\/option>/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="followMapControls"/);
@@ -104,6 +106,7 @@ try {
   assert.equal(cssResponse.status, 200);
   assert.match(css, /\.control-panel\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/s);
   assert.match(css, /\.photo-modal__nav\s*\{/);
+  assert.match(css, /\.photo-modal__actions \.photo-modal__naver\s*\{/);
   assert.match(
     css,
     /body\.is-logged-out:not\(\.is-share-view\) \.map-stage[\s\S]+?display:\s*none !important/,
@@ -204,6 +207,8 @@ try {
   assert.match(appSource, /for \(const \[index, file\] of files\.entries\(\)\)/);
   assert.match(appSource, /위치 편집에서 사진별 위치를 조정할 수 있습니다/);
   assert.match(appSource, /function createSinglePhotoMarker\(photo\)[\s\S]+?const size = 42;[\s\S]+?photo-single-marker/);
+  assert.match(appSource, /function openPhotoInNaverMap\(photo\)[\s\S]+?https:\/\/map\.naver\.com\/p\?c=/);
+  assert.match(appSource, /\["positioned", "네이버 지도 가능"\]/);
   assert.match(appSource, /function togglePhotoPinVisibility\(\)/);
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);
   assert.match(appSource, /다른 사용자의 프로젝트이므로 열 수 없습니다/);
