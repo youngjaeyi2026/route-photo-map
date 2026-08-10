@@ -11,6 +11,7 @@ const BRIGHT_YELLOW_COLOR = "#f2c400";
 const ROUTE_COMPLETED_COLOR = "#1f7a57";
 const ROUTE_REMAINING_COLOR = "#315f9e";
 const ROUTE_DEVIATION_METERS = 50;
+const NAVER_MAP_CLIENT_ID = "pie7hw0qho";
 const FOLLOW_INTERACTION_RESUME_MS = 4000;
 const CONSTRUCTION_NAME_ZOOM = 16;
 const REPRESENTATIVE_COLORS = [
@@ -125,6 +126,11 @@ const els = {
   photoModalTagBtn: document.querySelector("#photoModalTagBtn"),
   photoModalLocateBtn: document.querySelector("#photoModalLocateBtn"),
   photoModalNaverBtn: document.querySelector("#photoModalNaverBtn"),
+  photoModalNaverPanoramaBtn: document.querySelector("#photoModalNaverPanoramaBtn"),
+  naverPanoramaModal: document.querySelector("#naverPanoramaModal"),
+  naverPanoramaClose: document.querySelector("#naverPanoramaClose"),
+  naverPanoramaViewer: document.querySelector("#naverPanoramaViewer"),
+  naverPanoramaStatus: document.querySelector("#naverPanoramaStatus"),
   constructionDetailModal: document.querySelector("#constructionDetailModal"),
   constructionDetailClose: document.querySelector("#constructionDetailClose"),
   constructionDetailCode: document.querySelector("#constructionDetailCode"),
@@ -246,6 +252,8 @@ const pendingProjectSyncs = new Set();
 let recordCompletionPending = false;
 let photoCacheMigrationPromise = null;
 let photoModalTouchStartX = null;
+let naverPanoramaScriptPromise = null;
+let activeNaverPanorama = null;
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
 let colorPickerConfirmHandler = null;
 let authEls = {};
@@ -396,6 +404,18 @@ els.photoModalNaverBtn?.addEventListener("click", () => {
     openPhotoInNaverMap(photo);
   }
 });
+els.photoModalNaverPanoramaBtn?.addEventListener("click", () => {
+  const photo = getActiveModalPhoto();
+  if (photo && hasPhotoPosition(photo)) {
+    openPhotoInNaverPanorama(photo);
+  }
+});
+els.naverPanoramaClose?.addEventListener("click", closeNaverPanorama);
+els.naverPanoramaModal?.addEventListener("click", (event) => {
+  if (event.target.hasAttribute("data-naver-panorama-close")) {
+    closeNaverPanorama();
+  }
+});
 els.constructionDetailClose?.addEventListener("click", closeConstructionDetail);
 els.constructionDetailModal?.addEventListener("click", (event) => {
   if (event.target.hasAttribute("data-construction-detail-close")) {
@@ -403,7 +423,15 @@ els.constructionDetailModal?.addEventListener("click", (event) => {
   }
 });
 document.addEventListener("keydown", (event) => {
-  if (!els.photoModal.hidden && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+  if (event.key === "Escape" && els.naverPanoramaModal && !els.naverPanoramaModal.hidden) {
+    closeNaverPanorama();
+    return;
+  }
+  if (
+    !els.photoModal.hidden &&
+    (!els.naverPanoramaModal || els.naverPanoramaModal.hidden) &&
+    (event.key === "ArrowLeft" || event.key === "ArrowRight")
+  ) {
     event.preventDefault();
     navigatePhotoModal(event.key === "ArrowLeft" ? -1 : 1);
   }
@@ -5377,12 +5405,16 @@ function openPhotoModal(photo, options = {}) {
   if (els.photoModalNaverBtn) {
     els.photoModalNaverBtn.disabled = !hasPosition;
   }
+  if (els.photoModalNaverPanoramaBtn) {
+    els.photoModalNaverPanoramaBtn.disabled = !hasPosition;
+  }
   renderPhotoModalNavigation();
   els.photoModal.hidden = false;
   document.body.classList.add("is-photo-modal-open");
 }
 
 function closePhotoModal() {
+  closeNaverPanorama();
   els.photoModal.hidden = true;
   state.activePhotoId = null;
   state.photoModalSequenceIds = [];
@@ -5468,6 +5500,85 @@ function openPhotoInNaverMap(photo) {
   if (!openedWindow) {
     window.location.href = naverMapUrl;
   }
+}
+
+function loadNaverPanoramaApi() {
+  if (window.naver?.maps?.Panorama) {
+    return Promise.resolve(window.naver.maps);
+  }
+  if (naverPanoramaScriptPromise) {
+    return naverPanoramaScriptPromise;
+  }
+  naverPanoramaScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(NAVER_MAP_CLIENT_ID)}&submodules=panorama`;
+    script.async = true;
+    script.dataset.naverPanoramaApi = "true";
+    script.addEventListener("load", () => {
+      if (window.naver?.maps?.Panorama) {
+        resolve(window.naver.maps);
+      } else {
+        naverPanoramaScriptPromise = null;
+        reject(new Error("naver_panorama_unavailable"));
+      }
+    });
+    script.addEventListener("error", () => {
+      naverPanoramaScriptPromise = null;
+      reject(new Error("naver_panorama_load_failed"));
+    });
+    document.head.append(script);
+  });
+  return naverPanoramaScriptPromise;
+}
+
+async function openPhotoInNaverPanorama(photo) {
+  if (!hasPhotoPosition(photo) || !els.naverPanoramaModal || !els.naverPanoramaViewer) {
+    return;
+  }
+  closeNaverPanorama();
+  els.naverPanoramaModal.hidden = false;
+  els.naverPanoramaViewer.innerHTML = "";
+  els.naverPanoramaViewer.setAttribute("aria-busy", "true");
+  els.naverPanoramaStatus.textContent = "사진 위치 주변의 거리뷰를 찾는 중입니다.";
+  document.body.classList.add("is-naver-panorama-open");
+  try {
+    const naverMaps = await loadNaverPanoramaApi();
+    if (els.naverPanoramaModal.hidden) {
+      return;
+    }
+    const panorama = new naverMaps.Panorama(els.naverPanoramaViewer, {
+      position: new naverMaps.LatLng(Number(photo.lat), Number(photo.lng)),
+      aroundControl: true,
+      flightSpot: true,
+      logoControl: true,
+      zoomControl: true,
+    });
+    activeNaverPanorama = panorama;
+    naverMaps.Event.addListener(panorama, "pano_status", (status) => {
+      if (activeNaverPanorama !== panorama) {
+        return;
+      }
+      els.naverPanoramaViewer.removeAttribute("aria-busy");
+      els.naverPanoramaStatus.textContent = status === "OK"
+        ? "사진 위치에서 가장 가까운 거리뷰입니다."
+        : "사진 위치 주변 300m 이내에 제공되는 거리뷰가 없습니다.";
+    });
+  } catch {
+    els.naverPanoramaViewer.removeAttribute("aria-busy");
+    els.naverPanoramaStatus.textContent = "거리뷰를 불러오지 못했습니다. 네이버 지도 허용 주소 설정을 확인해 주세요.";
+  }
+}
+
+function closeNaverPanorama() {
+  if (!els.naverPanoramaModal || els.naverPanoramaModal.hidden) {
+    return;
+  }
+  activeNaverPanorama?.setVisible?.(false);
+  activeNaverPanorama = null;
+  els.naverPanoramaModal.hidden = true;
+  els.naverPanoramaViewer.innerHTML = "";
+  els.naverPanoramaViewer.removeAttribute("aria-busy");
+  document.body.classList.remove("is-naver-panorama-open");
 }
 
 function renderModalTags(photo) {

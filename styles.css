@@ -1924,6 +1924,91 @@ body.is-follow-mode .control-panel {
   background: #eaf5ef;
 }
 
+#photoModalLocateBtn,
+.photo-modal__naver-actions {
+  grid-column: 1 / -1;
+}
+
+.photo-modal__naver-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.naver-panorama-modal[hidden] {
+  display: none;
+}
+
+.naver-panorama-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+}
+
+.naver-panorama-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(12, 18, 16, 0.78);
+}
+
+.naver-panorama-modal__panel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1180px, 96vw);
+  height: min(820px, 92vh);
+  overflow: hidden;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.naver-panorama-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.naver-panorama-modal__header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.naver-panorama-modal__header strong {
+  font-size: 16px;
+}
+
+.naver-panorama-modal__header span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.naver-panorama-modal__header button {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #26342f;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.naver-panorama-modal__viewer {
+  min-width: 0;
+  min-height: 0;
+  background: #e7ece9;
+}
+
 .photo-modal__actions button {
   min-height: 36px;
   border: 1px solid var(--line);

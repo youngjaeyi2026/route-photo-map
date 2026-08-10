@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260810-photo-naver-satellite-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260810-photo-naver-panorama-1" />
   </head>
   <body>
     <script>
@@ -266,9 +266,26 @@
             <button id="photoModalMemoBtn" type="button">메모 수정</button>
             <button id="photoModalTagBtn" type="button">태그 수정</button>
             <button id="photoModalLocateBtn" type="button">위치 보기</button>
-            <button id="photoModalNaverBtn" class="photo-modal__naver" type="button">네이버 위성지도</button>
+            <div class="photo-modal__naver-actions">
+              <button id="photoModalNaverBtn" class="photo-modal__naver" type="button">네이버 위성지도</button>
+              <button id="photoModalNaverPanoramaBtn" class="photo-modal__naver" type="button">네이버 거리뷰</button>
+            </div>
           </div>
         </div>
+      </article>
+    </div>
+
+    <div id="naverPanoramaModal" class="naver-panorama-modal" hidden>
+      <button class="naver-panorama-modal__backdrop" type="button" data-naver-panorama-close aria-label="거리뷰 닫기"></button>
+      <article class="naver-panorama-modal__panel" role="dialog" aria-modal="true" aria-labelledby="naverPanoramaTitle">
+        <header class="naver-panorama-modal__header">
+          <div>
+            <strong id="naverPanoramaTitle">네이버 거리뷰</strong>
+            <span id="naverPanoramaStatus">거리뷰를 불러오는 중입니다.</span>
+          </div>
+          <button id="naverPanoramaClose" type="button" aria-label="거리뷰 닫기">×</button>
+        </header>
+        <div id="naverPanoramaViewer" class="naver-panorama-modal__viewer" aria-label="네이버 거리뷰 화면"></div>
       </article>
     </div>
 
@@ -301,6 +318,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260810-photo-naver-satellite-1"></script>
+    <script src="/app.js?v=20260810-photo-naver-panorama-1"></script>
   </body>
 </html>
