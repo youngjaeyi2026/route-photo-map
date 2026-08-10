@@ -262,6 +262,7 @@ let activeMapProvider = "osm";
 let pendingMapProvider = "";
 let naverMapSyncFrame = null;
 let activeConstructionDetailPin = null;
+let naverExternalWindow = null;
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
 let colorPickerConfirmHandler = null;
 let authEls = {};
@@ -5860,41 +5861,16 @@ function waitForNaverMapsApi(timeoutMs = 12000) {
   });
 }
 
-function getNaverWebMapUrl(position) {
-  if (!hasPhotoPosition(position)) {
-    return "https://map.naver.com/";
-  }
-  const lat = Number(position.lat).toFixed(7);
-  const lng = Number(position.lng).toFixed(7);
-  return `https://map.naver.com/p?c=${encodeURIComponent(`${lng},${lat},18.00,0,0,1,dh`)}`;
-}
-
-function openNaverMapLocation(position) {
+function openNaverMapLocation(position, name = "선택 위치") {
   if (!hasPhotoPosition(position)) {
     return;
   }
-  const lat = Number(position.lat).toFixed(7);
-  const lng = Number(position.lng).toFixed(7);
-  const webUrl = getNaverWebMapUrl(position);
-  const appName = encodeURIComponent(window.location.origin);
-  const userAgent = navigator.userAgent || "";
-  if (/Android/i.test(userAgent)) {
-    const fallbackUrl = encodeURIComponent(webUrl);
-    window.location.href = `intent://map?lat=${lat}&lng=${lng}&zoom=18&appname=${appName}#Intent;scheme=nmap;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;package=com.nhn.android.nmap;S.browser_fallback_url=${fallbackUrl};end`;
-    return;
-  }
-  if (/iPhone|iPad|iPod/i.test(userAgent)) {
-    const schemeUrl = `nmap://map?lat=${lat}&lng=${lng}&zoom=18&appname=${appName}`;
-    const startedAt = Date.now();
-    window.location.href = schemeUrl;
-    window.setTimeout(() => {
-      if (!document.hidden && Date.now() - startedAt < 2500) {
-        window.location.href = webUrl;
-      }
-    }, 1400);
-    return;
-  }
-  openExternalWindow(webUrl);
+  const query = new URLSearchParams({
+    lat: Number(position.lat).toFixed(7),
+    lng: Number(position.lng).toFixed(7),
+    name: String(name || "선택 위치").slice(0, 80),
+  });
+  openReusableNaverWindow(`/naver-map.html?${query.toString()}`);
 }
 
 function openNaverRoadview(position, name = "선택 위치") {
@@ -5906,16 +5882,26 @@ function openNaverRoadview(position, name = "선택 위치") {
     lng: Number(position.lng).toFixed(7),
     name: String(name || "선택 위치").slice(0, 80),
   });
-  openExternalWindow(`/naver-view.html?${query.toString()}`);
+  openReusableNaverWindow(`/naver-view.html?${query.toString()}`);
 }
 
-function openExternalWindow(url) {
-  const openedWindow = window.open(url, "_blank", "noopener,noreferrer");
-  if (openedWindow) {
-    openedWindow.opener = null;
-    return;
+function openReusableNaverWindow(url) {
+  try {
+    if (naverExternalWindow && !naverExternalWindow.closed) {
+      naverExternalWindow.location.href = url;
+      naverExternalWindow.focus?.();
+      return true;
+    }
+  } catch {
+    naverExternalWindow = null;
   }
-  window.location.href = url;
+  naverExternalWindow = window.open(url, "routePhotoNaverWindow");
+  if (naverExternalWindow) {
+    naverExternalWindow.focus?.();
+    return true;
+  }
+  setStatus("새 창이 차단되었습니다. 브라우저 주소창의 팝업 허용을 켜 주세요.", "warning");
+  return false;
 }
 
 function renderModalTags(photo) {

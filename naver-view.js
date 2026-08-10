@@ -7,6 +7,7 @@ const viewer = document.querySelector("#viewer");
 const status = document.querySelector("#status");
 const title = document.querySelector("#title");
 const mapLink = document.querySelector("#mapLink");
+let panoramaInitialized = false;
 
 const validPosition = Number.isFinite(lat) && Number.isFinite(lng) && lat >= 31 && lat <= 45 && lng >= 122 && lng <= 133;
 const webMapUrl = validPosition
@@ -14,9 +15,9 @@ const webMapUrl = validPosition
   : "https://map.naver.com/";
 
 title.textContent = `${name} · 네이버 로드뷰`;
+window.name = "routePhotoNaverWindow";
 mapLink.href = webMapUrl;
-mapLink.target = "_blank";
-mapLink.rel = "noopener noreferrer";
+mapLink.target = "routePhotoNaverWindow";
 
 if (!validPosition) {
   showError("위치 정보가 올바르지 않아 로드뷰를 열 수 없습니다.");
@@ -28,16 +29,38 @@ function loadPanorama() {
   const script = document.createElement("script");
   script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(NAVER_MAP_CLIENT_ID)}&submodules=panorama`;
   script.async = true;
-  script.addEventListener("load", initializePanorama);
+  script.addEventListener("load", () => {
+    waitForPanoramaApi()
+      .then(initializePanorama)
+      .catch(() => showError("네이버 로드뷰 기능을 준비하지 못했습니다. 네이버 지도보기를 이용해 주세요."));
+  });
   script.addEventListener("error", () => showError("네이버 로드뷰를 불러오지 못했습니다. 네이버 지도보기를 이용해 주세요."));
   document.head.append(script);
 }
 
+function waitForPanoramaApi(timeoutMs = 12000) {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const checkApi = () => {
+      if (window.naver?.maps?.Panorama) {
+        resolve();
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        reject(new Error("naver_panorama_unavailable"));
+        return;
+      }
+      window.setTimeout(checkApi, 50);
+    };
+    checkApi();
+  });
+}
+
 function initializePanorama() {
-  if (!window.naver?.maps?.Panorama) {
-    showError("네이버 로드뷰 기능을 준비하지 못했습니다. 네이버 지도보기를 이용해 주세요.");
+  if (panoramaInitialized || !window.naver?.maps?.Panorama) {
     return;
   }
+  panoramaInitialized = true;
   try {
     const panorama = new window.naver.maps.Panorama(viewer, {
       position: new window.naver.maps.LatLng(lat, lng),

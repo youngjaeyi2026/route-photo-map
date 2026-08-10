@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260811-stable-naver-links-1/);
+  assert.match(pageHtml, /20260811-reusable-naver-window-1/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
@@ -127,12 +127,22 @@ try {
   const roadviewPageHtml = await roadviewPageResponse.text();
   assert.equal(roadviewPageResponse.status, 200);
   assert.match(roadviewPageHtml, /id="viewer"/);
-  assert.match(roadviewPageHtml, /naver-view\.js\?v=20260811-stable-naver-links-1/);
+  assert.match(roadviewPageHtml, /naver-view\.js\?v=20260811-reusable-naver-window-1/);
   const roadviewScriptResponse = await fetch(`${baseUrl}/naver-view.js`);
   const roadviewScript = await roadviewScriptResponse.text();
   assert.equal(roadviewScriptResponse.status, 200);
   assert.match(roadviewScript, /submodules=panorama/);
+  assert.match(roadviewScript, /function waitForPanoramaApi\(timeoutMs = 12000\)/);
   assert.match(roadviewScript, /new window\.naver\.maps\.Panorama/);
+  const naverMapPageResponse = await fetch(`${baseUrl}/naver-map.html?lat=37.5&lng=127.0&name=test`);
+  const naverMapPageHtml = await naverMapPageResponse.text();
+  assert.equal(naverMapPageResponse.status, 200);
+  assert.match(naverMapPageHtml, /naver-map\.js\?v=20260811-reusable-naver-window-1/);
+  const naverMapScriptResponse = await fetch(`${baseUrl}/naver-map.js`);
+  const naverMapScript = await naverMapScriptResponse.text();
+  assert.equal(naverMapScriptResponse.status, 200);
+  assert.match(naverMapScript, /intent:\/\/map/);
+  assert.match(naverMapScript, /window\.location\.replace\(webMapUrl\)/);
   const serverSource = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
   assert.match(
     serverSource,
@@ -229,12 +239,13 @@ try {
   assert.match(appSource, /for \(const \[index, file\] of files\.entries\(\)\)/);
   assert.match(appSource, /위치 편집에서 사진별 위치를 조정할 수 있습니다/);
   assert.match(appSource, /function createSinglePhotoMarker\(photo\)[\s\S]+?const size = 42;[\s\S]+?photo-single-marker/);
-  assert.match(appSource, /function getNaverWebMapUrl\(position\)[\s\S]+?18\.00,0,0,1,dh/);
   assert.match(appSource, /NAVER_MAP_CLIENT_ID = "pie7hw0qho"/);
   assert.match(appSource, /function loadNaverMapsApi\(\)/);
   assert.match(appSource, /function waitForNaverMapsApi\(timeoutMs = 12000\)[\s\S]+?window\.setTimeout\(checkApi, 50\)/);
-  assert.match(appSource, /function openNaverMapLocation\(position\)[\s\S]+?intent:\/\/map/);
+  assert.match(appSource, /function openNaverMapLocation\(position, name = "선택 위치"\)[\s\S]+?naver-map\.html/);
   assert.match(appSource, /function openNaverRoadview\(position, name = "선택 위치"\)/);
+  assert.match(appSource, /function openReusableNaverWindow\(url\)[\s\S]+?routePhotoNaverWindow/);
+  assert.match(appSource, /function openReusableNaverWindow\(url\)[\s\S]+?새 창이 차단되었습니다/);
   assert.doesNotMatch(appSource, /openPhotoInNaverComparison|activeNaverComparisonMap|activeNaverPanorama/);
   assert.match(appSource, /function getSeparatedMarkerAnchor\(type, width, height, position\)/);
   assert.match(appSource, /const MAP_MARKER_SEPARATION_PX = 20/);
