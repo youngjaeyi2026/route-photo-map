@@ -359,6 +359,25 @@ async function handleApi(request, response, url) {
 
   const projectMatch = url.pathname.match(/^\/api\/projects\/([A-Z0-9-]+)$/);
   const projectPhotoMatch = url.pathname.match(/^\/api\/projects\/([A-Z0-9-]+)\/photos$/);
+  const projectSessionMatch = url.pathname.match(/^\/api\/projects\/([A-Z0-9-]+)\/sessions\/([^/]+)$/);
+  if (projectSessionMatch && request.method === "DELETE") {
+    const code = normalizeProjectCode(projectSessionMatch[1]);
+    const sessionId = decodeURIComponent(projectSessionMatch[2] || "");
+    const project = await getProject(code);
+    if (!project) {
+      sendJson(response, 404, { error: "not_found" });
+      return;
+    }
+    const accessRole = await getProjectAccessRole(currentUser, project);
+    if (!accessRole) {
+      sendJson(response, 403, { error: "project_access_denied" });
+      return;
+    }
+    const updatedProject = await deleteProjectSession(project, sessionId, currentUser);
+    updatedProject.accessRole = accessRole;
+    sendJson(response, 200, updatedProject);
+    return;
+  }
   if (projectPhotoMatch && request.method === "POST") {
     const code = normalizeProjectCode(projectPhotoMatch[1]);
     const project = await getProject(code);
@@ -612,18 +631,16 @@ async function saveProjectState(code, body, user = null) {
     throw error;
   }
 
+  const hasExplicitPrimarySession = Object.prototype.hasOwnProperty.call(body || {}, "primarySessionId");
   const prepared = await prepareProjectPayload(normalizedCode, {
     ...previous,
     ownerUserId: previous.ownerUserId || user?.id || null,
     name: String(body?.name || previous.name || "프로젝트A").trim(),
     updatedAt: now,
     sessions: incomingSessions,
-    primarySessionId:
-      body?.primarySessionId ||
-      previous.primarySessionId ||
-      body?.sessions?.[0]?.id ||
-      previous.sessions?.[0]?.id ||
-      null,
+    primarySessionId: hasExplicitPrimarySession
+      ? body.primarySessionId || null
+      : previous.primarySessionId || body?.sessions?.[0]?.id || previous.sessions?.[0]?.id || null,
     lastState: {
       points: Array.isArray(body?.points) ? body.points : [],
       photos: Array.isArray(body?.photos) ? body.photos : [],
@@ -652,6 +669,35 @@ async function saveProjectState(code, body, user = null) {
   }
 
   return prepared;
+}
+
+async function deleteProjectSession(project, sessionId, user = null) {
+  const sessions = Array.isArray(project.sessions) ? project.sessions : [];
+  const target = sessions.find((session) => session?.id === sessionId);
+  if (!target) {
+    return project;
+  }
+  const remainingSessions = sessions.filter((session) => session?.id !== sessionId);
+  const nextPrimarySessionId =
+    project.primarySessionId && project.primarySessionId !== sessionId
+      ? project.primarySessionId
+      : remainingSessions[0]?.id || null;
+  const nextPrimarySession =
+    remainingSessions.find((session) => session?.id === nextPrimarySessionId) || remainingSessions[0] || null;
+  return saveProjectState(
+    project.code,
+    {
+      name: project.name,
+      sessions: remainingSessions,
+      primarySessionId: nextPrimarySessionId,
+      points: Array.isArray(nextPrimarySession?.points) ? nextPrimarySession.points : [],
+      photos: Array.isArray(nextPrimarySession?.photos) ? nextPrimarySession.photos : [],
+      milestones: Array.isArray(project.lastState?.milestones) ? project.lastState.milestones : [],
+      reason: "delete-session",
+      allowSessionReduction: true,
+    },
+    user,
+  );
 }
 
 function countProjectRecordItems(sessions, lastState) {

@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260810-square-photo-marker-1/);
+  assert.match(pageHtml, /20260810-explicit-record-delete-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="followMapControls"/);
@@ -116,6 +116,8 @@ try {
   assert.match(serverSource, /CREATE TABLE IF NOT EXISTS project_transfers/);
   assert.match(serverSource, /CREATE TABLE IF NOT EXISTS project_revisions/);
   assert.match(serverSource, /new Error\("record_loss_guard"\)/);
+  assert.match(serverSource, /projectSessionMatch[\s\S]+?deleteProjectSession\(project, sessionId, currentUser\)/);
+  assert.match(serverSource, /async function deleteProjectSession\(project, sessionId, user = null\)/);
   assert.match(serverSource, /LIMIT 100 OFFSET 20/);
   assert.match(serverSource, /include_photos/);
   assert.match(serverSource, /include_construction/);
@@ -173,7 +175,7 @@ try {
   );
   assert.match(appSource, /function saveProjectRecoveryBackup[\s\S]+?PROJECT_RECOVERY_KEY/);
   assert.match(appSource, /function shouldOfferProjectRecovery[\s\S]+?backupSessions\.length > serverSessions\.length/);
-  assert.match(appSource, /await retryPendingProjectSync\(\)/);
+  assert.match(appSource, /await retryPendingSaves\(\)/);
   assert.match(appSource, /includePhotos: shareEls\.includePhotos\.checked/);
   assert.match(appSource, /includeConstruction: shareEls\.includeConstruction\.checked/);
   assert.match(appSource, /function renderFollowMode\(\)[\s\S]+?is-follow-mode/);
@@ -190,6 +192,9 @@ try {
   assert.match(appSource, /async function saveRecordNow\(\)[\s\S]+?preparePhotosBeforeRecordSave\(\)[\s\S]+?saveCurrentSession\("manual"\)/);
   assert.match(appSource, /await deleteCachedLocalPhoto\(photo\.id \|\| key\)/);
   assert.doesNotMatch(appSource, /state\.photos\s*=\s*compactPayload\.photos/);
+  assert.match(appSource, /async function performPendingSessionDelete\(projectCode, sessionId\)/);
+  assert.match(appSource, /통신이 불안정해 삭제 대기 중입니다/);
+  assert.match(appSource, /function retryPendingSaves\(\)/);
   assert.match(appSource, /function createSinglePhotoMarker\(photo\)[\s\S]+?const size = 42;[\s\S]+?photo-single-marker/);
   assert.match(appSource, /function togglePhotoPinVisibility\(\)/);
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);
@@ -461,22 +466,20 @@ try {
   assert.equal(photoResponse.status, 503);
   assert.equal(photoBody.error, "r2_not_configured");
 
-  const explicitDeleteSessionResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: "smoke-test",
-      points: [],
-      photos: [],
-      milestones: constructionPins,
-      sessions: [],
-      primarySessionId: null,
-      reason: "delete-session",
-      allowSessionReduction: true,
-    }),
-  });
+  const explicitDeleteSessionResponse = await fetch(
+    `${baseUrl}/api/projects/${project.code}/sessions/route-1`,
+    { method: "DELETE" },
+  );
   assert.equal(explicitDeleteSessionResponse.status, 200);
-  assert.equal((await explicitDeleteSessionResponse.json()).sessions.length, 0);
+  const explicitlyDeletedProject = await explicitDeleteSessionResponse.json();
+  assert.equal(explicitlyDeletedProject.sessions.length, 0);
+  assert.equal(explicitlyDeletedProject.primarySessionId, null);
+  const repeatedDeleteSessionResponse = await fetch(
+    `${baseUrl}/api/projects/${project.code}/sessions/route-1`,
+    { method: "DELETE" },
+  );
+  assert.equal(repeatedDeleteSessionResponse.status, 200);
+  assert.equal((await repeatedDeleteSessionResponse.json()).sessions.length, 0);
 
   const oversizedResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
     method: "PUT",

@@ -86,6 +86,7 @@ const state = {
   milestones: [],
   overlayProjects: [],
   sessions: [],
+  pendingSessionDeletes: [],
   primarySessionId: null,
   activeStartedAt: null,
 };
@@ -442,7 +443,7 @@ els.projectName.addEventListener("change", () => {
   }
 });
 window.addEventListener("beforeunload", persist);
-window.addEventListener("online", retryPendingProjectSync);
+window.addEventListener("online", retryPendingSaves);
 window.addEventListener("offline", () => {
   if (state.projectCode) {
     state.syncDirty = true;
@@ -1557,38 +1558,94 @@ function editSessionDetails(sessionId) {
 }
 
 async function deleteSession(sessionId) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session || !state.projectCode) {
+    return;
+  }
   const ok = window.confirm(
-    "저장된 기록을 삭제할까요?\n\n삭제한 기록은 이 기기와 공유 프로젝트 기록에서 사라집니다.",
+    "저장된 기록을 삭제할까요?\n\n확인한 삭제는 서버에 명시적으로 전달되며, 일반 저장 오류와 구분하여 처리합니다.",
   );
   if (!ok) {
     return;
   }
-  const previousSessions = structuredClone(state.sessions);
-  const deletedSession = state.sessions.find((item) => item.id === sessionId);
-  const previousPrimarySessionId = state.primarySessionId;
-  const previousContinuingSessionId = state.continuingSessionId;
-  state.sessions = state.sessions.filter((item) => item.id !== sessionId);
+  queuePendingSessionDelete(state.projectCode, sessionId);
+  persist();
+  renderSessions();
+  setStatus("기록 삭제를 서버에서 확인하는 중입니다.", "active");
+  await performPendingSessionDelete(state.projectCode, sessionId);
+}
+
+function queuePendingSessionDelete(projectCode, sessionId) {
+  if (state.pendingSessionDeletes.some((item) => item.projectCode === projectCode && item.sessionId === sessionId)) {
+    return;
+  }
+  state.pendingSessionDeletes.push({
+    id: crypto.randomUUID(),
+    projectCode,
+    sessionId,
+    userId: state.user?.id || "",
+    requestedAt: Date.now(),
+  });
+}
+
+async function performPendingSessionDelete(projectCode, sessionId) {
+  const pending = state.pendingSessionDeletes.find(
+    (item) => item.projectCode === projectCode && item.sessionId === sessionId,
+  );
+  if (!pending) {
+    return true;
+  }
+  const session = state.sessions.find((item) => item.id === sessionId);
+  const wasCurrentRecord = Boolean(
+    session &&
+    (state.continuingSessionId === sessionId || getCurrentRecordSignature() === session.signature),
+  );
+  try {
+    const project = await requestJson(
+      `/api/projects/${encodeURIComponent(projectCode)}/sessions/${encodeURIComponent(sessionId)}`,
+      { method: "DELETE" },
+    );
+    state.pendingSessionDeletes = state.pendingSessionDeletes.filter((item) => item.id !== pending.id);
+    if (state.projectCode === projectCode) {
+      applyConfirmedSessionDeletion(project, sessionId, wasCurrentRecord);
+      void cleanupUnreferencedCachedPhotos((session?.photos || []).map((photo) => photo.id));
+      saveProjectRecoveryBackup("session-deleted", true);
+      setStatus("서버에서 기록 삭제를 확인했습니다.", "success");
+    }
+    persist();
+    return true;
+  } catch (error) {
+    if (!error?.status || error.status >= 500) {
+      pending.lastAttemptAt = Date.now();
+      pending.lastError = error?.message || "network";
+      persist();
+      renderSessions();
+      setStatus("통신이 불안정해 삭제 대기 중입니다. 온라인이 되면 자동으로 다시 시도합니다.", "warning");
+      return false;
+    }
+    state.pendingSessionDeletes = state.pendingSessionDeletes.filter((item) => item.id !== pending.id);
+    persist();
+    renderSessions();
+    setStatus("서버가 삭제 요청을 거부하여 기록을 다시 표시했습니다.", "error");
+    return false;
+  }
+}
+
+function applyConfirmedSessionDeletion(project, sessionId, wasCurrentRecord) {
+  state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
+  state.primarySessionId = project.primarySessionId || state.sessions[0]?.id || null;
   if (state.continuingSessionId === sessionId) {
     state.continuingSessionId = null;
   }
-  if (state.primarySessionId === sessionId) {
-    state.primarySessionId = state.sessions[0]?.id || null;
+  if (wasCurrentRecord) {
+    const primarySession = state.sessions.find((item) => item.id === state.primarySessionId) || state.sessions[0];
+    state.points = structuredClone(primarySession?.points || []);
+    state.photos = structuredClone(primarySession?.photos || []);
+    state.selectedPosition = state.points.at(-1) || null;
+    state.activeStartedAt = null;
   }
-  persist();
-  renderSessions();
-  const deleted = await syncProjectState("delete-session");
-  if (deleted) {
-    void cleanupUnreferencedCachedPhotos((deletedSession?.photos || []).map((photo) => photo.id));
-    saveProjectRecoveryBackup("session-deleted", true);
-    setStatus("서버에서 저장된 기록을 삭제했습니다.");
-    return;
-  }
-  state.sessions = previousSessions;
-  state.primarySessionId = previousPrimarySessionId;
-  state.continuingSessionId = previousContinuingSessionId;
-  persist();
-  renderSessions();
-  setStatus("서버에서 삭제를 확인하지 못해 기록을 복원했습니다.", "error");
+  applyProjectMeta(project);
+  render();
 }
 
 async function createServerProject() {
@@ -1776,6 +1833,15 @@ function syncProjectState(reason = "manual") {
     setProjectStatus("서버 저장은 공유 프로젝트를 만든 뒤 사용할 수 있습니다.");
     return Promise.resolve(false);
   }
+  const hasPendingDelete = state.pendingSessionDeletes.some(
+    (item) => item.projectCode === state.projectCode && (!item.userId || item.userId === state.user?.id),
+  );
+  if (hasPendingDelete && reason !== "delete-session-confirmed") {
+    setProjectStatus("기록 삭제를 먼저 확인한 뒤 프로젝트 저장을 계속합니다.");
+    return retryPendingSessionDeletes().then((completed) =>
+      completed ? syncProjectState("delete-session-confirmed") : false,
+    );
+  }
   const job = {
     projectCode: state.projectCode,
     reason,
@@ -1961,6 +2027,29 @@ async function retryPendingProjectSync() {
   }
   setProjectStatus("온라인 상태로 돌아왔습니다. 서버 동기화를 다시 시도합니다.");
   return syncProjectState("auto-retry");
+}
+
+async function retryPendingSessionDeletes() {
+  const pendingItems = state.pendingSessionDeletes.filter(
+    (item) => item?.projectCode && item?.sessionId && (!item.userId || item.userId === state.user?.id),
+  );
+  let allCompleted = true;
+  for (const pending of pendingItems) {
+    const completed = await performPendingSessionDelete(pending.projectCode, pending.sessionId);
+    allCompleted = completed && allCompleted;
+  }
+  return allCompleted;
+}
+
+async function retryPendingSaves() {
+  const deletesCompleted = await retryPendingSessionDeletes();
+  const hasCurrentUserPendingDelete = state.pendingSessionDeletes.some(
+    (item) => !item.userId || item.userId === state.user?.id,
+  );
+  if (!deletesCompleted || hasCurrentUserPendingDelete) {
+    return false;
+  }
+  return retryPendingProjectSync();
 }
 
 function applyProject(project) {
@@ -2381,7 +2470,7 @@ async function refreshAuth() {
     renderAuthPanel();
     if (state.user) {
       activateWorkspaceAfterLogin();
-      await retryPendingProjectSync();
+      await retryPendingSaves();
       await loadMyProjects();
       await loadAdminUsers();
       await loadProjectShares();
@@ -2496,7 +2585,7 @@ async function loginWithPassword() {
     authEls.password.value = "";
     renderAuthPanel();
     activateWorkspaceAfterLogin();
-    await retryPendingProjectSync();
+    await retryPendingSaves();
     await loadMyProjects();
     await loadAdminUsers();
     await loadProjectShares();
@@ -5387,15 +5476,20 @@ function renderSessions() {
   }
 
   els.historyList.innerHTML = "";
-  if (state.sessions.length === 0) {
+  const pendingSessionIds = new Set(
+    state.pendingSessionDeletes
+      .filter((item) => item.projectCode === state.projectCode && (!item.userId || item.userId === state.user?.id))
+      .map((item) => item.sessionId),
+  );
+  const visibleSessions = state.sessions.filter((session) => !pendingSessionIds.has(session.id));
+  if (visibleSessions.length === 0) {
     const empty = document.createElement("p");
     empty.className = "status-text";
-    empty.textContent = "아직 저장된 기록이 없습니다.";
+    empty.textContent = pendingSessionIds.size > 0 ? "기록 삭제를 서버에서 확인하는 중입니다." : "아직 저장된 기록이 없습니다.";
     els.historyList.append(empty);
-    return;
   }
 
-  state.sessions.forEach((session) => {
+  visibleSessions.forEach((session) => {
     const isPrimary = state.primarySessionId === session.id;
     const item = document.createElement("article");
     item.className = "history-item";
@@ -5446,6 +5540,13 @@ function renderSessions() {
     item.append(body, actions);
     els.historyList.append(item);
   });
+
+  if (pendingSessionIds.size > 0 && visibleSessions.length > 0) {
+    const pendingStatus = document.createElement("p");
+    pendingStatus.className = "status-text";
+    pendingStatus.textContent = `삭제 대기 중 ${pendingSessionIds.size}건 · 온라인 연결 시 자동 확인합니다.`;
+    els.historyList.append(pendingStatus);
+  }
 }
 
 function fitToData() {
@@ -5561,6 +5662,7 @@ function getPersistPayload() {
     milestones: state.milestones,
     overlayProjects: state.overlayProjects,
     sessions: state.sessions,
+    pendingSessionDeletes: state.pendingSessionDeletes,
     primarySessionId: state.primarySessionId,
     selectedPosition: state.selectedPosition,
     initialPosition: state.initialPosition,
@@ -5960,6 +6062,7 @@ function loadState() {
       ? saved.overlayProjects.map((project, index) => normalizeOverlayProject(project, index)).filter(Boolean)
       : [];
     state.sessions = Array.isArray(saved.sessions) ? saved.sessions : [];
+    state.pendingSessionDeletes = Array.isArray(saved.pendingSessionDeletes) ? saved.pendingSessionDeletes : [];
     state.primarySessionId = saved.primarySessionId || state.sessions[0]?.id || null;
     state.selectedPosition = saved.selectedPosition || state.points.at(-1) || null;
     state.initialPosition = saved.initialPosition || null;
