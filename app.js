@@ -3429,7 +3429,7 @@ async function applyMapProvider(provider, options = {}) {
       pendingMapProvider = "";
       return;
     }
-    activateNaverMap(naverMaps);
+    await activateNaverMap(naverMaps);
     pendingMapProvider = "";
     if (!options.quiet) {
       setStatus("네이버지도로 전환했습니다.", "success");
@@ -3456,15 +3456,13 @@ function activateOpenStreetMap() {
   map.invalidateSize(false);
 }
 
-function activateNaverMap(naverMaps) {
+async function activateNaverMap(naverMaps) {
   if (!els.naverMapBase) {
     throw new Error("naver_map_container_missing");
   }
-  if (map.hasLayer(osmTileLayer)) {
-    map.removeLayer(osmTileLayer);
-  }
   els.naverMapBase.hidden = false;
   document.body.classList.add("is-naver-map");
+  await waitForVisibleMapContainer(els.naverMapBase);
   const center = map.getCenter();
   if (!activeNaverBaseMap) {
     activeNaverBaseMap = new naverMaps.Map(els.naverMapBase, {
@@ -3486,7 +3484,34 @@ function activateNaverMap(naverMaps) {
   }
   activeMapProvider = "naver";
   syncNaverBaseMap(true);
+  await new Promise((resolve) => window.setTimeout(resolve, 300));
+  syncNaverBaseMap(true);
+  if (els.naverMapBase.childElementCount === 0) {
+    activeMapProvider = "osm";
+    activeNaverBaseMap = null;
+    els.naverMapBase.innerHTML = "";
+    throw new Error("naver_map_render_failed");
+  }
+  if (map.hasLayer(osmTileLayer)) {
+    map.removeLayer(osmTileLayer);
+  }
   map.invalidateSize(false);
+}
+
+function waitForAnimationFrame() {
+  return new Promise((resolve) => window.requestAnimationFrame(resolve));
+}
+
+async function waitForVisibleMapContainer(element, timeoutMs = 3000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const bounds = element.getBoundingClientRect();
+    if (bounds.width >= 2 && bounds.height >= 2) {
+      return;
+    }
+    await waitForAnimationFrame();
+  }
+  throw new Error("naver_map_container_not_visible");
 }
 
 function scheduleNaverBaseMapSync() {
@@ -5844,7 +5869,12 @@ function renderTrackingState() {
   }
   els.mapProvider.value = state.mapProvider || "osm";
   const desiredMapProvider = state.mapProvider === "naver" ? "naver" : "osm";
-  if (desiredMapProvider !== activeMapProvider && desiredMapProvider !== pendingMapProvider) {
+  const canActivateMapProvider = Boolean(state.user || initialShareToken);
+  if (
+    canActivateMapProvider &&
+    desiredMapProvider !== activeMapProvider &&
+    desiredMapProvider !== pendingMapProvider
+  ) {
     void applyMapProvider(desiredMapProvider, { quiet: true });
   }
   els.wakeLockToggle.checked = Boolean(state.wakeLockEnabled);

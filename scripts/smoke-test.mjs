@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260810-naver-base-map-1/);
+  assert.match(pageHtml, /20260810-naver-base-map-2/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
@@ -221,7 +221,11 @@ try {
   assert.match(appSource, /function waitForNaverPanoramaApi\(timeoutMs = 12000\)[\s\S]+?window\.setTimeout\(checkApi, 50\)/);
   assert.match(appSource, /function openPhotoInNaverPanorama\(photo\)[\s\S]+?new naverMaps\.Panorama/);
   assert.match(appSource, /function applyMapProvider\(provider, options = \{\}\)[\s\S]+?activateNaverMap/);
-  assert.match(appSource, /function activateNaverMap\(naverMaps\)[\s\S]+?new naverMaps\.Map/);
+  assert.match(appSource, /async function activateNaverMap\(naverMaps\)[\s\S]+?new naverMaps\.Map/);
+  assert.match(appSource, /function waitForAnimationFrame\(\)/);
+  assert.match(appSource, /async function waitForVisibleMapContainer\(element, timeoutMs = 3000\)/);
+  assert.match(appSource, /const canActivateMapProvider = Boolean\(state\.user \|\| initialShareToken\)/);
+  assert.match(appSource, /naverMapBase\.childElementCount === 0/);
   assert.match(appSource, /map\.on\("move zoom", scheduleNaverBaseMapSync\)/);
   assert.match(appSource, /사진 위치 주변 300m 이내에 제공되는 거리뷰가 없습니다/);
   assert.match(appSource, /\["positioned", "네이버 지도 가능"\]/);
