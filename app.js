@@ -5846,26 +5846,42 @@ async function openPhotoInNaverComparison(photo, mode = "satellite") {
   if (!hasPhotoPosition(photo) || !els.naverPanoramaModal || !els.naverPanoramaViewer) {
     return;
   }
+  const requestedMode = mode === "panorama" ? "panorama" : "satellite";
+  const canReuseCurrentViewer = !els.naverPanoramaModal.hidden && requestedMode === activeNaverComparisonMode;
+  if (canReuseCurrentViewer) {
+    renderNaverComparisonPhoto(photo, requestedMode);
+    const naverMaps = window.naver?.maps;
+    const nextPosition = naverMaps
+      ? new naverMaps.LatLng(Number(photo.lat), Number(photo.lng))
+      : null;
+    try {
+      if (requestedMode === "satellite" && activeNaverComparisonMap && nextPosition) {
+        activeNaverComparisonMap.setCenter(nextPosition);
+        activeNaverComparisonMap.setZoom(18);
+        activeNaverComparisonMarker?.setPosition(nextPosition);
+        activeNaverComparisonMarker?.setTitle(getPhotoDisplayName(photo));
+        naverMaps.Event.trigger(activeNaverComparisonMap, "resize");
+        activeNaverComparisonMap.refresh?.(true);
+        els.naverPanoramaStatus.textContent = "기록 사진과 같은 위치의 위성지도입니다.";
+        return;
+      }
+      if (requestedMode === "panorama" && activeNaverPanorama && nextPosition) {
+        els.naverPanoramaStatus.textContent = "사진 위치 주변의 거리뷰를 찾는 중입니다.";
+        activeNaverPanorama.setVisible?.(true);
+        activeNaverPanorama.setPosition(nextPosition);
+        return;
+      }
+    } catch (error) {
+      console.warn("Naver comparison reuse failed", error);
+    }
+  }
   closeNaverPanorama();
   const requestId = ++naverComparisonRequestId;
-  activeNaverComparisonMode = mode === "panorama" ? "panorama" : "satellite";
+  activeNaverComparisonMode = requestedMode;
   els.naverPanoramaModal.hidden = false;
   els.naverPanoramaViewer.innerHTML = "";
   els.naverPanoramaViewer.setAttribute("aria-busy", "true");
-  els.naverPanoramaTitle.textContent = activeNaverComparisonMode === "panorama"
-    ? "기록 사진 · 네이버 거리뷰 비교"
-    : "기록 사진 · 네이버 위성지도 비교";
-  els.naverPanoramaStatus.textContent = activeNaverComparisonMode === "panorama"
-    ? "사진 위치 주변의 거리뷰를 찾는 중입니다."
-    : "사진 위치의 위성지도를 불러오는 중입니다.";
-  els.naverComparisonPhoto.src = photo.src;
-  els.naverComparisonPhoto.alt = getPhotoDisplayName(photo);
-  els.naverComparisonPhotoMeta.textContent = [
-    photoModalSourceLabel,
-    getPhotoDisplayName(photo),
-    `${Number(photo.lat).toFixed(5)}, ${Number(photo.lng).toFixed(5)}`,
-  ].filter(Boolean).join(" · ");
-  renderNaverComparisonNavigation();
+  renderNaverComparisonPhoto(photo, requestedMode);
   document.body.classList.add("is-naver-panorama-open");
   try {
     const naverMaps = await loadNaverPanoramaApi();
@@ -5931,6 +5947,23 @@ async function openPhotoInNaverComparison(photo, mode = "satellite") {
     els.naverPanoramaViewer.removeAttribute("aria-busy");
     els.naverPanoramaStatus.textContent = "네이버 비교 화면을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
   }
+}
+
+function renderNaverComparisonPhoto(photo, mode) {
+  els.naverPanoramaTitle.textContent = mode === "panorama"
+    ? "기록 사진 · 네이버 거리뷰 비교"
+    : "기록 사진 · 네이버 위성지도 비교";
+  els.naverPanoramaStatus.textContent = mode === "panorama"
+    ? "사진 위치 주변의 거리뷰를 찾는 중입니다."
+    : "사진 위치의 위성지도를 불러오는 중입니다.";
+  els.naverComparisonPhoto.src = photo.src;
+  els.naverComparisonPhoto.alt = getPhotoDisplayName(photo);
+  els.naverComparisonPhotoMeta.textContent = [
+    photoModalSourceLabel,
+    getPhotoDisplayName(photo),
+    `${Number(photo.lat).toFixed(5)}, ${Number(photo.lng).toFixed(5)}`,
+  ].filter(Boolean).join(" · ");
+  renderNaverComparisonNavigation();
 }
 
 function closeNaverPanorama() {
