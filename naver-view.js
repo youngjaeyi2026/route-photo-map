@@ -70,8 +70,10 @@ function initializePanorama() {
   }
   panoramaInitialized = true;
   try {
+    const initialSize = getViewerSize();
     panorama = new window.naver.maps.Panorama(viewer, {
       position: new window.naver.maps.LatLng(lat, lng),
+      size: new window.naver.maps.Size(initialSize.width, initialSize.height),
       aroundControl: true,
       flightSpot: true,
       logoControl: true,
@@ -79,11 +81,14 @@ function initializePanorama() {
     });
     zoomControls.hidden = false;
     observeViewerSize();
-    syncPanoramaSize();
+    window.naver.maps.Event.addListener(panorama, "init", forcePanoramaLayout);
     window.naver.maps.Event.addListener(panorama, "pano_status", (result) => {
       status.textContent = result === "OK"
         ? `${name} 위치에서 가장 가까운 로드뷰입니다.`
         : "주변 300m 이내에 제공되는 로드뷰가 없습니다.";
+      if (result === "OK") {
+        forcePanoramaLayout();
+      }
     });
   } catch (error) {
     console.warn("Standalone Naver panorama failed", error);
@@ -97,6 +102,13 @@ function observeViewerSize() {
     resizeObserver.observe(viewerWrap);
   }
   window.addEventListener("resize", schedulePanoramaResize, { passive: true });
+  window.addEventListener("focus", forcePanoramaLayout, { passive: true });
+  window.addEventListener("pageshow", forcePanoramaLayout, { passive: true });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      forcePanoramaLayout();
+    }
+  });
 }
 
 function schedulePanoramaResize() {
@@ -113,9 +125,26 @@ function syncPanoramaSize() {
   if (!panorama || !window.naver?.maps?.Size) {
     return;
   }
-  const width = Math.max(1, Math.round(viewerWrap.clientWidth));
-  const height = Math.max(1, Math.round(viewerWrap.clientHeight));
+  const { width, height } = getViewerSize();
   panorama.setSize(new window.naver.maps.Size(width, height));
+}
+
+function forcePanoramaLayout() {
+  if (!panorama || !window.naver?.maps?.Size) {
+    return;
+  }
+  const { width, height } = getViewerSize();
+  panorama.setSize(new window.naver.maps.Size(Math.max(1, width - 1), height));
+  window.requestAnimationFrame(() => {
+    panorama?.setSize(new window.naver.maps.Size(width, height));
+  });
+}
+
+function getViewerSize() {
+  return {
+    width: Math.max(1, Math.round(viewerWrap.clientWidth)),
+    height: Math.max(1, Math.round(viewerWrap.clientHeight)),
+  };
 }
 
 function showError(message) {

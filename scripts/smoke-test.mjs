@@ -127,7 +127,7 @@ try {
   const roadviewPageHtml = await roadviewPageResponse.text();
   assert.equal(roadviewPageResponse.status, 200);
   assert.match(roadviewPageHtml, /id="viewer"/);
-  assert.match(roadviewPageHtml, /naver-view\.js\?v=20260811-responsive-roadview-1/);
+  assert.match(roadviewPageHtml, /naver-view\.js\?v=20260811-roadview-first-paint-1/);
   assert.match(roadviewPageHtml, /id="zoomInBtn"/);
   assert.match(roadviewPageHtml, /id="zoomOutBtn"/);
   const roadviewScriptResponse = await fetch(`${baseUrl}/naver-view.js`);
@@ -139,6 +139,9 @@ try {
   assert.match(roadviewScript, /zoomControl: false/);
   assert.match(roadviewScript, /new ResizeObserver\(schedulePanoramaResize\)/);
   assert.match(roadviewScript, /panorama\.setSize\(new window\.naver\.maps\.Size\(width, height\)\)/);
+  assert.match(roadviewScript, /addListener\(panorama, "init", forcePanoramaLayout\)/);
+  assert.match(roadviewScript, /function forcePanoramaLayout\(\)/);
+  assert.match(roadviewScript, /Math\.max\(1, width - 1\)/);
   const naverMapPageResponse = await fetch(`${baseUrl}/naver-map.html?lat=37.5&lng=127.0&name=test`);
   const naverMapPageHtml = await naverMapPageResponse.text();
   assert.equal(naverMapPageResponse.status, 200);
