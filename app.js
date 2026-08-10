@@ -42,6 +42,7 @@ const state = {
   photoFilter: "all",
   photoView: "list",
   activePhotoId: null,
+  photoModalSequenceIds: [],
   activeConstructionPinId: null,
   projectCode: "",
   projectName: "프로젝트A",
@@ -112,6 +113,9 @@ const els = {
   photoViewToggle: document.querySelector("#photoViewToggle"),
   photoModal: document.querySelector("#photoModal"),
   photoModalClose: document.querySelector("#photoModalClose"),
+  photoModalPrevious: document.querySelector("#photoModalPrevious"),
+  photoModalNext: document.querySelector("#photoModalNext"),
+  photoModalCount: document.querySelector("#photoModalCount"),
   photoModalImage: document.querySelector("#photoModalImage"),
   photoModalTitle: document.querySelector("#photoModalTitle"),
   photoModalMeta: document.querySelector("#photoModalMeta"),
@@ -240,6 +244,7 @@ let projectSyncQueue = Promise.resolve();
 const pendingProjectSyncs = new Set();
 let recordCompletionPending = false;
 let photoCacheMigrationPromise = null;
+let photoModalTouchStartX = null;
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
 let colorPickerConfirmHandler = null;
 let authEls = {};
@@ -344,6 +349,22 @@ els.photoViewToggle.addEventListener("click", () => {
   renderPhotos();
 });
 els.photoModalClose.addEventListener("click", closePhotoModal);
+els.photoModalPrevious?.addEventListener("click", () => navigatePhotoModal(-1));
+els.photoModalNext?.addEventListener("click", () => navigatePhotoModal(1));
+els.photoModalImage?.addEventListener("touchstart", (event) => {
+  photoModalTouchStartX = event.changedTouches[0]?.clientX ?? null;
+}, { passive: true });
+els.photoModalImage?.addEventListener("touchend", (event) => {
+  if (photoModalTouchStartX === null) {
+    return;
+  }
+  const touchEndX = event.changedTouches[0]?.clientX ?? photoModalTouchStartX;
+  const swipeDistance = touchEndX - photoModalTouchStartX;
+  photoModalTouchStartX = null;
+  if (Math.abs(swipeDistance) >= 45) {
+    navigatePhotoModal(swipeDistance < 0 ? 1 : -1);
+  }
+}, { passive: true });
 els.photoModal.addEventListener("click", (event) => {
   if (event.target.hasAttribute("data-photo-modal-close")) {
     closePhotoModal();
@@ -375,6 +396,10 @@ els.constructionDetailModal?.addEventListener("click", (event) => {
   }
 });
 document.addEventListener("keydown", (event) => {
+  if (!els.photoModal.hidden && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+    event.preventDefault();
+    navigatePhotoModal(event.key === "ArrowLeft" ? -1 : 1);
+  }
   if (event.key === "Escape" && !els.photoModal.hidden) {
     closePhotoModal();
   }
@@ -4349,7 +4374,7 @@ function showPhotoTray(photos) {
       <img src="${photo.src}" alt="" />
       <span>${getPhotoDisplayName(photo)}</span>
     `;
-    button.addEventListener("click", () => openPhotoModal(photo));
+    button.addEventListener("click", () => openPhotoModal(photo, { preferredPhotos: photos }));
     els.photoTray.append(button);
   });
   els.photoTray.hidden = false;
@@ -5322,7 +5347,14 @@ function getAllPhotoTags() {
   );
 }
 
-function openPhotoModal(photo) {
+function openPhotoModal(photo, options = {}) {
+  if (!photo) {
+    return;
+  }
+  const preserveSequence = Boolean(options.preserveSequence);
+  if (!preserveSequence || !state.photoModalSequenceIds.includes(photo.id)) {
+    state.photoModalSequenceIds = buildNearbyPhotoSequence(photo, options.preferredPhotos).map((item) => item.id);
+  }
   const hasPosition = hasPhotoPosition(photo);
   state.activePhotoId = photo.id;
   els.photoModalImage.src = photo.src;
@@ -5335,6 +5367,7 @@ function openPhotoModal(photo) {
   els.photoModalMemo.classList.toggle("is-empty", !photo.memo?.trim());
   renderModalTags(photo);
   els.photoModalLocateBtn.disabled = !hasPosition;
+  renderPhotoModalNavigation();
   els.photoModal.hidden = false;
   document.body.classList.add("is-photo-modal-open");
 }
@@ -5342,8 +5375,69 @@ function openPhotoModal(photo) {
 function closePhotoModal() {
   els.photoModal.hidden = true;
   state.activePhotoId = null;
+  state.photoModalSequenceIds = [];
+  photoModalTouchStartX = null;
   els.photoModalImage.removeAttribute("src");
+  if (els.photoModalCount) {
+    els.photoModalCount.textContent = "";
+  }
   document.body.classList.remove("is-photo-modal-open");
+}
+
+function buildNearbyPhotoSequence(anchorPhoto, preferredPhotos = []) {
+  const visiblePhotos = getVisiblePhotos();
+  const candidates = visiblePhotos.some((photo) => photo.id === anchorPhoto.id)
+    ? visiblePhotos
+    : [anchorPhoto, ...visiblePhotos];
+  const preferredIds = new Set((preferredPhotos || []).map((photo) => photo.id));
+  const orderByDistance = (left, right) => {
+    const leftDistance = hasPhotoPosition(anchorPhoto) && hasPhotoPosition(left)
+      ? getDistanceMeters(anchorPhoto, left)
+      : Number.POSITIVE_INFINITY;
+    const rightDistance = hasPhotoPosition(anchorPhoto) && hasPhotoPosition(right)
+      ? getDistanceMeters(anchorPhoto, right)
+      : Number.POSITIVE_INFINITY;
+    if (leftDistance !== rightDistance) {
+      return leftDistance - rightDistance;
+    }
+    return new Date(left.timestamp || 0).getTime() - new Date(right.timestamp || 0).getTime();
+  };
+  const preferred = candidates
+    .filter((photo) => photo.id !== anchorPhoto.id && preferredIds.has(photo.id))
+    .sort(orderByDistance);
+  const remaining = candidates
+    .filter((photo) => photo.id !== anchorPhoto.id && !preferredIds.has(photo.id))
+    .sort(orderByDistance);
+  return [anchorPhoto, ...preferred, ...remaining];
+}
+
+function navigatePhotoModal(direction) {
+  const sequence = state.photoModalSequenceIds;
+  if (sequence.length < 2 || !state.activePhotoId) {
+    return;
+  }
+  const currentIndex = Math.max(0, sequence.indexOf(state.activePhotoId));
+  const nextIndex = (currentIndex + direction + sequence.length) % sequence.length;
+  const nextPhoto = state.photos.find((photo) => photo.id === sequence[nextIndex]);
+  if (nextPhoto) {
+    openPhotoModal(nextPhoto, { preserveSequence: true });
+  }
+}
+
+function renderPhotoModalNavigation() {
+  const count = state.photoModalSequenceIds.length;
+  const currentIndex = state.photoModalSequenceIds.indexOf(state.activePhotoId);
+  const hasMultiplePhotos = count > 1;
+  if (els.photoModalPrevious) {
+    els.photoModalPrevious.hidden = !hasMultiplePhotos;
+  }
+  if (els.photoModalNext) {
+    els.photoModalNext.hidden = !hasMultiplePhotos;
+  }
+  if (els.photoModalCount) {
+    els.photoModalCount.hidden = count === 0;
+    els.photoModalCount.textContent = count > 0 ? `${Math.max(0, currentIndex) + 1} / ${count}` : "";
+  }
 }
 
 function getActiveModalPhoto() {

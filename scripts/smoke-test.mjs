@@ -73,8 +73,11 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260810-multi-photo-add-1/);
+  assert.match(pageHtml, /20260810-photo-modal-navigation-1/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
+  assert.match(pageHtml, /id="photoModalPrevious"/);
+  assert.match(pageHtml, /id="photoModalNext"/);
+  assert.match(pageHtml, /id="photoModalCount"/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="followMapControls"/);
@@ -100,6 +103,7 @@ try {
   const css = await cssResponse.text();
   assert.equal(cssResponse.status, 200);
   assert.match(css, /\.control-panel\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/s);
+  assert.match(css, /\.photo-modal__nav\s*\{/);
   assert.match(
     css,
     /body\.is-logged-out:not\(\.is-share-view\) \.map-stage[\s\S]+?display:\s*none !important/,

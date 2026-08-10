@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260810-multi-photo-add-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260810-photo-modal-navigation-1" />
   </head>
   <body>
     <script>
@@ -253,6 +253,9 @@
       <div class="photo-modal__backdrop" data-photo-modal-close></div>
       <article class="photo-modal__panel" role="dialog" aria-modal="true" aria-label="사진 크게 보기">
         <button id="photoModalClose" class="photo-modal__close" type="button" aria-label="닫기">×</button>
+        <button id="photoModalPrevious" class="photo-modal__nav photo-modal__nav--previous" type="button" aria-label="이전 사진">‹</button>
+        <button id="photoModalNext" class="photo-modal__nav photo-modal__nav--next" type="button" aria-label="다음 사진">›</button>
+        <span id="photoModalCount" class="photo-modal__count" aria-live="polite"></span>
         <img id="photoModalImage" alt="" />
         <div class="photo-modal__body">
           <strong id="photoModalTitle"></strong>
@@ -297,6 +300,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260810-multi-photo-add-1"></script>
+    <script src="/app.js?v=20260810-photo-modal-navigation-1"></script>
   </body>
 </html>
