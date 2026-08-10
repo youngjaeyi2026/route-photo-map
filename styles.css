@@ -1697,6 +1697,25 @@ body.is-follow-mode .control-panel {
   box-shadow: 0 0 0 1px rgba(22, 32, 28, 0.2);
 }
 
+.overlay-visibility-options {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.overlay-visibility-button {
+  min-width: 0 !important;
+  color: var(--muted);
+  background: #f2f5f3 !important;
+}
+
+.overlay-visibility-button.is-active {
+  border-color: #b7d8c9;
+  color: #176b4c;
+  background: #eaf5ef !important;
+}
+
 .color-picker-modal[hidden] {
   display: none;
 }
@@ -2006,6 +2025,20 @@ body.is-follow-mode .control-panel {
   gap: 2px;
 }
 
+.naver-panorama-modal__header .naver-panorama-modal__controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.naver-panorama-modal__controls span {
+  min-width: 42px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+}
+
 .naver-panorama-modal__header strong {
   font-size: 16px;
 }
@@ -2031,6 +2064,41 @@ body.is-follow-mode .control-panel {
   min-width: 0;
   min-height: 0;
   background: #e7ece9;
+}
+
+.naver-photo-comparison {
+  display: grid;
+  grid-template-columns: minmax(280px, 42%) minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.naver-photo-comparison__photo {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  border-right: 1px solid var(--line);
+  background: #111815;
+}
+
+.naver-photo-comparison__photo img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+}
+
+.naver-photo-comparison__photo figcaption {
+  overflow: hidden;
+  padding: 9px 12px;
+  color: #ffffff;
+  background: rgba(12, 18, 16, 0.92);
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .photo-modal__actions button {
@@ -2270,6 +2338,11 @@ body.is-follow-mode .control-panel {
   box-shadow: 0 7px 18px rgba(22, 32, 28, 0.34);
 }
 
+.overlay-photo-marker {
+  border-color: var(--overlay-photo-color, #315f9e);
+  box-shadow: 0 0 0 2px #ffffff, 0 7px 18px rgba(22, 32, 28, 0.34);
+}
+
 .photo-single-marker img,
 .photo-cluster-marker img {
   display: block;
@@ -2444,6 +2517,26 @@ body.is-follow-mode .control-panel {
 
   .photo-modal__panel img {
     max-height: 72vh;
+  }
+
+  .naver-panorama-modal {
+    padding: 0;
+  }
+
+  .naver-panorama-modal__panel {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  .naver-photo-comparison {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 42%) minmax(0, 1fr);
+  }
+
+  .naver-photo-comparison__photo {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
 }
 

@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260810-naver-base-map-2/);
+  assert.match(pageHtml, /20260811-overlay-photo-compare-1/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
@@ -84,6 +84,9 @@ try {
   assert.match(pageHtml, /id="photoModalNaverPanoramaBtn"[^>]*>네이버 거리뷰<\/button>/);
   assert.match(pageHtml, /id="naverPanoramaModal"/);
   assert.match(pageHtml, /id="naverPanoramaViewer"/);
+  assert.match(pageHtml, /id="naverComparisonPhoto"/);
+  assert.match(pageHtml, /id="naverComparisonPrevious"/);
+  assert.match(pageHtml, /id="naverComparisonNext"/);
   assert.match(pageHtml, /<option value="positioned">네이버 지도 가능<\/option>/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
@@ -113,6 +116,9 @@ try {
   assert.match(css, /\.photo-modal__nav\s*\{/);
   assert.match(css, /\.photo-modal__actions \.photo-modal__naver\s*\{/);
   assert.match(css, /\.naver-panorama-modal__panel\s*\{/);
+  assert.match(css, /\.naver-photo-comparison\s*\{/);
+  assert.match(css, /\.overlay-visibility-options\s*\{/);
+  assert.match(css, /\.overlay-photo-marker\s*\{/);
   assert.match(css, /\.naver-map-base\s*\{/);
   assert.match(css, /body\.is-naver-map #map \.leaflet-tile-pane/);
   assert.match(
@@ -220,6 +226,11 @@ try {
   assert.match(appSource, /function loadNaverPanoramaApi\(\)[\s\S]+?submodules=panorama/);
   assert.match(appSource, /function waitForNaverPanoramaApi\(timeoutMs = 12000\)[\s\S]+?window\.setTimeout\(checkApi, 50\)/);
   assert.match(appSource, /function openPhotoInNaverPanorama\(photo\)[\s\S]+?new naverMaps\.Panorama/);
+  assert.match(appSource, /async function openPhotoInNaverComparison\(photo, mode = "satellite"\)/);
+  assert.match(appSource, /mapTypeId: naverMaps\.MapTypeId\.SATELLITE/);
+  assert.match(appSource, /function renderOverlayPhotoMarkers\(project\)/);
+  assert.match(appSource, /function createOverlayVisibilityButton\(project, property, label\)/);
+  assert.match(appSource, /photoModalReadOnly = Boolean\(options\.readOnly\)/);
   assert.match(appSource, /function applyMapProvider\(provider, options = \{\}\)[\s\S]+?activateNaverMap/);
   assert.match(appSource, /async function activateNaverMap\(naverMaps\)[\s\S]+?new naverMaps\.Map/);
   assert.match(appSource, /function waitForAnimationFrame\(\)/);
@@ -244,7 +255,7 @@ try {
   );
   assert.match(
     appSource,
-    /if \(project\.visible !== false && state\.constructionPinsVisible[\s\S]+?\.addTo\(projectOverlayLayer\)/,
+    /project\.constructionVisible !== false[\s\S]+?state\.constructionPinsVisible[\s\S]+?\.addTo\(projectOverlayLayer\)/,
   );
   assert.match(
     appSource,

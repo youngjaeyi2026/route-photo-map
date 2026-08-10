@@ -132,6 +132,12 @@ const els = {
   naverPanoramaClose: document.querySelector("#naverPanoramaClose"),
   naverPanoramaViewer: document.querySelector("#naverPanoramaViewer"),
   naverPanoramaStatus: document.querySelector("#naverPanoramaStatus"),
+  naverPanoramaTitle: document.querySelector("#naverPanoramaTitle"),
+  naverComparisonPrevious: document.querySelector("#naverComparisonPrevious"),
+  naverComparisonNext: document.querySelector("#naverComparisonNext"),
+  naverComparisonCount: document.querySelector("#naverComparisonCount"),
+  naverComparisonPhoto: document.querySelector("#naverComparisonPhoto"),
+  naverComparisonPhotoMeta: document.querySelector("#naverComparisonPhotoMeta"),
   constructionDetailModal: document.querySelector("#constructionDetailModal"),
   constructionDetailClose: document.querySelector("#constructionDetailClose"),
   constructionDetailCode: document.querySelector("#constructionDetailCode"),
@@ -253,8 +259,15 @@ const pendingProjectSyncs = new Set();
 let recordCompletionPending = false;
 let photoCacheMigrationPromise = null;
 let photoModalTouchStartX = null;
+let photoModalPhotoPool = [];
+let photoModalReadOnly = false;
+let photoModalSourceLabel = "";
 let naverPanoramaScriptPromise = null;
 let activeNaverPanorama = null;
+let activeNaverComparisonMap = null;
+let activeNaverComparisonMarker = null;
+let activeNaverComparisonMode = "";
+let naverComparisonRequestId = 0;
 let activeNaverBaseMap = null;
 let activeMapProvider = "osm";
 let pendingMapProvider = "";
@@ -406,7 +419,7 @@ els.photoModalLocateBtn.addEventListener("click", () => {
 els.photoModalNaverBtn?.addEventListener("click", () => {
   const photo = getActiveModalPhoto();
   if (photo && hasPhotoPosition(photo)) {
-    openPhotoInNaverMap(photo);
+    openPhotoInNaverComparison(photo, "satellite");
   }
 });
 els.photoModalNaverPanoramaBtn?.addEventListener("click", () => {
@@ -415,6 +428,8 @@ els.photoModalNaverPanoramaBtn?.addEventListener("click", () => {
     openPhotoInNaverPanorama(photo);
   }
 });
+els.naverComparisonPrevious?.addEventListener("click", () => navigateNaverPhotoComparison(-1));
+els.naverComparisonNext?.addEventListener("click", () => navigateNaverPhotoComparison(1));
 els.naverPanoramaClose?.addEventListener("click", closeNaverPanorama);
 els.naverPanoramaModal?.addEventListener("click", (event) => {
   if (event.target.hasAttribute("data-naver-panorama-close")) {
@@ -430,6 +445,15 @@ els.constructionDetailModal?.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && els.naverPanoramaModal && !els.naverPanoramaModal.hidden) {
     closeNaverPanorama();
+    return;
+  }
+  if (
+    els.naverPanoramaModal &&
+    !els.naverPanoramaModal.hidden &&
+    (event.key === "ArrowLeft" || event.key === "ArrowRight")
+  ) {
+    event.preventDefault();
+    navigateNaverPhotoComparison(event.key === "ArrowLeft" ? -1 : 1);
     return;
   }
   if (
@@ -4531,7 +4555,7 @@ function getPhotoClusterDistancePx() {
   return 72;
 }
 
-function showPhotoTray(photos) {
+function showPhotoTray(photos, options = {}) {
   if (!els.photoTray) {
     return;
   }
@@ -4549,7 +4573,12 @@ function showPhotoTray(photos) {
       <img src="${photo.src}" alt="" />
       <span>${getPhotoDisplayName(photo)}</span>
     `;
-    button.addEventListener("click", () => openPhotoModal(photo, { preferredPhotos: photos }));
+    button.addEventListener("click", () => openPhotoModal(photo, {
+      preferredPhotos: photos,
+      photoPool: options.photoPool || photos,
+      readOnly: Boolean(options.readOnly),
+      sourceLabel: options.sourceLabel || "",
+    }));
     els.photoTray.append(button);
   });
   els.photoTray.hidden = false;
@@ -4855,7 +4884,7 @@ function renderFollowMode() {
 function getVisibleConstructionPinCount() {
   const currentProjectCount = state.milestones.filter((pin) => pin.type === "construction").length;
   const overlayCount = state.overlayProjects
-    .filter((project) => project.visible !== false)
+    .filter((project) => project.visible !== false && project.constructionVisible !== false)
     .reduce(
       (count, project) =>
         count +
@@ -5265,7 +5294,7 @@ async function addOverlayProject() {
     }
     persist();
     renderProjectOverlays();
-    setStatus(`${overlay.name} 동선과 공사구역을 비교 화면에 추가했습니다.`);
+    setStatus(`${overlay.name} 동선, 사진, 공사구역을 비교 화면에 추가했습니다.`);
   } catch {
     setStatus("비교 프로젝트를 찾지 못했습니다. 공유 코드를 확인해 주세요.");
   }
@@ -5280,12 +5309,27 @@ function createOverlayProject(project) {
     null;
   const primaryPoints = Array.isArray(primarySession?.points) ? primarySession.points : [];
   const lastStatePoints = Array.isArray(project.lastState?.points) ? project.lastState.points : [];
+  const lastStatePhotos = Array.isArray(project.lastState?.photos) ? project.lastState.photos : [];
+  const allProjectPhotos = [
+    ...sessions.flatMap((session) => (Array.isArray(session?.photos) ? session.photos : [])),
+    ...lastStatePhotos,
+  ];
+  const uniqueProjectPhotos = [...new Map(
+    allProjectPhotos.map((photo, index) => [
+      photo.id || `${photo.timestamp || "photo"}-${photo.lat || "x"}-${photo.lng || "x"}-${index}`,
+      photo,
+    ]),
+  ).values()];
   return normalizeOverlayProject({
     code: project.code,
     name: project.name || project.code,
     color: OVERLAY_COLORS[nextIndex % OVERLAY_COLORS.length],
     visible: true,
+    routeVisible: true,
+    photosVisible: true,
+    constructionVisible: true,
     points: primaryPoints.length > 0 ? primaryPoints : lastStatePoints,
+    photos: uniqueProjectPhotos,
     milestones: Array.isArray(project.lastState?.milestones) ? project.lastState.milestones : [],
   }, nextIndex);
 }
@@ -5299,7 +5343,11 @@ function normalizeOverlayProject(project, fallbackIndex = 0) {
     name: project.name || project.code,
     color: normalizeConstructionColor(project.color || OVERLAY_COLORS[fallbackIndex % OVERLAY_COLORS.length]),
     visible: project.visible !== false,
+    routeVisible: project.routeVisible !== false,
+    photosVisible: project.photosVisible !== false,
+    constructionVisible: project.constructionVisible !== false,
     points: Array.isArray(project.points) ? project.points : [],
+    photos: Array.isArray(project.photos) ? structuredClone(project.photos) : [],
     milestones: normalizeMilestones(Array.isArray(project.milestones) ? structuredClone(project.milestones) : []),
   };
 }
@@ -5322,7 +5370,7 @@ function renderProjectOverlays() {
 
   state.overlayProjects.forEach((project) => {
     const points = Array.isArray(project.points) ? project.points : [];
-    if (project.visible !== false && points.length > 0) {
+    if (project.visible !== false && project.routeVisible !== false && points.length > 0) {
       L.polyline(points.map((point) => [point.lat, point.lng]), {
         color: project.color,
         weight: 5,
@@ -5331,7 +5379,20 @@ function renderProjectOverlays() {
         lineJoin: "round",
       }).addTo(projectOverlayLayer);
     }
-    if (project.visible !== false && state.constructionPinsVisible && Array.isArray(project.milestones)) {
+    if (
+      project.visible !== false &&
+      project.photosVisible !== false &&
+      state.photoPinsVisible &&
+      Array.isArray(project.photos)
+    ) {
+      renderOverlayPhotoMarkers(project);
+    }
+    if (
+      project.visible !== false &&
+      project.constructionVisible !== false &&
+      state.constructionPinsVisible &&
+      Array.isArray(project.milestones)
+    ) {
       project.milestones
         .filter((pin) => pin.type === "construction")
         .forEach((pin) => {
@@ -5379,7 +5440,9 @@ function renderProjectOverlays() {
     const title = document.createElement("strong");
     const meta = document.createElement("span");
     title.textContent = project.name;
-    meta.textContent = `${project.code} · ${points.length}점`;
+    const photoCount = (project.photos || []).filter(hasPhotoPosition).length;
+    const constructionCount = (project.milestones || []).filter((pin) => pin.type === "construction").length;
+    meta.textContent = `${project.code} · ${points.length}점 · 사진 ${photoCount} · 공사 ${constructionCount}`;
     body.append(title, meta);
 
     const removeButton = document.createElement("button");
@@ -5387,17 +5450,87 @@ function renderProjectOverlays() {
     removeButton.textContent = "삭제";
     removeButton.addEventListener("click", () => removeOverlayProject(project.code));
 
-    item.append(toggle, swatch, body, removeButton);
+    const visibilityOptions = document.createElement("div");
+    visibilityOptions.className = "overlay-visibility-options";
+    visibilityOptions.append(
+      createOverlayVisibilityButton(project, "routeVisible", "노선"),
+      createOverlayVisibilityButton(project, "photosVisible", "사진"),
+      createOverlayVisibilityButton(project, "constructionVisible", "공사구역"),
+    );
+
+    item.append(toggle, swatch, body, removeButton, visibilityOptions);
     els.overlayProjectList.append(item);
   });
   renderConstructionVisibilityControls(getVisibleConstructionPinCount());
+}
+
+function createOverlayVisibilityButton(project, property, label) {
+  const button = document.createElement("button");
+  const isVisible = project[property] !== false;
+  button.type = "button";
+  button.className = "overlay-visibility-button";
+  button.classList.toggle("is-active", isVisible);
+  button.textContent = label;
+  button.disabled = project.visible === false;
+  button.setAttribute("aria-pressed", String(isVisible));
+  button.addEventListener("click", () => {
+    project[property] = project[property] === false;
+    persist();
+    renderProjectOverlays();
+  });
+  return button;
+}
+
+function renderOverlayPhotoMarkers(project) {
+  const photos = (project.photos || []).filter(hasPhotoPosition);
+  const clusters = clusterPhotosForMap(photos);
+  clusters.forEach((cluster) => {
+    const firstPhoto = cluster.photos[0];
+    const size = 42;
+    const isCluster = cluster.photos.length > 1;
+    const markerClass = isCluster ? "photo-cluster-marker" : "photo-single-marker";
+    const countMarkup = isCluster ? `<span>${cluster.photos.length}</span>` : "";
+    const icon = L.divIcon({
+      className: "",
+      html: `
+        <button class="${markerClass} overlay-photo-marker" type="button" style="--overlay-photo-color:${project.color}" aria-label="비교 프로젝트 사진 ${cluster.photos.length}장">
+          <img src="${firstPhoto.src}" alt="" />
+          ${countMarkup}
+        </button>
+      `,
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size],
+      popupAnchor: [0, -34],
+    });
+    L.marker([cluster.lat, cluster.lng], {
+      icon,
+      title: `${project.name} · ${isCluster ? `사진 ${cluster.photos.length}장` : getPhotoDisplayName(firstPhoto)}`,
+    })
+      .on("click", () => {
+        if (isCluster) {
+          showPhotoTray(cluster.photos, {
+            photoPool: photos,
+            readOnly: true,
+            sourceLabel: project.name,
+          });
+          return;
+        }
+        openPhotoModal(firstPhoto, {
+          preferredPhotos: photos,
+          photoPool: photos,
+          readOnly: true,
+          sourceLabel: project.name,
+        });
+      })
+      .addTo(projectOverlayLayer);
+  });
 }
 
 function removeOverlayProject(code) {
   state.overlayProjects = state.overlayProjects.filter((project) => project.code !== code);
   persist();
   renderProjectOverlays();
-  setStatus("비교 프로젝트의 동선과 공사구역을 화면에서 제거했습니다.");
+  setStatus("비교 프로젝트의 동선, 사진, 공사구역을 화면에서 제거했습니다.");
 }
 
 function getPhotoDisplayName(photo) {
@@ -5528,16 +5661,26 @@ function openPhotoModal(photo, options = {}) {
   }
   const preserveSequence = Boolean(options.preserveSequence);
   if (!preserveSequence || !state.photoModalSequenceIds.includes(photo.id)) {
-    state.photoModalSequenceIds = buildNearbyPhotoSequence(photo, options.preferredPhotos).map((item) => item.id);
+    photoModalPhotoPool = buildNearbyPhotoSequence(
+      photo,
+      options.preferredPhotos,
+      options.photoPool,
+    );
+    state.photoModalSequenceIds = photoModalPhotoPool.map((item) => item.id);
+    photoModalReadOnly = Boolean(options.readOnly);
+    photoModalSourceLabel = String(options.sourceLabel || "").trim();
   }
   const hasPosition = hasPhotoPosition(photo);
   state.activePhotoId = photo.id;
   els.photoModalImage.src = photo.src;
   els.photoModalImage.alt = getPhotoDisplayName(photo);
-  els.photoModalTitle.textContent = getPhotoDisplayName(photo);
-  els.photoModalMeta.textContent = hasPosition
+  els.photoModalTitle.textContent = photoModalSourceLabel
+    ? `${photoModalSourceLabel} · ${getPhotoDisplayName(photo)}`
+    : getPhotoDisplayName(photo);
+  const photoMeta = hasPosition
     ? `${formatDate(photo.timestamp)} · ${photo.lat.toFixed(5)}, ${photo.lng.toFixed(5)} · ${getLocationSourceLabel(photo.locationSource)}`
     : `${formatDate(photo.timestamp)} · 위치 없음`;
+  els.photoModalMeta.textContent = photoModalReadOnly ? `비교 자료 · 읽기 전용 · ${photoMeta}` : photoMeta;
   els.photoModalMemo.textContent = photo.memo?.trim() || "등록된 메모가 없습니다.";
   els.photoModalMemo.classList.toggle("is-empty", !photo.memo?.trim());
   renderModalTags(photo);
@@ -5548,6 +5691,8 @@ function openPhotoModal(photo, options = {}) {
   if (els.photoModalNaverPanoramaBtn) {
     els.photoModalNaverPanoramaBtn.disabled = !hasPosition;
   }
+  els.photoModalMemoBtn.hidden = photoModalReadOnly;
+  els.photoModalTagBtn.hidden = photoModalReadOnly;
   renderPhotoModalNavigation();
   els.photoModal.hidden = false;
   document.body.classList.add("is-photo-modal-open");
@@ -5558,6 +5703,9 @@ function closePhotoModal() {
   els.photoModal.hidden = true;
   state.activePhotoId = null;
   state.photoModalSequenceIds = [];
+  photoModalPhotoPool = [];
+  photoModalReadOnly = false;
+  photoModalSourceLabel = "";
   photoModalTouchStartX = null;
   els.photoModalImage.removeAttribute("src");
   if (els.photoModalCount) {
@@ -5566,8 +5714,8 @@ function closePhotoModal() {
   document.body.classList.remove("is-photo-modal-open");
 }
 
-function buildNearbyPhotoSequence(anchorPhoto, preferredPhotos = []) {
-  const visiblePhotos = getVisiblePhotos();
+function buildNearbyPhotoSequence(anchorPhoto, preferredPhotos = [], photoPool = null) {
+  const visiblePhotos = Array.isArray(photoPool) ? photoPool : getVisiblePhotos();
   const candidates = visiblePhotos.some((photo) => photo.id === anchorPhoto.id)
     ? visiblePhotos
     : [anchorPhoto, ...visiblePhotos];
@@ -5600,7 +5748,7 @@ function navigatePhotoModal(direction) {
   }
   const currentIndex = Math.max(0, sequence.indexOf(state.activePhotoId));
   const nextIndex = (currentIndex + direction + sequence.length) % sequence.length;
-  const nextPhoto = state.photos.find((photo) => photo.id === sequence[nextIndex]);
+  const nextPhoto = photoModalPhotoPool.find((photo) => photo.id === sequence[nextIndex]);
   if (nextPhoto) {
     openPhotoModal(nextPhoto, { preserveSequence: true });
   }
@@ -5623,7 +5771,7 @@ function renderPhotoModalNavigation() {
 }
 
 function getActiveModalPhoto() {
-  return state.photos.find((photo) => photo.id === state.activePhotoId) || null;
+  return photoModalPhotoPool.find((photo) => photo.id === state.activePhotoId) || null;
 }
 
 function openPhotoInNaverMap(photo) {
@@ -5691,18 +5839,60 @@ function waitForNaverPanoramaApi(timeoutMs = 12000) {
 }
 
 async function openPhotoInNaverPanorama(photo) {
+  return openPhotoInNaverComparison(photo, "panorama");
+}
+
+async function openPhotoInNaverComparison(photo, mode = "satellite") {
   if (!hasPhotoPosition(photo) || !els.naverPanoramaModal || !els.naverPanoramaViewer) {
     return;
   }
   closeNaverPanorama();
+  const requestId = ++naverComparisonRequestId;
+  activeNaverComparisonMode = mode === "panorama" ? "panorama" : "satellite";
   els.naverPanoramaModal.hidden = false;
   els.naverPanoramaViewer.innerHTML = "";
   els.naverPanoramaViewer.setAttribute("aria-busy", "true");
-  els.naverPanoramaStatus.textContent = "사진 위치 주변의 거리뷰를 찾는 중입니다.";
+  els.naverPanoramaTitle.textContent = activeNaverComparisonMode === "panorama"
+    ? "기록 사진 · 네이버 거리뷰 비교"
+    : "기록 사진 · 네이버 위성지도 비교";
+  els.naverPanoramaStatus.textContent = activeNaverComparisonMode === "panorama"
+    ? "사진 위치 주변의 거리뷰를 찾는 중입니다."
+    : "사진 위치의 위성지도를 불러오는 중입니다.";
+  els.naverComparisonPhoto.src = photo.src;
+  els.naverComparisonPhoto.alt = getPhotoDisplayName(photo);
+  els.naverComparisonPhotoMeta.textContent = [
+    photoModalSourceLabel,
+    getPhotoDisplayName(photo),
+    `${Number(photo.lat).toFixed(5)}, ${Number(photo.lng).toFixed(5)}`,
+  ].filter(Boolean).join(" · ");
+  renderNaverComparisonNavigation();
   document.body.classList.add("is-naver-panorama-open");
   try {
     const naverMaps = await loadNaverPanoramaApi();
-    if (els.naverPanoramaModal.hidden) {
+    if (requestId !== naverComparisonRequestId || els.naverPanoramaModal.hidden) {
+      return;
+    }
+    await waitForVisibleMapContainer(els.naverPanoramaViewer);
+    if (requestId !== naverComparisonRequestId || els.naverPanoramaModal.hidden) {
+      return;
+    }
+    if (activeNaverComparisonMode === "satellite") {
+      activeNaverComparisonMap = new naverMaps.Map(els.naverPanoramaViewer, {
+        center: new naverMaps.LatLng(Number(photo.lat), Number(photo.lng)),
+        zoom: 18,
+        mapTypeId: naverMaps.MapTypeId.SATELLITE,
+        zoomControl: true,
+        mapDataControl: true,
+        scaleControl: true,
+        logoControl: true,
+      });
+      activeNaverComparisonMarker = new naverMaps.Marker({
+        position: new naverMaps.LatLng(Number(photo.lat), Number(photo.lng)),
+        map: activeNaverComparisonMap,
+        title: getPhotoDisplayName(photo),
+      });
+      els.naverPanoramaViewer.removeAttribute("aria-busy");
+      els.naverPanoramaStatus.textContent = "기록 사진과 같은 위치의 위성지도입니다.";
       return;
     }
     const panorama = new naverMaps.Panorama(els.naverPanoramaViewer, {
@@ -5723,21 +5913,52 @@ async function openPhotoInNaverPanorama(photo) {
         : "사진 위치 주변 300m 이내에 제공되는 거리뷰가 없습니다.";
     });
   } catch {
+    if (requestId !== naverComparisonRequestId) {
+      return;
+    }
     els.naverPanoramaViewer.removeAttribute("aria-busy");
-    els.naverPanoramaStatus.textContent = "거리뷰 모듈을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    els.naverPanoramaStatus.textContent = "네이버 비교 화면을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
   }
 }
 
 function closeNaverPanorama() {
+  naverComparisonRequestId += 1;
   if (!els.naverPanoramaModal || els.naverPanoramaModal.hidden) {
     return;
   }
   activeNaverPanorama?.setVisible?.(false);
   activeNaverPanorama = null;
+  activeNaverComparisonMarker?.setMap?.(null);
+  activeNaverComparisonMarker = null;
+  activeNaverComparisonMap?.destroy?.();
+  activeNaverComparisonMap = null;
+  activeNaverComparisonMode = "";
   els.naverPanoramaModal.hidden = true;
   els.naverPanoramaViewer.innerHTML = "";
   els.naverPanoramaViewer.removeAttribute("aria-busy");
+  els.naverComparisonPhoto.removeAttribute("src");
   document.body.classList.remove("is-naver-panorama-open");
+}
+
+function navigateNaverPhotoComparison(direction) {
+  const mode = activeNaverComparisonMode;
+  if (!mode || state.photoModalSequenceIds.length < 2) {
+    return;
+  }
+  navigatePhotoModal(direction);
+  const photo = getActiveModalPhoto();
+  if (photo) {
+    openPhotoInNaverComparison(photo, mode);
+  }
+}
+
+function renderNaverComparisonNavigation() {
+  const count = state.photoModalSequenceIds.length;
+  const currentIndex = state.photoModalSequenceIds.indexOf(state.activePhotoId);
+  const hasMultiplePhotos = count > 1;
+  els.naverComparisonPrevious.hidden = !hasMultiplePhotos;
+  els.naverComparisonNext.hidden = !hasMultiplePhotos;
+  els.naverComparisonCount.textContent = count > 0 ? `${Math.max(0, currentIndex) + 1} / ${count}` : "";
 }
 
 function renderModalTags(photo) {
@@ -5973,10 +6194,17 @@ function fitToData() {
   state.overlayProjects
     .filter((project) => project.visible !== false)
     .forEach((project) => {
-      project.points.forEach((point) => bounds.extend([point.lat, point.lng]));
-      project.milestones
-        .filter((pin) => pin.type === "construction")
-        .forEach((pin) => bounds.extend([pin.lat, pin.lng]));
+      if (project.routeVisible !== false) {
+        project.points.forEach((point) => bounds.extend([point.lat, point.lng]));
+      }
+      if (project.photosVisible !== false && state.photoPinsVisible) {
+        (project.photos || []).filter(hasPhotoPosition).forEach((photo) => bounds.extend([photo.lat, photo.lng]));
+      }
+      if (project.constructionVisible !== false && state.constructionPinsVisible) {
+        project.milestones
+          .filter((pin) => pin.type === "construction")
+          .forEach((pin) => bounds.extend([pin.lat, pin.lng]));
+      }
     });
 
   if (bounds.isValid()) {
@@ -6436,6 +6664,10 @@ function compactLargePhotos(payload) {
   return {
     ...payload,
     photos: compactPhotoList(payload.photos),
+    overlayProjects: payload.overlayProjects.map((project) => ({
+      ...project,
+      photos: compactPhotoList(project.photos || []),
+    })),
     sessions: payload.sessions.map((session) => ({
       ...session,
       photos: compactPhotoList(session.photos || []),
