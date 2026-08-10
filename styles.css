@@ -2099,6 +2099,7 @@ body.is-follow-mode .control-panel {
   box-shadow: 0 7px 16px rgba(22, 32, 28, 0.3);
 }
 
+.photo-single-marker,
 .photo-cluster-marker {
   position: relative;
   display: block;
@@ -2112,10 +2113,12 @@ body.is-follow-mode .control-panel {
   box-shadow: 0 7px 18px rgba(22, 32, 28, 0.34);
 }
 
+.photo-single-marker img,
 .photo-cluster-marker img {
   display: block;
   width: 100%;
   height: 100%;
+  aspect-ratio: 1;
   object-fit: cover;
 }
 

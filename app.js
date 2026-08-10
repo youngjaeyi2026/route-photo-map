@@ -4113,13 +4113,13 @@ function renderPhotoMapMarkers(photos = getVisiblePhotos()) {
 }
 
 function createSinglePhotoMarker(photo) {
-  const size = 34;
+  const size = 42;
   const icon = L.divIcon({
     className: "",
-    html: `<img class="photo-marker" src="${photo.src}" alt="" width="${size}" height="${size}" />`,
+    html: `<span class="photo-single-marker"><img src="${photo.src}" alt="" /></span>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size],
-    popupAnchor: [0, -30],
+    popupAnchor: [0, -34],
   });
 
   let photoWasDragged = false;

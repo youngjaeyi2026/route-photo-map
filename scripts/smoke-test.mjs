@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260810-durable-photo-storage-1/);
+  assert.match(pageHtml, /20260810-square-photo-marker-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="followMapControls"/);
@@ -190,6 +190,7 @@ try {
   assert.match(appSource, /async function saveRecordNow\(\)[\s\S]+?preparePhotosBeforeRecordSave\(\)[\s\S]+?saveCurrentSession\("manual"\)/);
   assert.match(appSource, /await deleteCachedLocalPhoto\(photo\.id \|\| key\)/);
   assert.doesNotMatch(appSource, /state\.photos\s*=\s*compactPayload\.photos/);
+  assert.match(appSource, /function createSinglePhotoMarker\(photo\)[\s\S]+?const size = 42;[\s\S]+?photo-single-marker/);
   assert.match(appSource, /function togglePhotoPinVisibility\(\)/);
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);
   assert.match(appSource, /다른 사용자의 프로젝트이므로 열 수 없습니다/);
@@ -279,6 +280,8 @@ try {
   assert.match(css, /\.share-content-options\s*\{[^}]*margin-top:\s*6px/s);
   assert.match(css, /\.construction-name-icon span\s*\{/);
   assert.match(css, /\.construction-detail__panel\s*\{/);
+  assert.match(css, /\.photo-single-marker,[\s\S]+?\.photo-cluster-marker\s*\{[^}]*width:\s*42px;[^}]*height:\s*42px/s);
+  assert.match(css, /\.photo-single-marker img,[\s\S]+?aspect-ratio:\s*1;[^}]*object-fit:\s*cover/s);
   assert.match(css, /\.is-share-loading \.control-panel\s*\{[^}]*pointer-events:\s*none/s);
   assert.match(css, /\.share-item\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto\s*auto\s*auto/s);
   assert.match(css, /#shareCreateBtn\s*\{[^}]*grid-column:\s*2;[^}]*grid-row:\s*1/s);
