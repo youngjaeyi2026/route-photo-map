@@ -109,6 +109,7 @@ const els = {
   exportBtn: document.querySelector("#exportBtn"),
   clearBtn: document.querySelector("#clearBtn"),
   mapProvider: document.querySelector("#mapProvider"),
+  naverMapBase: document.querySelector("#naverMapBase"),
   wakeLockToggle: document.querySelector("#wakeLockToggle"),
   photoFilter: document.querySelector("#photoFilter"),
   photoViewToggle: document.querySelector("#photoViewToggle"),
@@ -205,7 +206,7 @@ const map = L.map("map", {
 
 L.control.zoom({ position: "bottomleft" }).addTo(map);
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+const osmTileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
   attribution: "&copy; OpenStreetMap",
 }).addTo(map);
@@ -254,6 +255,10 @@ let photoCacheMigrationPromise = null;
 let photoModalTouchStartX = null;
 let naverPanoramaScriptPromise = null;
 let activeNaverPanorama = null;
+let activeNaverBaseMap = null;
+let activeMapProvider = "osm";
+let pendingMapProvider = "";
+let naverMapSyncFrame = null;
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
 let colorPickerConfirmHandler = null;
 let authEls = {};
@@ -3382,22 +3387,132 @@ async function releaseWakeLock() {
   setStatus("화면 자동 꺼짐 방지를 껐습니다.");
 }
 
-function handleMapProviderChange(event) {
+async function handleMapProviderChange(event) {
   const provider = event.target.value;
-  state.mapProvider = provider;
-  persist();
-
-  if (provider === "osm") {
-    setStatus("OpenStreetMap 지도를 사용합니다.");
+  if (provider === "google") {
+    event.target.value = state.mapProvider || activeMapProvider;
+    setStatus("구글지도는 아직 연결되지 않았습니다.", "warning");
     return;
   }
-
-  event.target.value = "osm";
-  state.mapProvider = "osm";
-  persist();
-  const providerLabel = provider === "naver" ? "네이버지도" : "구글지도";
-  setStatus(`${providerLabel}는 공식 API 키 설정 후 연결할 수 있습니다. 현재는 OpenStreetMap으로 유지합니다.`);
+  await applyMapProvider(provider);
 }
+
+async function applyMapProvider(provider, options = {}) {
+  const nextProvider = provider === "naver" ? "naver" : "osm";
+  if (pendingMapProvider === nextProvider) {
+    return;
+  }
+  if (activeMapProvider === nextProvider) {
+    state.mapProvider = nextProvider;
+    els.mapProvider.value = nextProvider;
+    persist();
+    return;
+  }
+  pendingMapProvider = nextProvider;
+  state.mapProvider = nextProvider;
+  els.mapProvider.value = nextProvider;
+  persist();
+  if (nextProvider === "osm") {
+    activateOpenStreetMap();
+    pendingMapProvider = "";
+    if (!options.quiet) {
+      setStatus("OpenStreetMap 지도를 사용합니다.");
+    }
+    return;
+  }
+  if (!options.quiet) {
+    setStatus("네이버지도를 불러오는 중입니다.", "active");
+  }
+  try {
+    const naverMaps = await loadNaverPanoramaApi();
+    if (state.mapProvider !== "naver") {
+      pendingMapProvider = "";
+      return;
+    }
+    activateNaverMap(naverMaps);
+    pendingMapProvider = "";
+    if (!options.quiet) {
+      setStatus("네이버지도로 전환했습니다.", "success");
+    }
+  } catch {
+    pendingMapProvider = "";
+    state.mapProvider = "osm";
+    els.mapProvider.value = "osm";
+    persist();
+    activateOpenStreetMap();
+    setStatus("네이버지도를 불러오지 못해 OpenStreetMap을 유지합니다.", "warning");
+  }
+}
+
+function activateOpenStreetMap() {
+  if (!map.hasLayer(osmTileLayer)) {
+    osmTileLayer.addTo(map);
+  }
+  if (els.naverMapBase) {
+    els.naverMapBase.hidden = true;
+  }
+  document.body.classList.remove("is-naver-map");
+  activeMapProvider = "osm";
+  map.invalidateSize(false);
+}
+
+function activateNaverMap(naverMaps) {
+  if (!els.naverMapBase) {
+    throw new Error("naver_map_container_missing");
+  }
+  if (map.hasLayer(osmTileLayer)) {
+    map.removeLayer(osmTileLayer);
+  }
+  els.naverMapBase.hidden = false;
+  document.body.classList.add("is-naver-map");
+  const center = map.getCenter();
+  if (!activeNaverBaseMap) {
+    activeNaverBaseMap = new naverMaps.Map(els.naverMapBase, {
+      center: new naverMaps.LatLng(center.lat, center.lng),
+      zoom: map.getZoom(),
+      mapTypeId: naverMaps.MapTypeId.NORMAL,
+      draggable: false,
+      pinchZoom: false,
+      scrollWheel: false,
+      keyboardShortcuts: false,
+      disableDoubleClickZoom: true,
+      disableDoubleTapZoom: true,
+      disableKineticPan: true,
+      zoomControl: false,
+      mapDataControl: true,
+      scaleControl: true,
+      logoControl: true,
+    });
+  }
+  activeMapProvider = "naver";
+  syncNaverBaseMap(true);
+  map.invalidateSize(false);
+}
+
+function scheduleNaverBaseMapSync() {
+  if (activeMapProvider !== "naver" || !activeNaverBaseMap || naverMapSyncFrame !== null) {
+    return;
+  }
+  naverMapSyncFrame = window.requestAnimationFrame(() => {
+    naverMapSyncFrame = null;
+    syncNaverBaseMap();
+  });
+}
+
+function syncNaverBaseMap(resize = false) {
+  if (activeMapProvider !== "naver" || !activeNaverBaseMap || !window.naver?.maps) {
+    return;
+  }
+  const center = map.getCenter();
+  activeNaverBaseMap.setCenter(new window.naver.maps.LatLng(center.lat, center.lng));
+  activeNaverBaseMap.setZoom(map.getZoom());
+  if (resize) {
+    window.naver.maps.Event.trigger(activeNaverBaseMap, "resize");
+  }
+}
+
+map.on("move zoom", scheduleNaverBaseMapSync);
+map.on("resize", () => syncNaverBaseMap(true));
 
 function clearData() {
   const ok = window.confirm(
@@ -5728,6 +5843,10 @@ function renderTrackingState() {
     els.autoFollowBtn.setAttribute("aria-label", els.autoFollowBtn.title);
   }
   els.mapProvider.value = state.mapProvider || "osm";
+  const desiredMapProvider = state.mapProvider === "naver" ? "naver" : "osm";
+  if (desiredMapProvider !== activeMapProvider && desiredMapProvider !== pendingMapProvider) {
+    void applyMapProvider(desiredMapProvider, { quiet: true });
+  }
   els.wakeLockToggle.checked = Boolean(state.wakeLockEnabled);
 }
 

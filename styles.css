@@ -48,6 +48,27 @@ button {
   position: absolute;
   inset: 0;
   background: #dbe4dd;
+  z-index: 1;
+}
+
+.naver-map-base {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.naver-map-base[hidden] {
+  display: none;
+}
+
+body.is-naver-map #map,
+body.is-naver-map #map.leaflet-container {
+  background: transparent;
+}
+
+body.is-naver-map #map .leaflet-tile-pane {
+  display: none;
 }
 
 .mini-map {
