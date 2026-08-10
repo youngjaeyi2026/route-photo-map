@@ -5515,12 +5515,12 @@ function loadNaverPanoramaApi() {
     script.async = true;
     script.dataset.naverPanoramaApi = "true";
     script.addEventListener("load", () => {
-      if (window.naver?.maps?.Panorama) {
-        resolve(window.naver.maps);
-      } else {
-        naverPanoramaScriptPromise = null;
-        reject(new Error("naver_panorama_unavailable"));
-      }
+      waitForNaverPanoramaApi()
+        .then(resolve)
+        .catch(() => {
+          naverPanoramaScriptPromise = null;
+          reject(new Error("naver_panorama_unavailable"));
+        });
     });
     script.addEventListener("error", () => {
       naverPanoramaScriptPromise = null;
@@ -5529,6 +5529,25 @@ function loadNaverPanoramaApi() {
     document.head.append(script);
   });
   return naverPanoramaScriptPromise;
+}
+
+function waitForNaverPanoramaApi(timeoutMs = 12000) {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const checkApi = () => {
+      if (window.naver?.maps?.Panorama) {
+        resolve(window.naver.maps);
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        naverPanoramaScriptPromise = null;
+        reject(new Error("naver_panorama_unavailable"));
+        return;
+      }
+      window.setTimeout(checkApi, 50);
+    };
+    checkApi();
+  });
 }
 
 async function openPhotoInNaverPanorama(photo) {
@@ -5565,7 +5584,7 @@ async function openPhotoInNaverPanorama(photo) {
     });
   } catch {
     els.naverPanoramaViewer.removeAttribute("aria-busy");
-    els.naverPanoramaStatus.textContent = "거리뷰를 불러오지 못했습니다. 네이버 지도 허용 주소 설정을 확인해 주세요.";
+    els.naverPanoramaStatus.textContent = "거리뷰 모듈을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
   }
 }
 

@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260810-photo-naver-panorama-1/);
+  assert.match(pageHtml, /20260810-photo-naver-panorama-2/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
   assert.match(pageHtml, /id="photoModalNext"/);
@@ -215,6 +215,7 @@ try {
   assert.match(appSource, /function openPhotoInNaverMap\(photo\)[\s\S]+?18\.00,0,0,1,dh/);
   assert.match(appSource, /NAVER_MAP_CLIENT_ID = "pie7hw0qho"/);
   assert.match(appSource, /function loadNaverPanoramaApi\(\)[\s\S]+?submodules=panorama/);
+  assert.match(appSource, /function waitForNaverPanoramaApi\(timeoutMs = 12000\)[\s\S]+?window\.setTimeout\(checkApi, 50\)/);
   assert.match(appSource, /function openPhotoInNaverPanorama\(photo\)[\s\S]+?new naverMaps\.Panorama/);
   assert.match(appSource, /사진 위치 주변 300m 이내에 제공되는 거리뷰가 없습니다/);
   assert.match(appSource, /\["positioned", "네이버 지도 가능"\]/);
