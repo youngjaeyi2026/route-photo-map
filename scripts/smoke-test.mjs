@@ -73,20 +73,16 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260811-naver-compare-reuse-1/);
+  assert.match(pageHtml, /20260811-stable-naver-links-1/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
   assert.match(pageHtml, /id="photoModalNext"/);
   assert.match(pageHtml, /id="photoModalCount"/);
   assert.match(pageHtml, /id="photoModalNaverBtn"/);
-  assert.match(pageHtml, /id="photoModalNaverBtn"[^>]*>네이버 위성지도<\/button>/);
-  assert.match(pageHtml, /id="photoModalNaverPanoramaBtn"[^>]*>네이버 거리뷰<\/button>/);
-  assert.match(pageHtml, /id="naverPanoramaModal"/);
-  assert.match(pageHtml, /id="naverPanoramaViewer"/);
-  assert.match(pageHtml, /id="naverComparisonPhoto"/);
-  assert.match(pageHtml, /id="naverComparisonPrevious"/);
-  assert.match(pageHtml, /id="naverComparisonNext"/);
+  assert.match(pageHtml, /id="photoModalNaverBtn"[^>]*>네이버 지도보기<\/button>/);
+  assert.match(pageHtml, /id="photoModalNaverPanoramaBtn"[^>]*>로드뷰 보기<\/button>/);
+  assert.doesNotMatch(pageHtml, /id="naverPanoramaModal"|id="naverPanoramaViewer"|id="naverComparisonPhoto"/);
   assert.match(pageHtml, /<option value="positioned">네이버 지도 가능<\/option>/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
@@ -95,6 +91,8 @@ try {
   assert.match(pageHtml, /id="followPhotoToggleBtn"/);
   assert.match(pageHtml, /id="followConstructionToggleBtn"/);
   assert.match(pageHtml, /id="constructionDetailModal"/);
+  assert.match(pageHtml, /id="constructionDetailNaverBtn"/);
+  assert.match(pageHtml, /id="constructionDetailRoadviewBtn"/);
   assert.match(pageHtml, /id="sharePhotoToggleBtn"/);
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
   assert.match(pageHtml, /id="constructionVisibilityBtn"/);
@@ -115,8 +113,8 @@ try {
   assert.match(css, /\.control-panel\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/s);
   assert.match(css, /\.photo-modal__nav\s*\{/);
   assert.match(css, /\.photo-modal__actions \.photo-modal__naver\s*\{/);
-  assert.match(css, /\.naver-panorama-modal__panel\s*\{/);
-  assert.match(css, /\.naver-photo-comparison\s*\{/);
+  assert.doesNotMatch(css, /\.naver-panorama-modal__panel\s*\{|\.naver-photo-comparison\s*\{/);
+  assert.match(css, /\.construction-detail__naver-actions\s*\{/);
   assert.match(css, /\.overlay-visibility-options\s*\{/);
   assert.match(css, /\.overlay-photo-marker\s*\{/);
   assert.match(css, /\.naver-map-base\s*\{/);
@@ -125,6 +123,16 @@ try {
     css,
     /body\.is-logged-out:not\(\.is-share-view\) \.map-stage[\s\S]+?display:\s*none !important/,
   );
+  const roadviewPageResponse = await fetch(`${baseUrl}/naver-view.html?lat=37.5&lng=127.0&name=test`);
+  const roadviewPageHtml = await roadviewPageResponse.text();
+  assert.equal(roadviewPageResponse.status, 200);
+  assert.match(roadviewPageHtml, /id="viewer"/);
+  assert.match(roadviewPageHtml, /naver-view\.js\?v=20260811-stable-naver-links-1/);
+  const roadviewScriptResponse = await fetch(`${baseUrl}/naver-view.js`);
+  const roadviewScript = await roadviewScriptResponse.text();
+  assert.equal(roadviewScriptResponse.status, 200);
+  assert.match(roadviewScript, /submodules=panorama/);
+  assert.match(roadviewScript, /new window\.naver\.maps\.Panorama/);
   const serverSource = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
   assert.match(
     serverSource,
@@ -221,17 +229,15 @@ try {
   assert.match(appSource, /for \(const \[index, file\] of files\.entries\(\)\)/);
   assert.match(appSource, /위치 편집에서 사진별 위치를 조정할 수 있습니다/);
   assert.match(appSource, /function createSinglePhotoMarker\(photo\)[\s\S]+?const size = 42;[\s\S]+?photo-single-marker/);
-  assert.match(appSource, /function openPhotoInNaverMap\(photo\)[\s\S]+?18\.00,0,0,1,dh/);
+  assert.match(appSource, /function getNaverWebMapUrl\(position\)[\s\S]+?18\.00,0,0,1,dh/);
   assert.match(appSource, /NAVER_MAP_CLIENT_ID = "pie7hw0qho"/);
-  assert.match(appSource, /function loadNaverPanoramaApi\(\)[\s\S]+?submodules=panorama/);
-  assert.match(appSource, /function waitForNaverPanoramaApi\(timeoutMs = 12000\)[\s\S]+?window\.setTimeout\(checkApi, 50\)/);
-  assert.match(appSource, /function openPhotoInNaverPanorama\(photo\)[\s\S]+?new naverMaps\.Panorama/);
-  assert.match(appSource, /async function openPhotoInNaverComparison\(photo, mode = "satellite"\)/);
-  assert.match(appSource, /NaverStyleMapTypeOptions\.getSatelliteMap\(\)/);
-  assert.match(appSource, /activeNaverComparisonMap\.setMapTypeId\(satelliteMapTypeId\)/);
-  assert.match(appSource, /activeNaverComparisonMap\.setCenter\(nextPosition\)/);
-  assert.match(appSource, /activeNaverComparisonMarker\?\.setPosition\(nextPosition\)/);
-  assert.match(appSource, /activeNaverPanorama\.setPosition\(nextPosition\)/);
+  assert.match(appSource, /function loadNaverMapsApi\(\)/);
+  assert.match(appSource, /function waitForNaverMapsApi\(timeoutMs = 12000\)[\s\S]+?window\.setTimeout\(checkApi, 50\)/);
+  assert.match(appSource, /function openNaverMapLocation\(position\)[\s\S]+?intent:\/\/map/);
+  assert.match(appSource, /function openNaverRoadview\(position, name = "선택 위치"\)/);
+  assert.doesNotMatch(appSource, /openPhotoInNaverComparison|activeNaverComparisonMap|activeNaverPanorama/);
+  assert.match(appSource, /function getSeparatedMarkerAnchor\(type, width, height, position\)/);
+  assert.match(appSource, /const MAP_MARKER_SEPARATION_PX = 20/);
   assert.match(appSource, /function renderOverlayPhotoMarkers\(project\)/);
   assert.match(appSource, /function createOverlayVisibilityButton\(project, property, label\)/);
   assert.match(appSource, /photoModalReadOnly = Boolean\(options\.readOnly\)/);
@@ -242,7 +248,6 @@ try {
   assert.match(appSource, /const canActivateMapProvider = Boolean\(state\.user \|\| initialShareToken\)/);
   assert.match(appSource, /naverMapBase\.childElementCount === 0/);
   assert.match(appSource, /map\.on\("move zoom", scheduleNaverBaseMapSync\)/);
-  assert.match(appSource, /사진 위치 주변 300m 이내에 제공되는 거리뷰가 없습니다/);
   assert.match(appSource, /\["positioned", "네이버 지도 가능"\]/);
   assert.match(appSource, /function togglePhotoPinVisibility\(\)/);
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);

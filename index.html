@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260811-naver-compare-reuse-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260811-stable-naver-links-1" />
   </head>
   <body>
     <script>
@@ -268,35 +268,10 @@
             <button id="photoModalTagBtn" type="button">태그 수정</button>
             <button id="photoModalLocateBtn" type="button">위치 보기</button>
             <div class="photo-modal__naver-actions">
-              <button id="photoModalNaverBtn" class="photo-modal__naver" type="button">네이버 위성지도</button>
-              <button id="photoModalNaverPanoramaBtn" class="photo-modal__naver" type="button">네이버 거리뷰</button>
+              <button id="photoModalNaverBtn" class="photo-modal__naver" type="button">네이버 지도보기</button>
+              <button id="photoModalNaverPanoramaBtn" class="photo-modal__naver" type="button">로드뷰 보기</button>
             </div>
           </div>
-        </div>
-      </article>
-    </div>
-
-    <div id="naverPanoramaModal" class="naver-panorama-modal" hidden>
-      <button class="naver-panorama-modal__backdrop" type="button" data-naver-panorama-close aria-label="거리뷰 닫기"></button>
-      <article class="naver-panorama-modal__panel" role="dialog" aria-modal="true" aria-labelledby="naverPanoramaTitle">
-        <header class="naver-panorama-modal__header">
-          <div>
-            <strong id="naverPanoramaTitle">사진 위치 비교</strong>
-            <span id="naverPanoramaStatus">네이버 지도를 불러오는 중입니다.</span>
-          </div>
-          <div class="naver-panorama-modal__controls">
-            <button id="naverComparisonPrevious" type="button" aria-label="이전 사진">‹</button>
-            <span id="naverComparisonCount" aria-live="polite"></span>
-            <button id="naverComparisonNext" type="button" aria-label="다음 사진">›</button>
-            <button id="naverPanoramaClose" type="button" aria-label="비교 화면 닫기">×</button>
-          </div>
-        </header>
-        <div class="naver-photo-comparison">
-          <figure class="naver-photo-comparison__photo">
-            <img id="naverComparisonPhoto" alt="" />
-            <figcaption id="naverComparisonPhotoMeta"></figcaption>
-          </figure>
-          <div id="naverPanoramaViewer" class="naver-panorama-modal__viewer" aria-label="네이버 지도 비교 화면"></div>
         </div>
       </article>
     </div>
@@ -314,6 +289,10 @@
         <h2 id="constructionDetailTitle"></h2>
         <span id="constructionDetailMeta" class="construction-detail__meta"></span>
         <p id="constructionDetailMemo" class="construction-detail__memo"></p>
+        <div class="construction-detail__naver-actions">
+          <button id="constructionDetailNaverBtn" type="button">네이버 지도보기</button>
+          <button id="constructionDetailRoadviewBtn" type="button">로드뷰 보기</button>
+        </div>
       </article>
     </div>
 
@@ -330,6 +309,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260811-naver-compare-reuse-1"></script>
+    <script src="/app.js?v=20260811-stable-naver-links-1"></script>
   </body>
 </html>

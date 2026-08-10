@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>네이버 로드뷰</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; margin: 0; font-family: Arial, "Noto Sans KR", sans-serif; }
+      body { display: grid; grid-template-rows: auto minmax(0, 1fr); color: #18352b; background: #edf2ef; }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #d6e0da; background: #fff; }
+      header div { display: grid; gap: 3px; min-width: 0; }
+      strong { font-size: 16px; }
+      #status { overflow: hidden; color: #66766f; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+      a { flex: 0 0 auto; border: 1px solid #b7d8c9; border-radius: 8px; padding: 8px 12px; color: #176b4c; background: #eaf5ef; font-size: 13px; font-weight: 800; text-decoration: none; }
+      #viewer { min-width: 0; min-height: 0; background: #dfe7e2; }
+      #error { display: grid; place-items: center; height: 100%; padding: 24px; color: #b34137; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <strong id="title">네이버 로드뷰</strong>
+        <span id="status">사진 위치 주변의 로드뷰를 불러오는 중입니다.</span>
+      </div>
+      <a id="mapLink" href="#">네이버 지도보기</a>
+    </header>
+    <main id="viewer" aria-label="네이버 로드뷰"></main>
+    <script src="/naver-view.js?v=20260811-stable-naver-links-1"></script>
+  </body>
+</html>
