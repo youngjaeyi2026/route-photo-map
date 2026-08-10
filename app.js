@@ -3,6 +3,8 @@ const SESSIONS_KEY = "route-photo-map-sessions-v1";
 const PROJECT_RECOVERY_KEY = "route-photo-map-project-recovery-v1";
 const MAX_PROJECT_RECOVERY_BACKUPS = 8;
 const MAX_STORED_IMAGE_LENGTH = 850000;
+const PHOTO_CACHE_DB_NAME = "route-photo-map-photo-cache-v1";
+const PHOTO_CACHE_STORE_NAME = "photos";
 const MAX_EDIT_POINT_MARKERS = 1000;
 const DEFAULT_CONSTRUCTION_COLOR = "#c34236";
 const BRIGHT_YELLOW_COLOR = "#f2c400";
@@ -236,6 +238,7 @@ let projectOpenRequestId = 0;
 let projectSyncQueue = Promise.resolve();
 const pendingProjectSyncs = new Set();
 let recordCompletionPending = false;
+let photoCacheMigrationPromise = null;
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
 let colorPickerConfirmHandler = null;
 let authEls = {};
@@ -251,6 +254,9 @@ setupAdminPanel();
 setupSharePanel();
 setupColorPicker();
 render();
+if (!initialShareToken) {
+  void initializeDurablePhotoStorage();
+}
 refreshServerHealth();
 refreshAuth();
 
@@ -560,6 +566,9 @@ async function stopTracking(options = {}) {
     els.trackBtn.disabled = true;
   }
   renderTrackingState();
+  if (save) {
+    await preparePhotosBeforeRecordSave();
+  }
   const saved = save ? saveCurrentSession("completed") : null;
   let serverSaved = !save;
   if (save && saved !== false) {
@@ -596,13 +605,14 @@ async function saveRecordNow() {
   if (els.saveBtn.disabled) {
     return;
   }
-  const saved = saveCurrentSession("manual");
-  if (saved === false) {
-    return;
-  }
   els.saveBtn.disabled = true;
-  setStatus("기록을 보관했습니다. 서버 저장을 확인하는 중입니다.", "active");
   try {
+    await preparePhotosBeforeRecordSave();
+    const saved = saveCurrentSession("manual");
+    if (saved === false) {
+      return;
+    }
+    setStatus("기록을 보관했습니다. 서버 저장을 확인하는 중입니다.", "active");
     const serverSaved = await syncProjectState("manual");
     setStatus(
       serverSaved
@@ -612,6 +622,21 @@ async function saveRecordNow() {
     );
   } finally {
     els.saveBtn.disabled = false;
+  }
+}
+
+async function preparePhotosBeforeRecordSave() {
+  await cacheAllPendingLocalPhotos();
+  if (!state.projectCode) {
+    return true;
+  }
+  try {
+    await preparePhotosForProjectSync();
+    return true;
+  } catch (error) {
+    console.warn("Photo preparation before record save failed", error);
+    setProjectStatus("사진을 서버에 올리지 못했습니다. 원본은 이 기기에 보관하고 서버 저장을 다시 시도합니다.");
+    return false;
   }
 }
 
@@ -901,7 +926,7 @@ async function handlePhotoInput(event, options = {}) {
       resizePhotoForStorage(file),
     ]);
     const position = locationResult.position;
-    state.photos.unshift({
+    const photo = {
       id: crypto.randomUUID(),
       displayName: getNextProjectPhotoName(),
       originalName: file.name || "",
@@ -911,14 +936,21 @@ async function handlePhotoInput(event, options = {}) {
       lng: position?.lng ?? null,
       locationSource: locationResult.source,
       timestamp: Date.now(),
-    });
+    };
+    photo.localPhotoCached = await cacheLocalPhoto(photo);
+    state.photos.unshift(photo);
     if (position && state.tracking) {
       state.selectedPosition = { lat: position.lat, lng: position.lng, timestamp: Date.now() };
     }
     event.target.value = "";
-    persist();
+    const locallySaved = persist();
     render();
-    setStatus(`${locationResult.label}에 사진을 저장했습니다.`);
+    setStatus(
+      locallySaved
+        ? `${locationResult.label}에 사진을 저장했습니다.`
+        : "사진은 현재 화면에 유지하고 있습니다. 기록 저장을 눌러 서버 저장을 완료해 주세요.",
+      locallySaved ? "success" : "warning",
+    );
   } catch {
     setStatus("기록 저장에 실패했습니다. 사진 용량을 줄인 뒤 다시 시도해 주세요.");
     return false;
@@ -1532,6 +1564,7 @@ async function deleteSession(sessionId) {
     return;
   }
   const previousSessions = structuredClone(state.sessions);
+  const deletedSession = state.sessions.find((item) => item.id === sessionId);
   const previousPrimarySessionId = state.primarySessionId;
   const previousContinuingSessionId = state.continuingSessionId;
   state.sessions = state.sessions.filter((item) => item.id !== sessionId);
@@ -1545,6 +1578,7 @@ async function deleteSession(sessionId) {
   renderSessions();
   const deleted = await syncProjectState("delete-session");
   if (deleted) {
+    void cleanupUnreferencedCachedPhotos((deletedSession?.photos || []).map((photo) => photo.id));
     saveProjectRecoveryBackup("session-deleted", true);
     setStatus("서버에서 저장된 기록을 삭제했습니다.");
     return;
@@ -1880,9 +1914,13 @@ async function preparePhotosForProjectSync() {
         if ((item.id || item.src) === key || item.src === photo.src) {
           item.src = result.src;
           item.uploaded = true;
+          item.localPhotoCached = false;
+          delete item.localPhotoCacheKey;
+          delete item.pendingUpload;
         }
       });
     });
+    await deleteCachedLocalPhoto(photo.id || key);
     completed += 1;
   }
   persist();
@@ -5314,6 +5352,7 @@ function deletePhoto(photoId) {
     return;
   }
   state.photos = state.photos.filter((item) => item.id !== photoId);
+  void cleanupUnreferencedCachedPhotos([photoId]);
   persist();
   render();
   setStatus("사진을 삭제했습니다.");
@@ -5496,24 +5535,22 @@ function toRad(value) {
 
 function persist() {
   const payload = getPersistPayload();
+  const localPayload = createLocalStorageSafePayload(payload);
   try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(payload),
-    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(localPayload));
+    return true;
   } catch (error) {
     console.warn("Storage failed", error);
-    const compactPayload = compactLargePhotos(payload);
+    const compactPayload = compactLargePhotos(localPayload);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(compactPayload));
-      state.photos = compactPayload.photos;
-      state.sessions = compactPayload.sessions;
-      setStatus("저장공간 보호를 위해 일부 사진은 가벼운 표시 이미지로 바꿔 저장했습니다.");
-      return;
+      setStatus("브라우저에는 가벼운 복구정보만 보관했습니다. 사진 원본은 별도 저장공간과 서버에서 보호됩니다.");
+      return true;
     } catch (fallbackError) {
       console.warn("Compact storage failed", fallbackError);
     }
-    setStatus("저장 공간이 부족합니다. 오래된 사진이나 기록을 삭제해 주세요.");
+    setStatus("브라우저 저장공간이 부족합니다. 화면을 닫지 말고 기록 저장을 눌러 서버 저장을 완료해 주세요.", "error");
+    return false;
   }
 }
 
@@ -5591,6 +5628,40 @@ function saveProjectRecoveryBackup(reason = "local", serverConfirmed = false) {
   } catch (error) {
     console.warn("Project recovery backup failed", error);
   }
+}
+
+function createLocalStorageSafePayload(payload) {
+  return {
+    ...payload,
+    photos: createLocalStoragePhotoList(payload.photos),
+    sessions: payload.sessions.map((session) => ({
+      ...session,
+      photos: createLocalStoragePhotoList(session.photos || []),
+    })),
+  };
+}
+
+function createLocalStoragePhotoList(photos) {
+  return (photos || []).map((photo) => {
+    if (!isPendingLocalPhoto(photo) || photo.localPhotoCached !== true) {
+      return photo;
+    }
+    return {
+      ...photo,
+      src: createPlaceholderPhotoSrc(photo.displayName || photo.name || "photo"),
+      localPhotoCacheKey: photo.id,
+      pendingUpload: true,
+    };
+  });
+}
+
+function isPendingLocalPhoto(photo) {
+  return Boolean(
+    photo?.id &&
+    typeof photo.src === "string" &&
+    photo.src.startsWith("data:image/") &&
+    !photo.src.startsWith("data:image/svg+xml"),
+  );
 }
 
 function readProjectRecoveryStore() {
@@ -5679,6 +5750,176 @@ function applyProjectRecoveryBackup(project, backup) {
   saveProjectRecoveryBackup("recovery-loaded");
 }
 
+function initializeDurablePhotoStorage() {
+  if (photoCacheMigrationPromise) {
+    return photoCacheMigrationPromise;
+  }
+  photoCacheMigrationPromise = (async () => {
+    try {
+      if (navigator.storage?.persist) {
+        await navigator.storage.persist();
+      }
+      const restored = await restoreCachedLocalPhotos();
+      const cached = await cacheAllPendingLocalPhotos();
+      if (restored || cached) {
+        persist();
+        render();
+      }
+    } catch (error) {
+      console.warn("Durable photo storage initialization failed", error);
+    }
+  })();
+  return photoCacheMigrationPromise;
+}
+
+async function cacheAllPendingLocalPhotos() {
+  const photoLists = [state.photos, ...state.sessions.map((session) => session.photos || [])];
+  const pending = new Map();
+  photoLists.flat().forEach((photo) => {
+    if (isPendingLocalPhoto(photo) && photo.localPhotoCached !== true) {
+      pending.set(photo.id, photo);
+    }
+  });
+  let changed = false;
+  for (const [photoId, photo] of pending) {
+    const cached = await cacheLocalPhoto(photo);
+    if (!cached) {
+      continue;
+    }
+    photoLists.forEach((photos) => {
+      photos.forEach((item) => {
+        if (item.id === photoId) {
+          item.localPhotoCached = true;
+          item.localPhotoCacheKey = photoId;
+        }
+      });
+    });
+    changed = true;
+  }
+  return changed;
+}
+
+async function cacheLocalPhoto(photo) {
+  if (!isPendingLocalPhoto(photo)) {
+    return false;
+  }
+  const database = await openPhotoCacheDatabase();
+  if (!database) {
+    return false;
+  }
+  try {
+    await runPhotoCacheTransaction(database, "readwrite", (store) =>
+      store.put({ id: photo.id, src: photo.src, savedAt: Date.now() }),
+    );
+    return true;
+  } catch (error) {
+    console.warn("Photo cache write failed", error);
+    return false;
+  } finally {
+    database.close();
+  }
+}
+
+async function restoreCachedLocalPhotos() {
+  const photoLists = [state.photos, ...state.sessions.map((session) => session.photos || [])];
+  const cacheKeys = new Set();
+  photoLists.flat().forEach((photo) => {
+    if (photo?.localPhotoCacheKey) {
+      cacheKeys.add(photo.localPhotoCacheKey);
+    }
+  });
+  if (cacheKeys.size === 0) {
+    return false;
+  }
+  const database = await openPhotoCacheDatabase();
+  if (!database) {
+    return false;
+  }
+  let changed = false;
+  try {
+    for (const cacheKey of cacheKeys) {
+      const cached = await runPhotoCacheTransaction(database, "readonly", (store) => store.get(cacheKey));
+      if (!cached?.src) {
+        continue;
+      }
+      photoLists.forEach((photos) => {
+        photos.forEach((photo) => {
+          if (photo.localPhotoCacheKey === cacheKey) {
+            photo.src = cached.src;
+            photo.localPhotoCached = true;
+            changed = true;
+          }
+        });
+      });
+    }
+  } finally {
+    database.close();
+  }
+  return changed;
+}
+
+async function deleteCachedLocalPhoto(photoId) {
+  if (!photoId) {
+    return;
+  }
+  const database = await openPhotoCacheDatabase();
+  if (!database) {
+    return;
+  }
+  try {
+    await runPhotoCacheTransaction(database, "readwrite", (store) => store.delete(photoId));
+  } catch (error) {
+    console.warn("Photo cache cleanup failed", error);
+  } finally {
+    database.close();
+  }
+}
+
+async function cleanupUnreferencedCachedPhotos(photoIds) {
+  const referencedIds = new Set([
+    ...state.photos.map((photo) => photo.id),
+    ...state.sessions.flatMap((session) => (session.photos || []).map((photo) => photo.id)),
+  ]);
+  for (const photoId of new Set(photoIds.filter(Boolean))) {
+    if (!referencedIds.has(photoId)) {
+      await deleteCachedLocalPhoto(photoId);
+    }
+  }
+}
+
+function openPhotoCacheDatabase() {
+  if (!("indexedDB" in window)) {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(PHOTO_CACHE_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(PHOTO_CACHE_STORE_NAME)) {
+        database.createObjectStore(PHOTO_CACHE_STORE_NAME, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("photo_cache_open_failed"));
+  });
+}
+
+function runPhotoCacheTransaction(database, mode, operation) {
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(PHOTO_CACHE_STORE_NAME, mode);
+    const store = transaction.objectStore(PHOTO_CACHE_STORE_NAME);
+    const request = operation(store);
+    let result;
+    request.onsuccess = () => {
+      result = request.result;
+    };
+    request.onerror = () => reject(request.error || new Error("photo_cache_request_failed"));
+    transaction.oncomplete = () => resolve(result);
+    transaction.onabort = () => reject(transaction.error || new Error("photo_cache_transaction_failed"));
+    transaction.onerror = () => reject(transaction.error || new Error("photo_cache_transaction_failed"));
+  });
+}
+
 function compactLargePhotos(payload) {
   return {
     ...payload,
@@ -5692,7 +5933,7 @@ function compactLargePhotos(payload) {
 
 function compactPhotoList(photos) {
   return photos.map((photo) => {
-    if (!photo.src || photo.src.length <= MAX_STORED_IMAGE_LENGTH) {
+    if (!photo.src || photo.src.length <= MAX_STORED_IMAGE_LENGTH || photo.localPhotoCached !== true) {
       return photo;
     }
     return {

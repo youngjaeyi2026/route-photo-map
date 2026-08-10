@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260807-follow-construction-1/);
+  assert.match(pageHtml, /20260810-durable-photo-storage-1/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
   assert.match(pageHtml, /id="followMapControls"/);
@@ -182,6 +182,14 @@ try {
   assert.match(appSource, /const CONSTRUCTION_NAME_ZOOM = 16/);
   assert.match(appSource, /function createConstructionMarkerIcon\(pin\)[\s\S]+?construction-name-icon/);
   assert.match(appSource, /function openConstructionDetail\(pin, projectName = ""\)/);
+  assert.match(appSource, /const PHOTO_CACHE_DB_NAME = "route-photo-map-photo-cache-v1"/);
+  assert.match(appSource, /await cacheLocalPhoto\(photo\)[\s\S]+?state\.photos\.unshift\(photo\)/);
+  assert.match(appSource, /function createLocalStorageSafePayload\(payload\)/);
+  assert.match(appSource, /function initializeDurablePhotoStorage\(\)[\s\S]+?navigator\.storage\.persist\(\)/);
+  assert.match(appSource, /indexedDB\.open\(PHOTO_CACHE_DB_NAME, 1\)/);
+  assert.match(appSource, /async function saveRecordNow\(\)[\s\S]+?preparePhotosBeforeRecordSave\(\)[\s\S]+?saveCurrentSession\("manual"\)/);
+  assert.match(appSource, /await deleteCachedLocalPhoto\(photo\.id \|\| key\)/);
+  assert.doesNotMatch(appSource, /state\.photos\s*=\s*compactPayload\.photos/);
   assert.match(appSource, /function togglePhotoPinVisibility\(\)/);
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);
   assert.match(appSource, /다른 사용자의 프로젝트이므로 열 수 없습니다/);
