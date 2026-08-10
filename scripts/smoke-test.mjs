@@ -73,12 +73,13 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260810-photo-naver-link-1/);
+  assert.match(pageHtml, /20260810-photo-naver-satellite-1/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
   assert.match(pageHtml, /id="photoModalNext"/);
   assert.match(pageHtml, /id="photoModalCount"/);
   assert.match(pageHtml, /id="photoModalNaverBtn"/);
+  assert.match(pageHtml, /id="photoModalNaverBtn"[^>]*>네이버 위성지도<\/button>/);
   assert.match(pageHtml, /<option value="positioned">네이버 지도 가능<\/option>/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
   assert.match(pageHtml, /id="followRouteBtn"/);
@@ -207,7 +208,7 @@ try {
   assert.match(appSource, /for \(const \[index, file\] of files\.entries\(\)\)/);
   assert.match(appSource, /위치 편집에서 사진별 위치를 조정할 수 있습니다/);
   assert.match(appSource, /function createSinglePhotoMarker\(photo\)[\s\S]+?const size = 42;[\s\S]+?photo-single-marker/);
-  assert.match(appSource, /function openPhotoInNaverMap\(photo\)[\s\S]+?https:\/\/map\.naver\.com\/p\?c=/);
+  assert.match(appSource, /function openPhotoInNaverMap\(photo\)[\s\S]+?18\.00,0,0,1,dh/);
   assert.match(appSource, /\["positioned", "네이버 지도 가능"\]/);
   assert.match(appSource, /function togglePhotoPinVisibility\(\)/);
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);

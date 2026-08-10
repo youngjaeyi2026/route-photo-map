@@ -5460,7 +5460,7 @@ function openPhotoInNaverMap(photo) {
   }
   const lat = Number(photo.lat).toFixed(7);
   const lng = Number(photo.lng).toFixed(7);
-  const naverMapUrl = `https://map.naver.com/p?c=${encodeURIComponent(`${lng},${lat},18.00,0,0,0,dh`)}`;
+  const naverMapUrl = `https://map.naver.com/p?c=${encodeURIComponent(`${lng},${lat},18.00,0,0,1,dh`)}`;
   const openedWindow = window.open(naverMapUrl, "_blank");
   if (openedWindow) {
     openedWindow.opener = null;
