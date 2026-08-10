@@ -13,7 +13,11 @@
       strong { font-size: 16px; }
       #status { overflow: hidden; color: #66766f; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
       a { flex: 0 0 auto; border: 1px solid #b7d8c9; border-radius: 8px; padding: 8px 12px; color: #176b4c; background: #eaf5ef; font-size: 13px; font-weight: 800; text-decoration: none; }
-      #viewer { min-width: 0; min-height: 0; background: #dfe7e2; }
+      #viewerWrap { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #dfe7e2; }
+      #viewer { position: absolute; inset: 0; min-width: 0; min-height: 0; background: #dfe7e2; }
+      #zoomControls { position: absolute; top: 12px; left: 12px; z-index: 1000; display: grid; gap: 5px; }
+      #zoomControls button { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid #cbd7d1; border-radius: 8px; color: #33463f; background: rgba(255, 255, 255, 0.96); box-shadow: 0 2px 8px rgba(20, 47, 37, 0.15); font: 700 22px/1 Arial, sans-serif; cursor: pointer; }
+      #zoomControls button:active { background: #e8f2ed; }
       #error { display: grid; place-items: center; height: 100%; padding: 24px; color: #b34137; text-align: center; }
     </style>
   </head>
@@ -25,7 +29,13 @@
       </div>
       <a id="mapLink" href="#">네이버 지도보기</a>
     </header>
-    <main id="viewer" aria-label="네이버 로드뷰"></main>
-    <script src="/naver-view.js?v=20260811-reusable-naver-window-1"></script>
+    <div id="viewerWrap">
+      <main id="viewer" aria-label="네이버 로드뷰"></main>
+      <div id="zoomControls" aria-label="로드뷰 확대 축소" hidden>
+        <button id="zoomInBtn" type="button" aria-label="확대">+</button>
+        <button id="zoomOutBtn" type="button" aria-label="축소">−</button>
+      </div>
+    </div>
+    <script src="/naver-view.js?v=20260811-responsive-roadview-1"></script>
   </body>
 </html>
