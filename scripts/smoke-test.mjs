@@ -127,9 +127,12 @@ try {
   const roadviewPageHtml = await roadviewPageResponse.text();
   assert.equal(roadviewPageResponse.status, 200);
   assert.match(roadviewPageHtml, /id="viewer"/);
-  assert.match(roadviewPageHtml, /naver-view\.js\?v=20260811-roadview-first-paint-1/);
+  assert.match(roadviewPageHtml, /naver-view\.js\?v=20260811-roadview-controls-layer-1/);
   assert.match(roadviewPageHtml, /id="zoomInBtn"/);
   assert.match(roadviewPageHtml, /id="zoomOutBtn"/);
+  assert.match(roadviewPageHtml, /isolation: isolate/);
+  assert.match(roadviewPageHtml, /z-index: 2147483647/);
+  assert.match(roadviewPageHtml, /transform: translateZ\(0\)/);
   const roadviewScriptResponse = await fetch(`${baseUrl}/naver-view.js`);
   const roadviewScript = await roadviewScriptResponse.text();
   assert.equal(roadviewScriptResponse.status, 200);
