@@ -189,6 +189,7 @@ const els = {
   constructionVisibilityBtn: document.querySelector("#constructionVisibilityBtn"),
   routeFollowStatus: document.querySelector("#routeFollowStatus"),
   addConstructionPinBtn: document.querySelector("#addConstructionPinBtn"),
+  addMapMemoBtn: document.querySelector("#addMapMemoBtn"),
   milestoneList: document.querySelector("#milestoneList"),
   overlayProjectCode: document.querySelector("#overlayProjectCode"),
   addOverlayProjectBtn: document.querySelector("#addOverlayProjectBtn"),
@@ -487,6 +488,7 @@ els.sharePhotoToggleBtn?.addEventListener("click", togglePhotoPinVisibility);
 els.shareConstructionToggleBtn?.addEventListener("click", toggleConstructionVisibility);
 els.constructionVisibilityBtn?.addEventListener("click", toggleConstructionVisibility);
 els.addConstructionPinBtn?.addEventListener("click", () => addMapPin("construction"));
+els.addMapMemoBtn?.addEventListener("click", addMapMemo);
 els.addOverlayProjectBtn?.addEventListener("click", () => addOverlayProject());
 els.overlayProjectCode?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
@@ -2671,9 +2673,11 @@ async function loginWithPassword() {
     setStatus("로그인했습니다. 내 프로젝트 목록을 불러왔습니다.", "success");
   } catch (error) {
     const authError = error?.payload?.error;
-    const message = authError === "account_disabled"
-      ? "비활성화된 계정입니다."
-      : authError === "password_too_short"
+    const message = authError === "account_pending"
+      ? "가입 신청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다."
+      : authError === "account_disabled"
+        ? "비활성화된 계정입니다."
+        : authError === "password_too_short"
         ? `새 계정의 비밀번호는 ${error.payload.minPasswordLength || 4}자 이상이어야 합니다.`
         : "로그인에 실패했습니다. 아이디 또는 비밀번호를 확인해 주세요.";
     authEls.status.textContent = message;
@@ -2792,7 +2796,7 @@ function renderAdminUserList() {
     const title = document.createElement("strong");
     const meta = document.createElement("span");
     title.textContent = user.email;
-    meta.textContent = `${user.role === "admin" ? "관리자" : "사용자"} · ${user.status === "active" ? "활성" : "비활성"} · 프로젝트 ${user.projectCount || 0}개`;
+    meta.textContent = `${user.role === "admin" ? "관리자" : "사용자"} · ${getUserStatusLabel(user.status)} · 프로젝트 ${user.projectCount || 0}개`;
     body.append(title, meta);
 
     const actions = document.createElement("div");
@@ -2800,7 +2804,7 @@ function renderAdminUserList() {
 
     const statusButton = document.createElement("button");
     statusButton.type = "button";
-    statusButton.textContent = user.status === "active" ? "비활성" : "활성";
+    statusButton.textContent = user.status === "pending" ? "승인" : user.status === "active" ? "비활성" : "활성";
     statusButton.disabled = user.id === state.user.id && user.status === "active";
     statusButton.addEventListener("click", () => toggleAdminUserStatus(user));
 
@@ -2809,7 +2813,13 @@ function renderAdminUserList() {
     resetButton.textContent = "PW 초기화";
     resetButton.addEventListener("click", () => resetAdminUserPassword(user));
 
-    actions.append(statusButton, resetButton);
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.textContent = "계정 삭제";
+    deleteButton.disabled = user.id === state.user.id || user.role === "admin";
+    deleteButton.addEventListener("click", () => deleteAdminUser(user));
+
+    actions.append(statusButton, resetButton, deleteButton);
     item.append(body, actions);
     authEls.adminUserList.append(item);
   });
@@ -2833,6 +2843,32 @@ async function toggleAdminUserStatus(user) {
     authEls.adminStatus.textContent = "사용자 상태를 변경했습니다.";
   } catch {
     authEls.adminStatus.textContent = "사용자 상태를 변경하지 못했습니다.";
+  }
+}
+
+function getUserStatusLabel(status) {
+  return status === "pending" ? "승인 대기" : status === "active" ? "활성" : "비활성";
+}
+
+async function deleteAdminUser(user) {
+  if (user.id === state.user?.id || user.role === "admin") {
+    return;
+  }
+  const ok = window.confirm(
+    `${user.email} 계정을 삭제할까요?\n로그인 정보와 공동편집 권한은 삭제됩니다. 소유 프로젝트가 있으면 먼저 프로젝트를 이전하거나 삭제해야 합니다.`,
+  );
+  if (!ok) {
+    return;
+  }
+  try {
+    await requestJson(`/api/admin/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
+    state.adminUsers = state.adminUsers.filter((item) => item.id !== user.id);
+    renderAdminUserList();
+    authEls.adminStatus.textContent = "계정을 삭제했습니다.";
+  } catch (error) {
+    authEls.adminStatus.textContent = error?.payload?.error === "user_owns_projects"
+      ? `소유 프로젝트 ${error.payload.projectCount || 0}개가 있어 삭제할 수 없습니다. 프로젝트 이전 또는 삭제 후 다시 시도하세요.`
+      : "계정을 삭제하지 못했습니다.";
   }
 }
 
@@ -4573,13 +4609,17 @@ function getVisibleConstructionMarkerPositions() {
   if (!state.constructionPinsVisible) {
     return [];
   }
-  const currentPins = state.milestones.filter((pin) => pin.type === "construction" && hasPhotoPosition(pin));
+  const currentPins = state.milestones.filter((pin) => isMapInfoPin(pin) && hasPhotoPosition(pin));
   const overlayPins = state.overlayProjects
     .filter((project) => project.visible !== false && project.constructionVisible !== false)
     .flatMap((project) => (project.milestones || []).filter(
-      (pin) => pin.type === "construction" && hasPhotoPosition(pin),
+      (pin) => isMapInfoPin(pin) && hasPhotoPosition(pin),
     ));
   return [...currentPins, ...overlayPins];
+}
+
+function isMapInfoPin(pin) {
+  return pin?.type === "construction" || pin?.type === "memo";
 }
 
 function showPhotoTray(photos, options = {}) {
@@ -4661,6 +4701,39 @@ function addMapPin(type = "construction") {
   setStatus(`지도 중앙에 ${displayCode} 공사구역을 추가했습니다. 색상 아이콘에서 대표 색상을 선택할 수 있습니다.`);
 }
 
+function addMapMemo() {
+  const position = getMapCenterPosition();
+  if (!position) {
+    setStatus("지도 중앙 위치를 확인한 뒤 다시 시도해 주세요.");
+    return;
+  }
+  const memo = window.prompt("현장 메모", "");
+  if (memo === null) {
+    return;
+  }
+  const content = memo.trim();
+  if (!content) {
+    setStatus("현장 메모 내용을 입력해 주세요.");
+    return;
+  }
+  const code = getNextMemoCode();
+  state.milestones.push({
+    id: crypto.randomUUID(),
+    type: "memo",
+    displayCode: code,
+    code,
+    lat: position.lat,
+    lng: position.lng,
+    memo: content,
+    createdAt: Date.now(),
+  });
+  state.constructionPinsVisible = true;
+  persist();
+  renderMilestones();
+  syncProjectState("add-map-memo");
+  setStatus(`${code} 현장 메모를 지도 중앙에 등록했습니다.`);
+}
+
 function getPinBasePosition() {
   return getMapCenterPosition();
 }
@@ -4685,14 +4758,14 @@ function renderMilestones() {
   els.milestoneList.innerHTML = "";
 
   const pins = state.milestones
-    .filter((pin) => pin.type === "construction")
+    .filter(isMapInfoPin)
     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-  renderConstructionVisibilityControls(getVisibleConstructionPinCount());
+  renderConstructionVisibilityControls(pins.length);
 
   if (pins.length === 0) {
     const empty = document.createElement("p");
     empty.className = "status-text";
-    empty.textContent = "아직 등록된 공사구역이 없습니다.";
+    empty.textContent = "아직 등록된 공사구역 또는 현장 메모가 없습니다.";
     els.milestoneList.append(empty);
     return;
   }
@@ -4700,12 +4773,12 @@ function renderMilestones() {
     const typeLabel = getPinTypeLabel(pin.type);
     const pinLabel = getMapPinLabel(pin);
     if (state.constructionPinsVisible) {
-      const icon = createConstructionMarkerIcon(pin);
+      const icon = pin.type === "memo" ? createMemoMarkerIcon(pin) : createConstructionMarkerIcon(pin);
       let pinWasDragged = false;
       L.marker([pin.lat, pin.lng], {
         icon,
         title: state.pointEditMode ? `${pin.name} - 드래그해서 위치 수정` : `${pin.name} 위치`,
-        draggable: state.pointEditMode,
+        draggable: state.pointEditMode && pin.type === "construction",
       })
         .on("dragstart", () => {
           pinWasDragged = true;
@@ -4720,7 +4793,7 @@ function renderMilestones() {
           if (state.pointEditMode || pinWasDragged) {
             return;
           }
-          openConstructionDetail(pin);
+          openMapPinDetail(pin);
         })
         .addTo(milestoneLayer);
     }
@@ -4744,19 +4817,22 @@ function renderMilestones() {
     });
     actions.append(locateButton);
     if (!state.shareView) {
-      const colorButton = createPinIconButton("색상", "color", normalizeConstructionColor(pin.color));
-      colorButton.addEventListener("click", () => {
-        openRepresentativeColorPicker({
-          title: `${pinLabel} 대표 색상`,
-          currentColor: pin.color,
-          onConfirm: (color) => updateConstructionPinColor(pin.id, color),
-        });
-      });
       const editButton = createPinIconButton("수정", "edit");
       editButton.addEventListener("click", () => editMapPin(pin.id));
       const deleteButton = createPinIconButton("삭제", "delete");
       deleteButton.addEventListener("click", () => deleteMapPin(pin.id));
-      actions.append(colorButton, editButton, deleteButton);
+      if (pin.type === "construction") {
+        const colorButton = createPinIconButton("색상", "color", normalizeConstructionColor(pin.color));
+        colorButton.addEventListener("click", () => {
+          openRepresentativeColorPicker({
+            title: `${pinLabel} 대표 색상`,
+            currentColor: pin.color,
+            onConfirm: (color) => updateConstructionPinColor(pin.id, color),
+          });
+        });
+        actions.append(colorButton);
+      }
+      actions.append(editButton, deleteButton);
     }
 
     item.append(body, actions);
@@ -4766,7 +4842,7 @@ function renderMilestones() {
 
 function updateMapPinPosition(pinId, latlng) {
   const pin = state.milestones.find((item) => item.id === pinId);
-  if (!pin) {
+  if (!pin || pin.type !== "construction") {
     return;
   }
   pin.lat = latlng.lat;
@@ -5038,11 +5114,10 @@ function editMapPin(pinId) {
   if (!pin) {
     return;
   }
-  const name = window.prompt("핀 이름", pin.name || getPinTypeLabel(pin.type));
-  if (name === null) {
-    return;
-  }
-  const memo = window.prompt("핀 메모", pin.memo || "");
+  const isMemo = pin.type === "memo";
+  const name = isMemo ? pin.name : window.prompt("핀 이름", pin.name || getPinTypeLabel(pin.type));
+  if (name === null) return;
+  const memo = window.prompt(isMemo ? "현장 메모" : "핀 메모", pin.memo || "");
   if (memo === null) {
     return;
   }
@@ -5054,7 +5129,7 @@ function editMapPin(pinId) {
     }
     displayCode = normalizeConstructionCode(code, getMapPinLabel(pin));
   }
-  pin.name = name.trim() || getPinTypeLabel(pin.type);
+  if (!isMemo) pin.name = name.trim() || getPinTypeLabel(pin.type);
   pin.memo = memo.trim();
   if (pin.type === "construction") {
     pin.displayCode = displayCode;
@@ -5081,12 +5156,15 @@ function deleteMapPin(pinId) {
 }
 
 function getPinTypeLabel(type) {
-  return type === "construction" ? "공사구역" : "목적지";
+  return type === "construction" ? "공사구역" : type === "memo" ? "현장 메모" : "목적지";
 }
 
 function getMapPinLabel(pin) {
   if (pin.type === "construction") {
     return normalizeConstructionCode(pin.displayCode, `C${getConstructionPinNumber(pin)}`);
+  }
+  if (pin.type === "memo") {
+    return String(pin.displayCode || pin.code || "M?").trim() || "M?";
   }
   return `T${pin.priority || "?"}`;
 }
@@ -5106,6 +5184,15 @@ function getNextConstructionCode() {
     .filter(Boolean)
     .map((match) => Number(match[1]));
   return `C${Math.max(0, ...usedNumbers) + 1}`;
+}
+
+function getNextMemoCode() {
+  const usedNumbers = state.milestones
+    .filter((pin) => pin.type === "memo")
+    .map((pin) => String(pin.displayCode || pin.code || "").match(/^M(\d+)$/i))
+    .filter(Boolean)
+    .map((match) => Number(match[1]));
+  return `M${Math.max(0, ...usedNumbers) + 1}`;
 }
 
 function normalizeConstructionCode(value, fallback = "C?") {
@@ -5175,6 +5262,17 @@ function createMapPinHtml(type, label, color = "") {
   return `<span class="map-pin map-pin--${type}"${background}><b>${escapeHtml(label)}</b></span>`;
 }
 
+function createMemoMarkerIcon(pin) {
+  const code = getMapPinLabel(pin);
+  return L.divIcon({
+    className: "",
+    html: createMapPinHtml("memo", code),
+    iconSize: [34, 38],
+    iconAnchor: getSeparatedMarkerAnchor("memo", 34, 38, pin),
+    popupAnchor: [0, -34],
+  });
+}
+
 function createConstructionMarkerIcon(pin) {
   const code = getMapPinLabel(pin);
   const name = String(pin.name || "").trim();
@@ -5202,23 +5300,28 @@ function createConstructionMarkerIcon(pin) {
   });
 }
 
-function openConstructionDetail(pin, projectName = "") {
+function openMapPinDetail(pin, projectName = "") {
   if (!pin || !els.constructionDetailModal) {
     return;
   }
   state.activeConstructionPinId = pin.id || null;
   activeConstructionDetailPin = pin;
   const code = getMapPinLabel(pin);
-  const pinColor = normalizeConstructionColor(pin.color);
+  const isMemo = pin.type === "memo";
+  const pinColor = isMemo ? "#2563eb" : normalizeConstructionColor(pin.color);
   els.constructionDetailCode.textContent = projectName ? `${projectName} · ${code}` : code;
   els.constructionDetailCode.style.background = pinColor;
   els.constructionDetailCode.style.color = pinColor === BRIGHT_YELLOW_COLOR ? "#3b3210" : "#ffffff";
-  els.constructionDetailTitle.textContent = pin.name?.trim() || "공사구역";
+  els.constructionDetailTitle.textContent = pin.name?.trim() || getPinTypeLabel(pin.type);
   els.constructionDetailMeta.textContent = `${Number(pin.lat).toFixed(5)}, ${Number(pin.lng).toFixed(5)}`;
   els.constructionDetailMemo.textContent = pin.memo?.trim() || "등록된 메모가 없습니다.";
   els.constructionDetailMemo.classList.toggle("is-empty", !pin.memo?.trim());
   els.constructionDetailModal.hidden = false;
   document.body.classList.add("is-construction-detail-open");
+}
+
+function openConstructionDetail(pin, projectName = "") {
+  openMapPinDetail(pin, projectName);
 }
 
 function closeConstructionDetail() {
@@ -5428,10 +5531,10 @@ function renderProjectOverlays() {
       Array.isArray(project.milestones)
     ) {
       project.milestones
-        .filter((pin) => pin.type === "construction")
+        .filter(isMapInfoPin)
         .forEach((pin) => {
           const pinLabel = getMapPinLabel(pin);
-          const icon = createConstructionMarkerIcon(pin);
+          const icon = pin.type === "memo" ? createMemoMarkerIcon(pin) : createConstructionMarkerIcon(pin);
           L.marker([pin.lat, pin.lng], {
             icon,
             title: `${project.name} · ${pin.name || pinLabel}`,
@@ -5478,7 +5581,8 @@ function renderProjectOverlays() {
     title.textContent = project.name;
     const photoCount = (project.photos || []).filter(hasPhotoPosition).length;
     const constructionCount = (project.milestones || []).filter((pin) => pin.type === "construction").length;
-    meta.textContent = `${project.code} · ${points.length}점 · 사진 ${photoCount} · 공사 ${constructionCount}`;
+    const memoCount = (project.milestones || []).filter((pin) => pin.type === "memo").length;
+    meta.textContent = `${project.code} · ${points.length}점 · 사진 ${photoCount} · 공사 ${constructionCount} · 메모 ${memoCount}`;
     body.append(title, meta);
 
     const removeButton = document.createElement("button");
@@ -6131,7 +6235,7 @@ function fitToData() {
   }
   if (state.constructionPinsVisible) {
     state.milestones
-      .filter((pin) => pin.type === "construction")
+      .filter(isMapInfoPin)
       .forEach((pin) => bounds.extend([pin.lat, pin.lng]));
   }
   state.overlayProjects
@@ -6145,7 +6249,7 @@ function fitToData() {
       }
       if (project.constructionVisible !== false && state.constructionPinsVisible) {
         project.milestones
-          .filter((pin) => pin.type === "construction")
+          .filter(isMapInfoPin)
           .forEach((pin) => bounds.extend([pin.lat, pin.lng]));
       }
     });

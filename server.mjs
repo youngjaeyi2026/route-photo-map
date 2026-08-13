@@ -24,7 +24,7 @@ const isProduction = process.env.NODE_ENV === "production" || Boolean(process.en
 const sessionCookieName = "rpm_session";
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 30;
 const defaultAdminEmails = new Set(
-  (process.env.ADMIN_EMAILS || "")
+  (process.env.ADMIN_EMAILS || "youngjaeyi2018@gmail.com")
     .split(",")
     .map((email) => normalizeEmail(email))
     .filter(Boolean),
@@ -175,6 +175,20 @@ async function handleApi(request, response, url) {
       return;
     }
     sendJson(response, 200, { user: result.user, temporaryPassword: result.temporaryPassword });
+    return;
+  }
+
+  const adminUserDeleteMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+  if (adminUserDeleteMatch && request.method === "DELETE") {
+    if (!requireAdmin(currentUser, response)) {
+      return;
+    }
+    const result = await deleteUserAccount(adminUserDeleteMatch[1], currentUser.id);
+    if (!result.ok) {
+      sendJson(response, result.status || 400, { error: result.error, projectCount: result.projectCount || 0 });
+      return;
+    }
+    sendJson(response, 200, { ok: true, userId: result.userId });
     return;
   }
 
@@ -1364,7 +1378,11 @@ async function loginOrRegister(emailValue, passwordValue) {
 
   if (user) {
     if (user.status !== "active") {
-      return { ok: false, status: 403, error: "account_disabled" };
+      return {
+        ok: false,
+        status: 403,
+        error: user.status === "pending" ? "account_pending" : "account_disabled",
+      };
     }
     if (!verifyPassword(password, user.password_hash)) {
       return { ok: false, status: 401, error: "invalid_credentials" };
@@ -1381,7 +1399,8 @@ async function loginOrRegister(emailValue, passwordValue) {
       id: `U-${randomBytes(12).toString("hex")}`,
       email,
       password_hash: hashPassword(password),
-      status: "active",
+      // Existing users remain active through the column default/migration; only new non-admin accounts need approval.
+      status: isAdminEmail(email) ? "active" : "pending",
       role: isAdminEmail(email) ? "admin" : "user",
       created_at: toMysqlDate(now),
       last_login_at: null,
@@ -1508,17 +1527,17 @@ async function updateUserStatus(userId, statusValue, currentUserId) {
   if (!databaseUrl) {
     return { ok: false, status: 503, error: "database_required" };
   }
-  const status = statusValue === "disabled" ? "disabled" : statusValue === "active" ? "active" : "";
+  const status = ["pending", "disabled", "active"].includes(statusValue) ? statusValue : "";
   if (!status) {
     return { ok: false, status: 400, error: "invalid_status" };
   }
-  if (userId === currentUserId && status === "disabled") {
-    return { ok: false, status: 400, error: "cannot_disable_self" };
+  if (userId === currentUserId && status !== "active") {
+    return { ok: false, status: 400, error: "cannot_change_own_status" };
   }
   const pool = await getMysqlPool();
   await ensureDatabase();
   await pool.execute("UPDATE users SET status = ? WHERE id = ?", [status, userId]);
-  if (status === "disabled") {
+  if (status !== "active") {
     await pool.execute("DELETE FROM user_sessions WHERE user_id = ?", [userId]);
   }
   const [rows] = await pool.execute(
@@ -1537,6 +1556,37 @@ async function updateUserStatus(userId, statusValue, currentUserId) {
     [userId],
   );
   return rows.length ? { ok: true, user: rowToAdminUser(rows[0]) } : { ok: false, status: 404, error: "not_found" };
+}
+
+async function deleteUserAccount(userId, currentUserId) {
+  if (!databaseUrl) {
+    return { ok: false, status: 503, error: "database_required" };
+  }
+  if (!userId || userId === currentUserId) {
+    return { ok: false, status: 400, error: "cannot_delete_self" };
+  }
+  const pool = await getMysqlPool();
+  await ensureDatabase();
+  const [users] = await pool.execute("SELECT id, role FROM users WHERE id = ? LIMIT 1", [userId]);
+  const user = users[0];
+  if (!user) {
+    return { ok: false, status: 404, error: "not_found" };
+  }
+  if (user.role === "admin") {
+    return { ok: false, status: 400, error: "cannot_delete_admin" };
+  }
+  const [projectRows] = await pool.execute(
+    "SELECT COUNT(*) AS count FROM projects WHERE owner_user_id = ?",
+    [userId],
+  );
+  const projectCount = Number(projectRows[0]?.count || 0);
+  if (projectCount > 0) {
+    return { ok: false, status: 409, error: "user_owns_projects", projectCount };
+  }
+  await pool.execute("DELETE FROM user_sessions WHERE user_id = ?", [userId]);
+  await pool.execute("DELETE FROM project_members WHERE user_id = ?", [userId]);
+  await pool.execute("DELETE FROM users WHERE id = ?", [userId]);
+  return { ok: true, userId };
 }
 
 async function resetUserPassword(userId, passwordValue) {

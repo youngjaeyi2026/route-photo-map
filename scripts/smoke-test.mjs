@@ -97,6 +97,7 @@ try {
   assert.match(pageHtml, /id="shareConstructionToggleBtn"/);
   assert.match(pageHtml, /id="constructionVisibilityBtn"/);
   assert.match(pageHtml, /id="addConstructionPinBtn"/);
+  assert.match(pageHtml, /id="addMapMemoBtn"/);
   assert.match(pageHtml, /id="projectCollaboration"/);
   assert.match(pageHtml, /id="projectInviteBtn"/);
   assert.match(pageHtml, /id="projectTransferBlock"/);
@@ -175,6 +176,10 @@ try {
   assert.match(serverSource, /function sanitizeSharedPhotos/);
   assert.match(serverSource, /projectTransferMatch[\s\S]+?\/transfer[\s\S]+?transferProjectCopy/);
   assert.match(serverSource, /error: "project_conflict"/);
+  assert.match(serverSource, /status: isAdminEmail\(email\) \? "active" : "pending"/);
+  assert.match(serverSource, /error: user\.status === "pending" \? "account_pending" : "account_disabled"/);
+  assert.match(serverSource, /adminUserDeleteMatch[\s\S]+?deleteUserAccount/);
+  assert.match(serverSource, /async function deleteUserAccount[\s\S]+?user_owns_projects/);
   assert.match(serverSource, /const minPasswordLength = 4;/);
   assert.match(
     serverSource,
@@ -200,6 +205,7 @@ try {
   assert.match(appSource, /if \(!initialShareToken\) \{\s*loadState\(\)/);
   assert.match(appSource, /match\(\/\^\\\/view\\\/\(\[A-Za-z0-9_-\]\+\)\\\/\?\$\/\)/);
   assert.match(appSource, /function toggleConstructionVisibility\(\)/);
+  assert.match(appSource, /function addMapMemo\(\)[\s\S]+?getMapCenterPosition\(\)[\s\S]+?type: "memo"/);
   assert.match(
     appSource,
     /function renderAuthAccessState\(\)[\s\S]+?is-auth-pending[\s\S]+?is-logged-out[\s\S]+?is-authenticated/,
@@ -246,6 +252,8 @@ try {
   assert.match(appSource, /async function performPendingSessionDelete\(projectCode, sessionId\)/);
   assert.match(appSource, /통신이 불안정해 삭제 대기 중입니다/);
   assert.match(appSource, /function retryPendingSaves\(\)/);
+  assert.match(appSource, /function deleteAdminUser\(user\)[\s\S]+?user_owns_projects/);
+  assert.match(appSource, /authError === "account_pending"/);
   assert.match(appSource, /async function handlePhotoInput\(event, options = \{\}\)[\s\S]+?Array\.from\(event\.target\.files \|\| \[\]\)/);
   assert.match(appSource, /for \(const \[index, file\] of files\.entries\(\)\)/);
   assert.match(appSource, /위치 편집에서 사진별 위치를 조정할 수 있습니다/);
@@ -404,7 +412,17 @@ try {
       color: "#315f9e",
       lat: 37.505,
       lng: 127.005,
+      memo: "공사구역 메모",
       createdAt: 1,
+    },
+    {
+      id: "mobile-memo-1",
+      type: "memo",
+      displayCode: "M1",
+      code: "M1",
+      lat: 37.506,
+      lng: 127.006,
+      memo: "Android 현장 메모",
     },
   ];
   const privatePhotos = [
@@ -415,6 +433,8 @@ try {
       lat: 37.505,
       lng: 127.005,
       timestamp: 3,
+      memo: "사진 메모",
+      tags: "안전,점검",
     },
   ];
   const saveResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
@@ -450,6 +470,10 @@ try {
   const guardedProject = await guardedProjectResponse.json();
   assert.equal(guardedProject.sessions.length, 1);
   assert.equal(guardedProject.sessions[0].id, "route-1");
+  assert.equal(guardedProject.lastState.milestones.find((pin) => pin.id === "mobile-memo-1")?.memo, "Android 현장 메모");
+  assert.equal(guardedProject.lastState.milestones.find((pin) => pin.id === "construction-1")?.memo, "공사구역 메모");
+  assert.equal(guardedProject.lastState.photos[0]?.memo, "사진 메모");
+  assert.equal(guardedProject.lastState.photos[0]?.tags, "안전,점검");
   const guardedContentLossResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

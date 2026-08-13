@@ -494,6 +494,14 @@ label[for="photoInput"] {
   font-weight: 800;
 }
 
+#addMapMemoBtn {
+  min-height: 42px;
+  border: 1px solid #b9d0fa;
+  border-radius: 8px;
+  color: #1d4fa3;
+  background: #edf4ff;
+}
+
 #constructionVisibilityBtn {
   grid-column: 2;
   min-height: 42px;
@@ -1019,7 +1027,7 @@ label[for="photoInput"] {
 
 .admin-user-actions {
   display: inline-grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: repeat(3, auto);
   gap: 6px;
 }
 
@@ -1167,6 +1175,7 @@ label[for="photoInput"] {
 .is-share-view .record-section .section-title-actions,
 .is-share-view .record-action-grid,
 .is-share-view #addConstructionPinBtn,
+.is-share-view #addMapMemoBtn,
 .is-share-view #constructionVisibilityBtn,
 .is-share-view .record-section .hint,
 .is-share-view #milestoneList,
@@ -2296,6 +2305,10 @@ body.is-follow-mode .control-panel {
   background: var(--red);
 }
 
+.map-pin--memo {
+  background: #2563eb;
+}
+
 .construction-name-icon {
   border: 0;
   background: transparent;
@@ -2613,6 +2626,7 @@ body.is-follow-mode .control-panel {
 
   #followRouteBtn,
   #addConstructionPinBtn,
+  #addMapMemoBtn,
   #constructionVisibilityBtn {
     min-height: 30px;
   }
