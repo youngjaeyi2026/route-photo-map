@@ -483,7 +483,8 @@ label[for="photoInput"] {
   font-weight: 800;
 }
 
-#addConstructionPinBtn {
+#addConstructionPinBtn,
+#addMapMemoBtn {
   min-height: 42px;
   border: 1px solid #cbdceb;
   border-radius: 8px;
@@ -492,14 +493,6 @@ label[for="photoInput"] {
   font: inherit;
   font-size: 12px;
   font-weight: 800;
-}
-
-#addMapMemoBtn {
-  min-height: 42px;
-  border: 1px solid #b9d0fa;
-  border-radius: 8px;
-  color: #1d4fa3;
-  background: #edf4ff;
 }
 
 #constructionVisibilityBtn {

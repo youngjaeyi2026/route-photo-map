@@ -336,7 +336,7 @@ try {
   assert.match(css, /\.color-picker-modal\s*\{/);
   assert.match(css, /\.field-action-group\s*\{[^}]*padding-top:\s*16px/s);
   assert.match(css, /#followRouteBtn\s*\{[^}]*min-height:\s*42px/s);
-  assert.match(css, /#addConstructionPinBtn\s*\{[^}]*min-height:\s*42px/s);
+  assert.match(css, /#addConstructionPinBtn,\s*#addMapMemoBtn\s*\{[^}]*min-height:\s*42px/s);
   assert.match(css, /#constructionVisibilityBtn\s*\{[^}]*grid-column:\s*2;[^}]*min-height:\s*42px/s);
   assert.match(css, /\.my-project-actions\s*\{[^}]*grid-template-columns:\s*auto\s*auto\s*auto/s);
   assert.match(css, /\.my-project-item button\s*\{[^}]*height:\s*30px;[^}]*padding:\s*0\s*8px/s);
@@ -353,7 +353,7 @@ try {
   assert.match(css, /\.my-project-item strong\s*\{[^}]*-webkit-line-clamp:\s*2/s);
   assert.match(
     css,
-    /#followRouteBtn,[\s\S]+?#addConstructionPinBtn,[\s\S]+?#constructionVisibilityBtn\s*\{[^}]*min-height:\s*30px/s,
+    /#followRouteBtn,[\s\S]+?#addConstructionPinBtn,[\s\S]+?#addMapMemoBtn,[\s\S]+?#constructionVisibilityBtn\s*\{[^}]*min-height:\s*30px/s,
   );
   assert.match(css, /\.point-edit-row button,[\s\S]+?font-size:\s*12px;[\s\S]+?font-weight:\s*800/s);
   assert.doesNotMatch(css, /\.point-edit-row button,[\s\S]{0,220}?font-size:\s*10px/);
