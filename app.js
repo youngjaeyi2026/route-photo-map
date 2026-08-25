@@ -1004,6 +1004,7 @@ async function handlePhotoInput(event, options = {}) {
       const photo = {
         id: crypto.randomUUID(),
         displayName: getNextProjectPhotoName(),
+        autoRouteName: true,
         originalName: file.name || "",
         name: file.name || "현장 사진",
         src: photoSrc,
@@ -1025,6 +1026,7 @@ async function handlePhotoInput(event, options = {}) {
     }
   }
 
+  reorderPhotosByRouteOrder();
   const locallySaved = persist();
   render();
   if (addedCount === 0) {
@@ -1450,6 +1452,7 @@ function saveCurrentSession(reason = "manual") {
     return;
   }
 
+  reorderPhotosByRouteOrder();
   const startedAt = state.activeStartedAt || state.points[0]?.timestamp || Date.now();
   const signature = getCurrentRecordSignature();
   if (state.continuingSessionId) {
@@ -5713,6 +5716,144 @@ function getNextProjectPhotoName() {
   return `${prefix}-${String(nextNumber).padStart(3, "0")}`;
 }
 
+function reorderPhotosByRouteOrder(points = state.points, photos = state.photos) {
+  if (!Array.isArray(photos) || photos.length === 0) {
+    return false;
+  }
+  const route = (Array.isArray(points) ? points : []).filter(
+    (point) => Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)) && point?.skipInRoute !== true,
+  );
+  const autoPhotos = photos.filter(isAutoRouteNamedPhoto);
+  if (autoPhotos.length === 0) {
+    return false;
+  }
+
+  const ordered = autoPhotos
+    .map((photo, originalIndex) => ({
+      photo,
+      originalIndex,
+      progress: getPhotoRouteProgress(route, photo),
+      timestamp: Number(photo.timestamp) || 0,
+    }))
+    .sort((left, right) => {
+      const leftProgress = Number.isFinite(left.progress) ? left.progress : Number.POSITIVE_INFINITY;
+      const rightProgress = Number.isFinite(right.progress) ? right.progress : Number.POSITIVE_INFINITY;
+      return leftProgress - rightProgress || left.timestamp - right.timestamp || left.originalIndex - right.originalIndex;
+    });
+
+  const prefix = getProjectNamePrefix();
+  const width = Math.max(3, String(ordered.length).length);
+  const namesById = new Map();
+  let changed = false;
+  ordered.forEach(({ photo }, index) => {
+    const routeOrder = index + 1;
+    const displayName = `${prefix}-${String(routeOrder).padStart(width, "0")}`;
+    if (photo.displayName !== displayName || photo.routeOrder !== routeOrder || photo.autoRouteName !== true) {
+      photo.displayName = displayName;
+      photo.routeOrder = routeOrder;
+      photo.autoRouteName = true;
+      changed = true;
+    }
+    if (photo.id) {
+      namesById.set(photo.id, { displayName, routeOrder });
+    }
+  });
+
+  if (namesById.size > 0) {
+    state.sessions.forEach((session) => {
+      (session.photos || []).forEach((photo) => {
+        const renamed = namesById.get(photo.id);
+        if (!renamed) return;
+        photo.displayName = renamed.displayName;
+        photo.routeOrder = renamed.routeOrder;
+        photo.autoRouteName = true;
+      });
+    });
+  }
+  return changed;
+}
+
+function isAutoRouteNamedPhoto(photo) {
+  if (photo?.autoRouteName === false) {
+    return false;
+  }
+  if (photo?.autoRouteName === true) {
+    return true;
+  }
+  const name = String(photo?.displayName || photo?.name || "").trim();
+  return !name || /-\d{3,6}$/.test(name) || /^사진\s*\d+$/.test(name);
+}
+
+function getPhotoRouteProgress(route, photo) {
+  const photoLat = Number(photo?.lat);
+  const photoLng = Number(photo?.lng);
+  if (!Number.isFinite(photoLat) || !Number.isFinite(photoLng) || route.length < 2) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const candidates = [];
+  let cumulative = 0;
+  for (let index = 1; index < route.length; index += 1) {
+    const start = route[index - 1];
+    const end = route[index];
+    const segment = projectPointToRouteSegment(photoLat, photoLng, start, end);
+    const segmentLength = segment.segmentLength;
+    candidates.push({
+      distance: segment.distance,
+      progress: cumulative + segmentLength * segment.ratio,
+      timestamp: interpolateTimestamp(start.timestamp, end.timestamp, segment.ratio),
+    });
+    cumulative += segmentLength;
+  }
+  if (candidates.length === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const nearestDistance = Math.min(...candidates.map((candidate) => candidate.distance));
+  const nearby = candidates.filter(
+    (candidate) => candidate.distance <= Math.max(nearestDistance + 12, nearestDistance * 1.25),
+  );
+  const photoTimestamp = Number(photo.timestamp);
+  if (Number.isFinite(photoTimestamp) && nearby.some((candidate) => Number.isFinite(candidate.timestamp))) {
+    nearby.sort((left, right) => {
+      const leftTime = Number.isFinite(left.timestamp) ? Math.abs(left.timestamp - photoTimestamp) : Number.POSITIVE_INFINITY;
+      const rightTime = Number.isFinite(right.timestamp) ? Math.abs(right.timestamp - photoTimestamp) : Number.POSITIVE_INFINITY;
+      return leftTime - rightTime || left.distance - right.distance;
+    });
+    return nearby[0].progress;
+  }
+  nearby.sort((left, right) => left.distance - right.distance || left.progress - right.progress);
+  return nearby[0].progress;
+}
+
+function projectPointToRouteSegment(photoLat, photoLng, start, end) {
+  const earthRadius = 6371000;
+  const referenceLat = ((Number(start.lat) + Number(end.lat) + photoLat) / 3) * (Math.PI / 180);
+  const metersPerLatitude = earthRadius * (Math.PI / 180);
+  const metersPerLongitude = metersPerLatitude * Math.cos(referenceLat);
+  const dx = (Number(end.lng) - Number(start.lng)) * metersPerLongitude;
+  const dy = (Number(end.lat) - Number(start.lat)) * metersPerLatitude;
+  const px = (photoLng - Number(start.lng)) * metersPerLongitude;
+  const py = (photoLat - Number(start.lat)) * metersPerLatitude;
+  const lengthSquared = dx * dx + dy * dy;
+  const ratio = lengthSquared > 0 ? Math.max(0, Math.min(1, (px * dx + py * dy) / lengthSquared)) : 0;
+  const offsetX = px - dx * ratio;
+  const offsetY = py - dy * ratio;
+  return {
+    ratio,
+    distance: Math.hypot(offsetX, offsetY),
+    segmentLength: Math.sqrt(lengthSquared),
+  };
+}
+
+function interpolateTimestamp(start, end, ratio) {
+  const startTime = Number(start);
+  const endTime = Number(end);
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+    return Number.NaN;
+  }
+  return startTime + (endTime - startTime) * ratio;
+}
+
 function getProjectNamePrefix() {
   return sanitizeLabel(state.projectName || els.projectName?.value || "프로젝트");
 }
@@ -6099,6 +6240,7 @@ function movePhotoToLatLng(photoId, latlng) {
     lng: latlng.lng,
     timestamp: Date.now(),
   };
+  reorderPhotosByRouteOrder();
   persist();
   render();
   setStatus(`${getPhotoDisplayName(photo)} 위치를 현재 지도 위치로 수정했습니다.`, "success");
@@ -6110,6 +6252,7 @@ function deletePhoto(photoId) {
     return;
   }
   state.photos = state.photos.filter((item) => item.id !== photoId);
+  reorderPhotosByRouteOrder();
   void cleanupUnreferencedCachedPhotos([photoId]);
   persist();
   render();

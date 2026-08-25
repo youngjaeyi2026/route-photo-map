@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260811-reusable-naver-window-1/);
+  assert.match(pageHtml, /20260825-route-photo-order-1/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
@@ -451,6 +451,46 @@ try {
   });
   assert.equal(saveResponse.status, 200);
   await saveResponse.json();
+
+  const orderedProjectResponse = await fetch(`${baseUrl}/api/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "동선정렬" }),
+  });
+  assert.equal(orderedProjectResponse.status, 201);
+  const orderedProject = await orderedProjectResponse.json();
+  const orderedRoute = [
+    { lat: 37.5, lng: 127.0, timestamp: 1000 },
+    { lat: 37.5, lng: 127.01, timestamp: 2000 },
+    { lat: 37.5, lng: 127.02, timestamp: 3000 },
+  ];
+  const routePhotos = [
+    { id: "end", displayName: "동선정렬-003", autoRouteName: true, lat: 37.5, lng: 127.019, timestamp: 2900 },
+    { id: "start", displayName: "동선정렬-001", autoRouteName: true, lat: 37.5, lng: 127.001, timestamp: 1100 },
+    { id: "middle", displayName: "동선정렬-004", autoRouteName: true, lat: 37.5, lng: 127.011, timestamp: 2100 },
+  ];
+  const orderedSaveResponse = await fetch(`${baseUrl}/api/projects/${orderedProject.code}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "동선정렬",
+      points: orderedRoute,
+      photos: routePhotos,
+      sessions: [{ id: "ordered-route", points: orderedRoute, photos: routePhotos }],
+      primarySessionId: "ordered-route",
+    }),
+  });
+  assert.equal(orderedSaveResponse.status, 200);
+  const orderedSavedProject = await orderedSaveResponse.json();
+  const orderedNames = Object.fromEntries(
+    orderedSavedProject.lastState.photos.map((photo) => [photo.id, photo.displayName]),
+  );
+  assert.deepEqual(orderedNames, {
+    end: "동선정렬-003",
+    start: "동선정렬-001",
+    middle: "동선정렬-002",
+  });
+
   const guardedEmptySaveResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

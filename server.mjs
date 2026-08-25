@@ -646,7 +646,7 @@ async function saveProjectState(code, body, user = null) {
   }
 
   const hasExplicitPrimarySession = Object.prototype.hasOwnProperty.call(body || {}, "primarySessionId");
-  const prepared = await prepareProjectPayload(normalizedCode, {
+  const orderedProject = applyRouteOrderedPhotoNames({
     ...previous,
     ownerUserId: previous.ownerUserId || user?.id || null,
     name: String(body?.name || previous.name || "프로젝트A").trim(),
@@ -662,6 +662,7 @@ async function saveProjectState(code, body, user = null) {
       savedAt: now,
     },
   });
+  const prepared = await prepareProjectPayload(normalizedCode, orderedProject);
 
   if (databaseUrl) {
     if (allowsSessionReduction && previousSessionCount > incomingSessions.length) {
@@ -729,6 +730,151 @@ function countProjectRecordItems(sessions, lastState) {
     (Array.isArray(lastState?.points) ? lastState.points.length : 0) +
     (Array.isArray(lastState?.photos) ? lastState.photos.length : 0)
   );
+}
+
+function applyRouteOrderedPhotoNames(project) {
+  const prefix = sanitizeRoutePhotoPrefix(project?.name || "프로젝트");
+  const sessions = Array.isArray(project?.sessions) ? project.sessions : [];
+  const primaryId = project?.primarySessionId || sessions[0]?.id || null;
+  const primary = sessions.find((session) => session?.id === primaryId) || sessions[0] || null;
+  const nameByPhotoId = new Map();
+
+  const orderedSessions = primary
+    ? [primary, ...sessions.filter((session) => session !== primary)]
+    : sessions;
+  orderedSessions.forEach((session) => {
+    renamePhotoListByRoute(session?.points, session?.photos, prefix, nameByPhotoId);
+  });
+
+  const lastState = project?.lastState || {};
+  const lastStateUsesPrimary = primary && Array.isArray(primary.photos);
+  if (lastStateUsesPrimary) {
+    (lastState.photos || []).forEach((photo) => applyKnownPhotoName(photo, nameByPhotoId));
+    renamePhotoListByRoute(lastState.points, lastState.photos, prefix, nameByPhotoId);
+  } else {
+    renamePhotoListByRoute(lastState.points, lastState.photos, prefix, nameByPhotoId);
+  }
+  return project;
+}
+
+function renamePhotoListByRoute(points, photos, prefix, nameByPhotoId) {
+  if (!Array.isArray(photos) || photos.length === 0) return;
+  const route = (Array.isArray(points) ? points : []).filter(
+    (point) => Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)) && point?.skipInRoute !== true,
+  );
+  photos.forEach((photo) => applyKnownPhotoName(photo, nameByPhotoId));
+  const targets = photos.filter((photo) => !nameByPhotoId.has(photo?.id) && isAutoRoutePhotoName(photo));
+  const ordered = targets
+    .map((photo, index) => ({
+      photo,
+      index,
+      progress: getServerPhotoRouteProgress(route, photo),
+      timestamp: Number(photo?.timestamp) || 0,
+    }))
+    .sort((left, right) => {
+      const leftProgress = Number.isFinite(left.progress) ? left.progress : Number.POSITIVE_INFINITY;
+      const rightProgress = Number.isFinite(right.progress) ? right.progress : Number.POSITIVE_INFINITY;
+      return leftProgress - rightProgress || left.timestamp - right.timestamp || left.index - right.index;
+    });
+  const width = Math.max(3, String(ordered.length).length);
+  ordered.forEach(({ photo }, index) => {
+    const routeOrder = index + 1;
+    photo.displayName = `${prefix}-${String(routeOrder).padStart(width, "0")}`;
+    photo.routeOrder = routeOrder;
+    photo.autoRouteName = true;
+    if (photo.id) {
+      nameByPhotoId.set(photo.id, {
+        displayName: photo.displayName,
+        routeOrder,
+      });
+    }
+  });
+}
+
+function applyKnownPhotoName(photo, nameByPhotoId) {
+  if (!photo?.id || !nameByPhotoId.has(photo.id)) return;
+  const known = nameByPhotoId.get(photo.id);
+  photo.displayName = known.displayName;
+  photo.routeOrder = known.routeOrder;
+  photo.autoRouteName = true;
+}
+
+function isAutoRoutePhotoName(photo) {
+  if (photo?.autoRouteName === false) return false;
+  if (photo?.autoRouteName === true) return true;
+  const name = String(photo?.displayName || photo?.name || "").trim();
+  return !name || /-\d{3,6}$/.test(name) || /^사진\s*\d+$/.test(name);
+}
+
+function sanitizeRoutePhotoPrefix(value) {
+  return (
+    String(value || "프로젝트")
+      .trim()
+      .replace(/[\\/:*?"<>|#%{}[\]^~`]/g, "")
+      .replace(/\s+/g, "")
+      .slice(0, 24) || "프로젝트"
+  );
+}
+
+function getServerPhotoRouteProgress(route, photo) {
+  const photoLat = Number(photo?.lat);
+  const photoLng = Number(photo?.lng);
+  if (!Number.isFinite(photoLat) || !Number.isFinite(photoLng) || route.length < 2) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const candidates = [];
+  let cumulative = 0;
+  for (let index = 1; index < route.length; index += 1) {
+    const start = route[index - 1];
+    const end = route[index];
+    const segment = projectServerPointToSegment(photoLat, photoLng, start, end);
+    candidates.push({
+      distance: segment.distance,
+      progress: cumulative + segment.segmentLength * segment.ratio,
+      timestamp: interpolateServerTimestamp(start.timestamp, end.timestamp, segment.ratio),
+    });
+    cumulative += segment.segmentLength;
+  }
+  const nearestDistance = Math.min(...candidates.map((candidate) => candidate.distance));
+  const nearby = candidates.filter(
+    (candidate) => candidate.distance <= Math.max(nearestDistance + 12, nearestDistance * 1.25),
+  );
+  const photoTimestamp = Number(photo.timestamp);
+  if (Number.isFinite(photoTimestamp) && nearby.some((candidate) => Number.isFinite(candidate.timestamp))) {
+    nearby.sort((left, right) => {
+      const leftTime = Number.isFinite(left.timestamp) ? Math.abs(left.timestamp - photoTimestamp) : Number.POSITIVE_INFINITY;
+      const rightTime = Number.isFinite(right.timestamp) ? Math.abs(right.timestamp - photoTimestamp) : Number.POSITIVE_INFINITY;
+      return leftTime - rightTime || left.distance - right.distance;
+    });
+    return nearby[0].progress;
+  }
+  nearby.sort((left, right) => left.distance - right.distance || left.progress - right.progress);
+  return nearby[0]?.progress ?? Number.POSITIVE_INFINITY;
+}
+
+function projectServerPointToSegment(photoLat, photoLng, start, end) {
+  const earthRadius = 6371000;
+  const referenceLat = ((Number(start.lat) + Number(end.lat) + photoLat) / 3) * (Math.PI / 180);
+  const metersPerLatitude = earthRadius * (Math.PI / 180);
+  const metersPerLongitude = metersPerLatitude * Math.cos(referenceLat);
+  const dx = (Number(end.lng) - Number(start.lng)) * metersPerLongitude;
+  const dy = (Number(end.lat) - Number(start.lat)) * metersPerLatitude;
+  const px = (photoLng - Number(start.lng)) * metersPerLongitude;
+  const py = (photoLat - Number(start.lat)) * metersPerLatitude;
+  const lengthSquared = dx * dx + dy * dy;
+  const ratio = lengthSquared > 0 ? Math.max(0, Math.min(1, (px * dx + py * dy) / lengthSquared)) : 0;
+  return {
+    ratio,
+    distance: Math.hypot(px - dx * ratio, py - dy * ratio),
+    segmentLength: Math.sqrt(lengthSquared),
+  };
+}
+
+function interpolateServerTimestamp(start, end, ratio) {
+  const startTime = Number(start);
+  const endTime = Number(end);
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) return Number.NaN;
+  return startTime + (endTime - startTime) * ratio;
 }
 
 async function createShareLink(project, user, expiresIn, options = {}) {
