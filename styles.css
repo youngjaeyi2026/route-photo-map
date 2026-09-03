@@ -1332,7 +1332,7 @@ body.is-follow-mode .control-panel {
 
 .photo-tools {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr) auto;
   gap: 8px;
 }
 

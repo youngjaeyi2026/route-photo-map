@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260825-route-photo-order-1/);
+  assert.match(pageHtml, /20260904-route-list-order-1/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
@@ -90,6 +90,7 @@ try {
   assert.match(pageHtml, /id="followExitBtn"/);
   assert.match(pageHtml, /id="followPhotoToggleBtn"/);
   assert.match(pageHtml, /id="followConstructionToggleBtn"/);
+  assert.match(pageHtml, /id="photoSort"/);
   assert.match(pageHtml, /id="constructionDetailModal"/);
   assert.match(pageHtml, /id="constructionDetailNaverBtn"/);
   assert.match(pageHtml, /id="constructionDetailRoadviewBtn"/);
@@ -205,6 +206,8 @@ try {
   assert.match(appSource, /if \(!initialShareToken\) \{\s*loadState\(\)/);
   assert.match(appSource, /match\(\/\^\\\/view\\\/\(\[A-Za-z0-9_-\]\+\)\\\/\?\$\/\)/);
   assert.match(appSource, /function toggleConstructionVisibility\(\)/);
+  assert.match(appSource, /function comparePhotosForDisplay\(left, right\)/);
+  assert.match(appSource, /function compareMapInfoPinsForList\(left, right\)/);
   assert.match(appSource, /function addMapMemo\(\)[\s\S]+?getMapCenterPosition\(\)[\s\S]+?type: "memo"/);
   assert.match(
     appSource,

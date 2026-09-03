@@ -43,6 +43,7 @@ const state = {
   autoFollow: true,
   mapProvider: "osm",
   photoFilter: "all",
+  photoSort: "route",
   photoView: "list",
   activePhotoId: null,
   photoModalSequenceIds: [],
@@ -114,6 +115,7 @@ const els = {
   naverMapBase: document.querySelector("#naverMapBase"),
   wakeLockToggle: document.querySelector("#wakeLockToggle"),
   photoFilter: document.querySelector("#photoFilter"),
+  photoSort: document.querySelector("#photoSort"),
   photoViewToggle: document.querySelector("#photoViewToggle"),
   photoModal: document.querySelector("#photoModal"),
   photoModalClose: document.querySelector("#photoModalClose"),
@@ -359,6 +361,11 @@ els.mapProvider.addEventListener("change", handleMapProviderChange);
 els.wakeLockToggle.addEventListener("change", handleWakeLockToggle);
 els.photoFilter.addEventListener("change", (event) => {
   state.photoFilter = event.target.value;
+  persist();
+  renderPhotos();
+});
+els.photoSort?.addEventListener("change", (event) => {
+  state.photoSort = event.target.value === "captured" ? "captured" : "route";
   persist();
   renderPhotos();
 });
@@ -4284,6 +4291,9 @@ function renderPhotos() {
   els.photoList.classList.toggle("is-photo-move-mode", state.pointEditMode);
   syncPhotoFilterOptions();
   els.photoFilter.value = state.photoFilter;
+  if (els.photoSort) {
+    els.photoSort.value = state.photoSort;
+  }
   els.photoViewToggle.textContent = state.photoView === "grid" ? "목록 보기" : "격자 보기";
 
   if (state.photoFilter === "hidden") {
@@ -4765,7 +4775,7 @@ function renderMilestones() {
 
   const pins = state.milestones
     .filter(isMapInfoPin)
-    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    .sort(compareMapInfoPinsForList);
   renderConstructionVisibilityControls(pins.length);
 
   if (pins.length === 0) {
@@ -5848,6 +5858,29 @@ function getConstructionOrderTime(pin) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function compareMapInfoPinsForList(left, right) {
+  const leftIsConstruction = left?.type === "construction";
+  const rightIsConstruction = right?.type === "construction";
+  if (leftIsConstruction !== rightIsConstruction) {
+    return leftIsConstruction ? -1 : 1;
+  }
+  if (leftIsConstruction) {
+    const leftOrder = getConstructionDisplayOrder(left);
+    const rightOrder = getConstructionDisplayOrder(right);
+    return leftOrder - rightOrder || getConstructionOrderTime(left) - getConstructionOrderTime(right);
+  }
+  return getConstructionOrderTime(left) - getConstructionOrderTime(right);
+}
+
+function getConstructionDisplayOrder(pin) {
+  const routeOrder = Number(pin?.routeOrder);
+  if (Number.isFinite(routeOrder) && routeOrder > 0) {
+    return routeOrder;
+  }
+  const match = String(pin?.displayCode || pin?.code || "").match(/^C(\d+)/i);
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+}
+
 function isAutoRouteNamedPhoto(photo) {
   if (photo?.autoRouteName === false) {
     return false;
@@ -5952,7 +5985,7 @@ function getVisiblePhotos() {
   const todayKey = new Date().toDateString();
   const bounds = getCurrentMapBounds();
 
-  return state.photos.filter((photo) => {
+  const filtered = state.photos.filter((photo) => {
     if (filter.startsWith("tag:")) {
       const selectedTag = filter.slice(4);
       return getPhotoTags(photo).includes(selectedTag);
@@ -5977,6 +6010,27 @@ function getVisiblePhotos() {
     }
     return true;
   });
+  return filtered.sort(comparePhotosForDisplay);
+}
+
+function comparePhotosForDisplay(left, right) {
+  if (state.photoSort === "captured") {
+    return (Number(right?.timestamp) || 0) - (Number(left?.timestamp) || 0);
+  }
+  const leftOrder = Number(left?.routeOrder);
+  const rightOrder = Number(right?.routeOrder);
+  const leftHasOrder = Number.isFinite(leftOrder) && leftOrder > 0;
+  const rightHasOrder = Number.isFinite(rightOrder) && rightOrder > 0;
+  if (leftHasOrder !== rightHasOrder) {
+    return leftHasOrder ? -1 : 1;
+  }
+  if (leftHasOrder && leftOrder !== rightOrder) {
+    return leftOrder - rightOrder;
+  }
+  return getPhotoDisplayName(left).localeCompare(getPhotoDisplayName(right), "ko", {
+    numeric: true,
+    sensitivity: "base",
+  }) || (Number(left?.timestamp) || 0) - (Number(right?.timestamp) || 0);
 }
 
 function syncPhotoFilterOptions() {
@@ -6582,6 +6636,7 @@ function getPersistPayload() {
     autoFollow: state.autoFollow,
     mapProvider: state.mapProvider,
     photoFilter: state.photoFilter,
+    photoSort: state.photoSort,
     photoView: state.photoView,
     projectCode: state.projectCode,
     projectName: state.projectName,
@@ -6991,6 +7046,7 @@ function loadState() {
     state.autoFollow = saved.autoFollow !== false;
     state.mapProvider = saved.mapProvider || "osm";
     state.photoFilter = saved.photoFilter || "all";
+    state.photoSort = saved.photoSort === "captured" ? "captured" : "route";
     state.photoView = saved.photoView || "list";
     state.projectCode = saved.projectCode || "";
     state.projectName = typeof saved.projectName === "string" ? saved.projectName : "프로젝트A";
@@ -7028,6 +7084,7 @@ function loadState() {
     state.autoFollow = true;
     state.mapProvider = "osm";
     state.photoFilter = "all";
+    state.photoSort = "route";
     state.photoView = "list";
     state.projectCode = "";
     state.projectName = "프로젝트A";
