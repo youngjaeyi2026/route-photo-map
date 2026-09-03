@@ -469,6 +469,12 @@ try {
     { id: "start", displayName: "동선정렬-001", autoRouteName: true, lat: 37.5, lng: 127.001, timestamp: 1100 },
     { id: "middle", displayName: "동선정렬-004", autoRouteName: true, lat: 37.5, lng: 127.011, timestamp: 2100 },
   ];
+  const routeConstructions = [
+    { id: "construction-end", type: "construction", displayCode: "C09", name: "종점교", lat: 37.5, lng: 127.019, createdAt: 2900 },
+    { id: "construction-start", type: "construction", displayCode: "C01", name: "시점교", lat: 37.5, lng: 127.001, createdAt: 1100 },
+    { id: "construction-middle", type: "construction", displayCode: "C77.00교", name: "중간교", lat: 37.5, lng: 127.011, createdAt: 2100 },
+    { id: "construction-manual", type: "construction", displayCode: "D1", name: "사용자 지정", lat: 37.5, lng: 127.015, createdAt: 2500 },
+  ];
   const orderedSaveResponse = await fetch(`${baseUrl}/api/projects/${orderedProject.code}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -476,6 +482,7 @@ try {
       name: "동선정렬",
       points: orderedRoute,
       photos: routePhotos,
+      milestones: routeConstructions,
       sessions: [{ id: "ordered-route", points: orderedRoute, photos: routePhotos }],
       primarySessionId: "ordered-route",
     }),
@@ -489,6 +496,15 @@ try {
     end: "동선정렬-003",
     start: "동선정렬-001",
     middle: "동선정렬-002",
+  });
+  const orderedConstructionCodes = Object.fromEntries(
+    orderedSavedProject.lastState.milestones.map((pin) => [pin.id, pin.displayCode]),
+  );
+  assert.deepEqual(orderedConstructionCodes, {
+    "construction-end": "C03",
+    "construction-start": "C01",
+    "construction-middle": "C02.00교",
+    "construction-manual": "D1",
   });
 
   const guardedEmptySaveResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {

@@ -754,7 +754,61 @@ function applyRouteOrderedPhotoNames(project) {
   } else {
     renamePhotoListByRoute(lastState.points, lastState.photos, prefix, nameByPhotoId);
   }
+  reorderServerConstructionPins(project, primary);
   return project;
+}
+
+function reorderServerConstructionPins(project, primarySession) {
+  const lastState = project?.lastState || {};
+  const milestones = Array.isArray(lastState.milestones) ? lastState.milestones : [];
+  const lastStatePoints = Array.isArray(lastState.points) ? lastState.points : [];
+  const primaryPoints = Array.isArray(primarySession?.points) ? primarySession.points : [];
+  const route = (lastStatePoints.length >= 2 ? lastStatePoints : primaryPoints).filter(
+    (point) => Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)) && point?.skipInRoute !== true,
+  );
+  const targets = milestones
+    .filter((pin) => pin?.type === "construction")
+    .map((pin, originalIndex) => ({
+      pin,
+      originalIndex,
+      codeParts: getServerAutoConstructionCodeParts(pin),
+    }))
+    .filter((item) => item.codeParts)
+    .map((item) => ({
+      ...item,
+      createdAt: getServerConstructionOrderTime(item.pin),
+      progress: getServerPhotoRouteProgress(route, {
+        ...item.pin,
+        timestamp: getServerConstructionOrderTime(item.pin),
+      }),
+    }))
+    .sort((left, right) => {
+      const leftProgress = Number.isFinite(left.progress) ? left.progress : Number.POSITIVE_INFINITY;
+      const rightProgress = Number.isFinite(right.progress) ? right.progress : Number.POSITIVE_INFINITY;
+      return leftProgress - rightProgress || left.createdAt - right.createdAt || left.originalIndex - right.originalIndex;
+    });
+  const width = Math.max(2, String(targets.length).length);
+  targets.forEach(({ pin, codeParts }, index) => {
+    const routeOrder = index + 1;
+    pin.displayCode = `C${String(routeOrder).padStart(width, "0")}${codeParts.suffix}`;
+    pin.routeOrder = routeOrder;
+    pin.autoRouteCode = true;
+  });
+}
+
+function getServerAutoConstructionCodeParts(pin) {
+  if (pin?.autoRouteCode === false) return null;
+  const code = String(pin?.displayCode || pin?.code || "").trim();
+  if (!code) return { suffix: "" };
+  const match = code.match(/^C\d+(.*)$/i);
+  return match ? { suffix: match[1] || "" } : null;
+}
+
+function getServerConstructionOrderTime(pin) {
+  const numeric = Number(pin?.createdAt ?? pin?.timestamp);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(pin?.createdAt || pin?.timestamp || "");
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function renamePhotoListByRoute(points, photos, prefix, nameByPhotoId) {

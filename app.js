@@ -2014,6 +2014,7 @@ async function performProjectSync(job) {
 }
 
 function createProjectSyncPayload(reason) {
+  reorderConstructionPinsByRouteOrder();
   return {
     name: state.projectName || "프로젝트A",
     reason,
@@ -4695,8 +4696,10 @@ function addMapPin(type = "construction") {
     completed: false,
     createdAt: Date.now(),
     displayCode,
+    autoRouteCode: /^C\d+/i.test(displayCode),
     color: DEFAULT_CONSTRUCTION_COLOR,
   });
+  reorderConstructionPinsByRouteOrder();
   state.constructionPinsVisible = true;
   persist();
   renderMilestones();
@@ -4851,6 +4854,7 @@ function updateMapPinPosition(pinId, latlng) {
   pin.lat = latlng.lat;
   pin.lng = latlng.lng;
   pin.editedAt = Date.now();
+  reorderConstructionPinsByRouteOrder();
   persist();
   renderMilestones();
   syncProjectState("move-pin");
@@ -5136,8 +5140,10 @@ function editMapPin(pinId) {
   pin.memo = memo.trim();
   if (pin.type === "construction") {
     pin.displayCode = displayCode;
+    pin.autoRouteCode = /^C\d+/i.test(displayCode);
     pin.color = normalizeConstructionColor(pin.color);
   }
+  reorderConstructionPinsByRouteOrder();
   pin.editedAt = Date.now();
   persist();
   renderMilestones();
@@ -5152,6 +5158,7 @@ function deleteMapPin(pinId) {
     return;
   }
   state.milestones = state.milestones.filter((item) => item.id !== pinId);
+  reorderConstructionPinsByRouteOrder();
   persist();
   renderMilestones();
   syncProjectState("delete-pin");
@@ -5183,7 +5190,7 @@ function getConstructionPinNumber(pin) {
 function getNextConstructionCode() {
   const usedNumbers = state.milestones
     .filter((pin) => pin.type === "construction")
-    .map((pin) => getMapPinLabel(pin).match(/^C(\d+)$/i))
+    .map((pin) => getMapPinLabel(pin).match(/^C(\d+)/i))
     .filter(Boolean)
     .map((match) => Number(match[1]));
   return `C${Math.max(0, ...usedNumbers) + 1}`;
@@ -5771,6 +5778,74 @@ function reorderPhotosByRouteOrder(points = state.points, photos = state.photos)
     });
   }
   return changed;
+}
+
+function reorderConstructionPinsByRouteOrder(points = state.points, milestones = state.milestones) {
+  if (!Array.isArray(milestones) || milestones.length === 0) {
+    return false;
+  }
+  const route = (Array.isArray(points) ? points : []).filter(
+    (point) => Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)) && point?.skipInRoute !== true,
+  );
+  const targets = milestones
+    .filter((pin) => pin?.type === "construction")
+    .map((pin, originalIndex) => ({
+      pin,
+      originalIndex,
+      codeParts: getAutoConstructionCodeParts(pin),
+    }))
+    .filter((item) => item.codeParts)
+    .map((item) => ({
+      ...item,
+      progress: getPhotoRouteProgress(route, {
+        ...item.pin,
+        timestamp: getConstructionOrderTime(item.pin),
+      }),
+      createdAt: getConstructionOrderTime(item.pin),
+    }))
+    .sort((left, right) => {
+      const leftProgress = Number.isFinite(left.progress) ? left.progress : Number.POSITIVE_INFINITY;
+      const rightProgress = Number.isFinite(right.progress) ? right.progress : Number.POSITIVE_INFINITY;
+      return leftProgress - rightProgress || left.createdAt - right.createdAt || left.originalIndex - right.originalIndex;
+    });
+  if (targets.length === 0) {
+    return false;
+  }
+
+  const width = Math.max(2, String(targets.length).length);
+  let changed = false;
+  targets.forEach(({ pin, codeParts }, index) => {
+    const routeOrder = index + 1;
+    const displayCode = `C${String(routeOrder).padStart(width, "0")}${codeParts.suffix}`;
+    if (pin.displayCode !== displayCode || pin.routeOrder !== routeOrder || pin.autoRouteCode !== true) {
+      pin.displayCode = displayCode;
+      pin.routeOrder = routeOrder;
+      pin.autoRouteCode = true;
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+function getAutoConstructionCodeParts(pin) {
+  if (pin?.autoRouteCode === false) {
+    return null;
+  }
+  const code = String(pin?.displayCode || pin?.code || "").trim();
+  if (!code) {
+    return { suffix: "" };
+  }
+  const match = code.match(/^C\d+(.*)$/i);
+  return match ? { suffix: match[1] || "" } : null;
+}
+
+function getConstructionOrderTime(pin) {
+  const numeric = Number(pin?.createdAt ?? pin?.timestamp);
+  if (Number.isFinite(numeric)) {
+    return numeric;
+  }
+  const parsed = Date.parse(pin?.createdAt || pin?.timestamp || "");
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function isAutoRouteNamedPhoto(photo) {
@@ -6484,6 +6559,7 @@ function persist() {
 }
 
 function getPersistPayload() {
+  reorderConstructionPinsByRouteOrder();
   return {
     points: state.points,
     photos: state.photos,
