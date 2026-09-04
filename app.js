@@ -361,12 +361,12 @@ els.mapProvider.addEventListener("change", handleMapProviderChange);
 els.wakeLockToggle.addEventListener("change", handleWakeLockToggle);
 els.photoFilter.addEventListener("change", (event) => {
   state.photoFilter = event.target.value;
-  persist();
+  persistPhotoDisplaySettings();
   renderPhotos();
 });
 els.photoSort?.addEventListener("change", (event) => {
   state.photoSort = event.target.value === "captured" ? "captured" : "route";
-  persist();
+  persistPhotoDisplaySettings();
   renderPhotos();
 });
 els.photoViewToggle.addEventListener("click", () => {
@@ -988,6 +988,7 @@ async function handlePhotoInput(event, options = {}) {
     return;
   }
 
+  const linkedSessionId = findCurrentRecordSession()?.id || null;
   event.target.value = "";
   let addedCount = 0;
   let failedCount = 0;
@@ -1034,6 +1035,9 @@ async function handlePhotoInput(event, options = {}) {
   }
 
   reorderPhotosByRouteOrder();
+  if (linkedSessionId) {
+    replaceSessionRecordFromCurrentState(linkedSessionId);
+  }
   const locallySaved = persist();
   render();
   if (addedCount === 0) {
@@ -1047,6 +1051,9 @@ async function handlePhotoInput(event, options = {}) {
       : `${resultText} 화면을 닫지 말고 기록 저장을 눌러 서버 저장을 완료해 주세요.`,
     locallySaved && failedCount === 0 ? "success" : "warning",
   );
+  if (linkedSessionId && !state.tracking && state.projectCode) {
+    void syncProjectState("add-photo");
+  }
   return true;
 }
 
@@ -1498,9 +1505,10 @@ function saveCurrentSession(reason = "manual") {
     }
     state.continuingSessionId = null;
   }
-  if (state.sessions[0]?.signature === signature) {
+  const existingSession = state.sessions.find((session) => session.signature === signature);
+  if (existingSession) {
     setStatus("이미 저장된 기록입니다.");
-    return state.sessions[0];
+    return existingSession;
   }
   const completedAt = Date.now();
   const session = {
@@ -1537,12 +1545,96 @@ function saveCurrentSession(reason = "manual") {
   }
 }
 
-function getCurrentRecordSignature() {
-  const pointPart = state.points
+function getRecordSignature(points = [], photos = []) {
+  const pointPart = points
     .map((point) => `${point.timestamp}:${point.lat.toFixed(6)}:${point.lng.toFixed(6)}`)
     .join("|");
-  const photoPart = state.photos.map((photo) => `${photo.id}:${photo.timestamp}`).join("|");
+  const photoPart = photos.map((photo) => `${photo.id}:${photo.timestamp}`).join("|");
   return `${pointPart}::${photoPart}`;
+}
+
+function getCurrentRecordSignature() {
+  return getRecordSignature(state.points, state.photos);
+}
+
+function findCurrentRecordSession() {
+  if (state.continuingSessionId) {
+    const continuingSession = state.sessions.find((session) => session.id === state.continuingSessionId);
+    if (continuingSession) {
+      return continuingSession;
+    }
+  }
+  const signature = getCurrentRecordSignature();
+  return state.sessions.find(
+    (session) =>
+      session.signature === signature ||
+      getRecordSignature(session.points || [], session.photos || []) === signature,
+  ) || null;
+}
+
+function replaceSessionRecordFromCurrentState(sessionId) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session) {
+    return false;
+  }
+  const updatedAt = Date.now();
+  session.points = structuredClone(state.points);
+  session.photos = structuredClone(state.photos);
+  session.distanceMeters = getTotalDistance();
+  session.signature = getCurrentRecordSignature();
+  session.endedAt = Math.max(Number(session.endedAt) || 0, updatedAt);
+  session.updatedAt = updatedAt;
+  return true;
+}
+
+function updatePhotoCopies(photoId, updater) {
+  const touchedSessions = new Set();
+  const photoLists = [
+    { photos: state.photos, session: null },
+    ...state.sessions.map((session) => ({ photos: session.photos || [], session })),
+  ];
+  let currentPhoto = null;
+  photoLists.forEach(({ photos, session }) => {
+    photos.forEach((photo) => {
+      if (photo.id !== photoId) {
+        return;
+      }
+      updater(photo);
+      if (!session) {
+        currentPhoto = photo;
+      } else {
+        touchedSessions.add(session);
+      }
+    });
+  });
+  const updatedAt = Date.now();
+  touchedSessions.forEach((session) => {
+    session.signature = getRecordSignature(session.points || [], session.photos || []);
+    session.updatedAt = updatedAt;
+  });
+  return { currentPhoto, touchedSessionCount: touchedSessions.size };
+}
+
+function deletePhotoCopies(photoId) {
+  const beforeCurrentCount = state.photos.length;
+  state.photos = state.photos.filter((photo) => photo.id !== photoId);
+  let touchedSessionCount = 0;
+  const updatedAt = Date.now();
+  state.sessions.forEach((session) => {
+    const photos = Array.isArray(session.photos) ? session.photos : [];
+    const filtered = photos.filter((photo) => photo.id !== photoId);
+    if (filtered.length === photos.length) {
+      return;
+    }
+    session.photos = filtered;
+    session.signature = getRecordSignature(session.points || [], filtered);
+    session.updatedAt = updatedAt;
+    touchedSessionCount += 1;
+  });
+  return {
+    removedCurrent: state.photos.length !== beforeCurrentCount,
+    touchedSessionCount,
+  };
 }
 
 function loadSession(sessionId) {
@@ -6334,9 +6426,14 @@ function editPhotoMemo(photoId, options = {}) {
   if (memo === null) {
     return;
   }
-  photo.memo = memo.trim();
+  const result = updatePhotoCopies(photoId, (item) => {
+    item.memo = memo.trim();
+  });
   persist();
   renderPhotos();
+  if (result.touchedSessionCount > 0 && state.projectCode) {
+    void syncProjectState("edit-photo");
+  }
   if (options.keepModalOpen) {
     openPhotoModal(photo);
   }
@@ -6351,9 +6448,14 @@ function editPhotoTags(photoId, options = {}) {
   if (tags === null) {
     return;
   }
-  photo.tags = tags.trim();
+  const result = updatePhotoCopies(photoId, (item) => {
+    item.tags = tags.trim();
+  });
   persist();
   renderPhotos();
+  if (result.touchedSessionCount > 0 && state.projectCode) {
+    void syncProjectState("edit-photo");
+  }
   if (options.keepModalOpen) {
     openPhotoModal(photo);
   }
@@ -6364,11 +6466,14 @@ function movePhotoToLatLng(photoId, latlng) {
   if (!photo) {
     return;
   }
-  photo.lat = latlng.lat;
-  photo.lng = latlng.lng;
-  photo.locationSource = "map";
-  photo.positionEdited = true;
-  photo.positionEditedAt = Date.now();
+  const positionEditedAt = Date.now();
+  const result = updatePhotoCopies(photoId, (item) => {
+    item.lat = latlng.lat;
+    item.lng = latlng.lng;
+    item.locationSource = "map";
+    item.positionEdited = true;
+    item.positionEditedAt = positionEditedAt;
+  });
   state.selectedPosition = {
     lat: latlng.lat,
     lng: latlng.lng,
@@ -6377,6 +6482,9 @@ function movePhotoToLatLng(photoId, latlng) {
   reorderPhotosByRouteOrder();
   persist();
   render();
+  if (result.touchedSessionCount > 0 && state.projectCode) {
+    void syncProjectState("move-photo");
+  }
   setStatus(`${getPhotoDisplayName(photo)} 위치를 현재 지도 위치로 수정했습니다.`, "success");
 }
 
@@ -6385,11 +6493,14 @@ function deletePhoto(photoId) {
   if (!ok) {
     return;
   }
-  state.photos = state.photos.filter((item) => item.id !== photoId);
+  const result = deletePhotoCopies(photoId);
   reorderPhotosByRouteOrder();
   void cleanupUnreferencedCachedPhotos([photoId]);
   persist();
   render();
+  if (result.touchedSessionCount > 0 && state.projectCode) {
+    void syncProjectState("delete-photo");
+  }
   setStatus("사진을 삭제했습니다.");
 }
 
@@ -6635,6 +6746,24 @@ function persist() {
       console.warn("Compact storage failed", fallbackError);
     }
     setStatus("브라우저 저장공간이 부족합니다. 화면을 닫지 말고 기록 저장을 눌러 서버 저장을 완료해 주세요.", "error");
+    return false;
+  }
+}
+
+function persistPhotoDisplaySettings() {
+  try {
+    const storedValue = localStorage.getItem(STORAGE_KEY);
+    if (!storedValue) {
+      return persist();
+    }
+    const saved = JSON.parse(storedValue);
+    saved.photoFilter = state.photoFilter;
+    saved.photoSort = state.photoSort;
+    saved.photoView = state.photoView;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    return true;
+  } catch (error) {
+    console.warn("Photo display preference storage failed", error);
     return false;
   }
 }

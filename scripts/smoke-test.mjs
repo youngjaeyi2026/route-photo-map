@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260904-history-card-1/);
+  assert.match(pageHtml, /20260904-photo-sync-1/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
@@ -207,6 +207,25 @@ try {
   assert.match(appSource, /match\(\/\^\\\/view\\\/\(\[A-Za-z0-9_-\]\+\)\\\/\?\$\/\)/);
   assert.match(appSource, /function toggleConstructionVisibility\(\)/);
   assert.match(appSource, /function comparePhotosForDisplay\(left, right\)/);
+  assert.match(
+    appSource,
+    /els\.photoFilter\.addEventListener\("change",[\s\S]+?persistPhotoDisplaySettings\(\);[\s\S]+?renderPhotos\(\);/,
+  );
+  assert.match(appSource, /function findCurrentRecordSession\(\)/);
+  assert.match(appSource, /function updatePhotoCopies\(photoId, updater\)/);
+  assert.match(appSource, /function deletePhotoCopies\(photoId\)/);
+  assert.match(
+    appSource,
+    /function editPhotoMemo\(photoId,[\s\S]+?updatePhotoCopies\(photoId,[\s\S]+?syncProjectState\("edit-photo"\)/,
+  );
+  assert.match(
+    appSource,
+    /function editPhotoTags\(photoId,[\s\S]+?updatePhotoCopies\(photoId,[\s\S]+?syncProjectState\("edit-photo"\)/,
+  );
+  assert.match(
+    appSource,
+    /async function handlePhotoInput[\s\S]+?findCurrentRecordSession\(\)[\s\S]+?replaceSessionRecordFromCurrentState\(linkedSessionId\)/,
+  );
   assert.match(appSource, /function compareMapInfoPinsForList\(left, right\)/);
   assert.match(appSource, /function getSessionUpdatedTime\(session\)/);
   assert.match(appSource, /body\.className = "history-info"/);
@@ -502,6 +521,34 @@ try {
     start: "동선정렬-001",
     middle: "동선정렬-002",
   });
+  const annotatedRoutePhotos = routePhotos.map((photo) =>
+    photo.id === "middle"
+      ? { ...photo, memo: "중간 사진 메모", tags: "교량,점검" }
+      : { ...photo },
+  );
+  const annotatedSaveResponse = await fetch(`${baseUrl}/api/projects/${orderedProject.code}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "동선정렬",
+      points: orderedRoute,
+      photos: annotatedRoutePhotos,
+      milestones: routeConstructions,
+      sessions: [{ id: "ordered-route", points: orderedRoute, photos: annotatedRoutePhotos }],
+      primarySessionId: "ordered-route",
+      reason: "edit-photo",
+    }),
+  });
+  assert.equal(annotatedSaveResponse.status, 200);
+  const annotatedProject = await annotatedSaveResponse.json();
+  const annotatedCurrentPhoto = annotatedProject.lastState.photos.find((photo) => photo.id === "middle");
+  const annotatedSessionPhoto = annotatedProject.sessions[0].photos.find((photo) => photo.id === "middle");
+  assert.equal(annotatedCurrentPhoto.displayName, "동선정렬-002");
+  assert.equal(annotatedCurrentPhoto.memo, "중간 사진 메모");
+  assert.equal(annotatedCurrentPhoto.tags, "교량,점검");
+  assert.equal(annotatedSessionPhoto.displayName, "동선정렬-002");
+  assert.equal(annotatedSessionPhoto.memo, "중간 사진 메모");
+  assert.equal(annotatedSessionPhoto.tags, "교량,점검");
   const orderedConstructionCodes = Object.fromEntries(
     orderedSavedProject.lastState.milestones.map((pin) => [pin.id, pin.displayCode]),
   );
