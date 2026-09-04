@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260904-photo-sync-1/);
+  assert.match(pageHtml, /20260904-admin-user-card-1/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
@@ -277,6 +277,10 @@ try {
   assert.match(appSource, /통신이 불안정해 삭제 대기 중입니다/);
   assert.match(appSource, /function retryPendingSaves\(\)/);
   assert.match(appSource, /function deleteAdminUser\(user\)[\s\S]+?user_owns_projects/);
+  assert.match(appSource, /body\.className = "admin-user-info"/);
+  assert.match(appSource, /`가입 \$\{joinedAt\}`/);
+  assert.match(appSource, /`최근 접속 \$\{lastLoginAt\}`/);
+  assert.match(appSource, /function formatAdminUserDate\(timestamp, includeTime = false\)/);
   assert.match(appSource, /authError === "account_pending"/);
   assert.match(appSource, /async function handlePhotoInput\(event, options = \{\}\)[\s\S]+?Array\.from\(event\.target\.files \|\| \[\]\)/);
   assert.match(appSource, /for \(const \[index, file\] of files\.entries\(\)\)/);
@@ -374,6 +378,9 @@ try {
     css,
     /\.project-member-item button\s*\{[^}]*border-radius:\s*8px;[^}]*background:\s*#fff2ef/s,
   );
+  assert.match(css, /\.admin-user-item\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+  assert.match(css, /\.admin-user-info strong\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+  assert.match(css, /\.admin-user-actions\s*\{[^}]*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
   assert.match(css, /\.my-project-item strong\s*\{[^}]*-webkit-line-clamp:\s*2/s);
   assert.match(
     css,

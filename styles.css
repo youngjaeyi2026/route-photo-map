@@ -982,15 +982,14 @@ label[for="photoInput"] {
 .admin-user-list {
   display: grid;
   gap: 8px;
-  max-height: 220px;
+  max-height: 280px;
   overflow: auto;
 }
 
 .admin-user-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
-  align-items: center;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1001,27 +1000,41 @@ label[for="photoInput"] {
   opacity: 0.68;
 }
 
-.admin-user-item strong,
-.admin-user-item span {
+.admin-user-info {
+  min-width: 0;
+}
+
+.admin-user-info strong,
+.admin-user-info span {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.admin-user-item strong {
+.admin-user-info strong {
   font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
-.admin-user-item span {
+.admin-user-info span {
+  margin-top: 3px;
   color: var(--muted);
   font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .admin-user-actions {
-  display: inline-grid;
-  grid-template-columns: repeat(3, auto);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
+  width: 100%;
+}
+
+.admin-user-actions button {
+  width: 100%;
+  padding-right: 6px;
+  padding-left: 6px;
 }
 
 .share-section {

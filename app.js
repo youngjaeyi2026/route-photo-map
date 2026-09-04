@@ -2901,10 +2901,19 @@ function renderAdminUserList() {
     item.classList.toggle("is-disabled", user.status !== "active");
 
     const body = document.createElement("div");
+    body.className = "admin-user-info";
     const title = document.createElement("strong");
     const meta = document.createElement("span");
     title.textContent = user.email;
-    meta.textContent = `${user.role === "admin" ? "관리자" : "사용자"} · ${getUserStatusLabel(user.status)} · 프로젝트 ${user.projectCount || 0}개`;
+    const joinedAt = formatAdminUserDate(user.createdAt);
+    const lastLoginAt = formatAdminUserDate(user.lastLoginAt, true);
+    meta.textContent = [
+      user.role === "admin" ? "관리자" : "사용자",
+      getUserStatusLabel(user.status),
+      `가입 ${joinedAt}`,
+      user.lastLoginAt ? `최근 접속 ${lastLoginAt}` : "최근 접속 없음",
+      `프로젝트 ${user.projectCount || 0}개`,
+    ].join(" · ");
     body.append(title, meta);
 
     const actions = document.createElement("div");
@@ -2931,6 +2940,19 @@ function renderAdminUserList() {
     item.append(body, actions);
     authEls.adminUserList.append(item);
   });
+}
+
+function formatAdminUserDate(timestamp, includeTime = false) {
+  if (!timestamp) {
+    return "정보 없음";
+  }
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) {
+    return "정보 없음";
+  }
+  const pad = (value) => String(value).padStart(2, "0");
+  const dateText = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return includeTime ? `${dateText} ${pad(date.getHours())}:${pad(date.getMinutes())}` : dateText;
 }
 
 async function toggleAdminUserStatus(user) {
