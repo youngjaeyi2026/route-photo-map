@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260904-route-list-order-1/);
+  assert.match(pageHtml, /20260904-history-card-1/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
@@ -208,6 +208,8 @@ try {
   assert.match(appSource, /function toggleConstructionVisibility\(\)/);
   assert.match(appSource, /function comparePhotosForDisplay\(left, right\)/);
   assert.match(appSource, /function compareMapInfoPinsForList\(left, right\)/);
+  assert.match(appSource, /function getSessionUpdatedTime\(session\)/);
+  assert.match(appSource, /body\.className = "history-info"/);
   assert.match(appSource, /function addMapMemo\(\)[\s\S]+?getMapCenterPosition\(\)[\s\S]+?type: "memo"/);
   assert.match(
     appSource,

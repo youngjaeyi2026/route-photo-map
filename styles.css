@@ -2110,9 +2110,8 @@ body.is-follow-mode .control-panel {
 
 .history-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 9px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2148,18 +2147,25 @@ body.is-follow-mode .control-panel {
   vertical-align: 2px;
 }
 
-.history-item strong,
-.history-item span {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.history-info {
+  min-width: 0;
 }
 
-.history-item span {
+.history-info strong {
+  display: block;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.history-info > span {
+  display: block;
   margin-top: 4px;
   color: var(--muted);
   font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .history-item .history-memo {
@@ -2169,22 +2175,27 @@ body.is-follow-mode .control-panel {
   color: #52615b;
   font-size: 12px;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .history-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1.18fr 1.18fr repeat(3, minmax(0, 0.9fr));
   gap: 6px;
+  width: 100%;
 }
 
 .history-actions button {
+  min-width: 0;
   min-height: 34px;
+  padding: 0 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .history-actions .history-resume-action {

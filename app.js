@@ -1470,16 +1470,18 @@ function saveCurrentSession(reason = "manual") {
         setStatus("이어가기 기록은 이미 저장되어 있습니다.");
         return current;
       }
+      const updatedAt = Date.now();
       const updatedSession = {
         ...current,
         reason,
         startedAt: current.startedAt || startedAt,
-        endedAt: Date.now(),
+        endedAt: updatedAt,
         distanceMeters: getTotalDistance(),
         points: structuredClone(state.points),
         photos: structuredClone(state.photos),
         signature,
-        continuedAt: Date.now(),
+        continuedAt: updatedAt,
+        updatedAt,
       };
       state.sessions.splice(index, 1);
       state.sessions.unshift(updatedSession);
@@ -1500,13 +1502,15 @@ function saveCurrentSession(reason = "manual") {
     setStatus("이미 저장된 기록입니다.");
     return state.sessions[0];
   }
+  const completedAt = Date.now();
   const session = {
     id: crypto.randomUUID(),
     name: getDefaultSessionName(startedAt),
     memo: "",
     reason,
     startedAt,
-    endedAt: Date.now(),
+    endedAt: completedAt,
+    updatedAt: completedAt,
     distanceMeters: getTotalDistance(),
     points: structuredClone(state.points),
     photos: structuredClone(state.photos),
@@ -1642,6 +1646,7 @@ function editSessionDetails(sessionId) {
   session.name = name.trim() || defaultName;
   session.memo = memo.trim();
   session.editedAt = Date.now();
+  session.updatedAt = session.editedAt;
   persist();
   renderSessions();
   syncProjectState("edit-session");
@@ -6447,10 +6452,17 @@ function renderSessions() {
     item.classList.toggle("is-primary", isPrimary);
 
     const body = document.createElement("div");
+    body.className = "history-info";
     const title = document.createElement("strong");
     const meta = document.createElement("span");
     title.textContent = session.name || `${formatDate(session.startedAt)} 기록`;
-    meta.textContent = `${((session.distanceMeters || 0) / 1000).toFixed(2)} km · ${(session.points || []).length}점 · ${(session.photos || []).length}사진`;
+    const updatedAt = getSessionUpdatedTime(session);
+    meta.textContent = [
+      `${((session.distanceMeters || 0) / 1000).toFixed(2)} km`,
+      `${(session.points || []).length}점`,
+      `사진 ${(session.photos || []).length}장`,
+      updatedAt ? `최종 수정 ${formatSessionDateTime(updatedAt)}` : "",
+    ].filter(Boolean).join(" · ");
     body.append(title, meta);
     if (session.memo?.trim()) {
       const memo = document.createElement("small");
@@ -6497,6 +6509,21 @@ function renderSessions() {
     pendingStatus.textContent = `삭제 대기 중 ${pendingSessionIds.size}건 · 온라인 연결 시 자동 확인합니다.`;
     els.historyList.append(pendingStatus);
   }
+}
+
+function getSessionUpdatedTime(session) {
+  return Math.max(
+    0,
+    ...[session?.updatedAt, session?.editedAt, session?.continuedAt, session?.endedAt, session?.savedAt, session?.startedAt]
+      .map((value) => {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric) && numeric > 0) {
+          return numeric;
+        }
+        const parsed = Date.parse(value || "");
+        return Number.isFinite(parsed) ? parsed : 0;
+      }),
+  );
 }
 
 function fitToData() {
