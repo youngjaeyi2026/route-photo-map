@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260904-admin-user-card-1/);
+  assert.match(pageHtml, /20260904-multi-tag-filter-1/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
@@ -91,6 +91,11 @@ try {
   assert.match(pageHtml, /id="followPhotoToggleBtn"/);
   assert.match(pageHtml, /id="followConstructionToggleBtn"/);
   assert.match(pageHtml, /id="photoSort"/);
+  assert.match(pageHtml, /id="photoTagFilter"/);
+  assert.match(pageHtml, /id="photoTagFilterMenu"/);
+  assert.match(pageHtml, /id="constructionFilter"/);
+  assert.match(pageHtml, /id="constructionTagFilter"/);
+  assert.match(pageHtml, /id="constructionFilterReset"/);
   assert.match(pageHtml, /id="constructionDetailModal"/);
   assert.match(pageHtml, /id="constructionDetailNaverBtn"/);
   assert.match(pageHtml, /id="constructionDetailRoadviewBtn"/);
@@ -207,6 +212,11 @@ try {
   assert.match(appSource, /match\(\/\^\\\/view\\\/\(\[A-Za-z0-9_-\]\+\)\\\/\?\$\/\)/);
   assert.match(appSource, /function toggleConstructionVisibility\(\)/);
   assert.match(appSource, /function comparePhotosForDisplay\(left, right\)/);
+  assert.match(appSource, /function renderMultiTagFilter\(/);
+  assert.match(appSource, /selectedTags\.some\(\(tag\) => getPhotoTags\(photo\)\.includes\(tag\)\)/);
+  assert.match(appSource, /function getVisibleMapInfoPins\(/);
+  assert.match(appSource, /selectedTags\.some\(\(tag\) => getPinTags\(pin\)\.includes\(tag\)\)/);
+  assert.match(appSource, /function getAllConstructionTags\(\)/);
   assert.match(
     appSource,
     /els\.photoFilter\.addEventListener\("change",[\s\S]+?persistPhotoDisplaySettings\(\);[\s\S]+?renderPhotos\(\);/,
@@ -306,7 +316,7 @@ try {
   assert.match(appSource, /const canActivateMapProvider = Boolean\(state\.user \|\| initialShareToken\)/);
   assert.match(appSource, /naverMapBase\.childElementCount === 0/);
   assert.match(appSource, /map\.on\("move zoom", scheduleNaverBaseMapSync\)/);
-  assert.match(appSource, /\["positioned", "네이버 지도 가능"\]/);
+  assert.match(appSource, /new Set\(\["all", "hidden", "positioned", "missing", "map", "memo", "tagged", "today"\]\)/);
   assert.match(appSource, /function togglePhotoPinVisibility\(\)/);
   assert.match(appSource, /project\.transferredAt[\s\S]+?"전달받음 · "/);
   assert.match(appSource, /다른 사용자의 프로젝트이므로 열 수 없습니다/);
@@ -381,6 +391,9 @@ try {
   assert.match(css, /\.admin-user-item\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
   assert.match(css, /\.admin-user-info strong\s*\{[^}]*overflow-wrap:\s*anywhere/s);
   assert.match(css, /\.admin-user-actions\s*\{[^}]*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /\.multi-tag-filter__menu\s*\{/);
+  assert.match(css, /\.milestone-tools\s*\{/);
+  assert.match(css, /\.pin-tag-list\s*\{/);
   assert.match(css, /\.my-project-item strong\s*\{[^}]*-webkit-line-clamp:\s*2/s);
   assert.match(
     css,
@@ -444,6 +457,7 @@ try {
       lat: 37.505,
       lng: 127.005,
       memo: "공사구역 메모",
+      tags: "교량,보수",
       createdAt: 1,
     },
     {
@@ -652,6 +666,7 @@ try {
   assert.equal(detailedShared.project.lastState.milestones.length, 1);
   assert.equal(detailedShared.project.lastState.milestones[0].displayCode, "D1");
   assert.equal(detailedShared.project.lastState.milestones[0].color, "#315f9e");
+  assert.equal(detailedShared.project.lastState.milestones[0].tags, "교량,보수");
 
   const customExpiry = new Date(Date.now() + 1000 * 60 * 60 * 36).toISOString();
   const updateShareResponse = await fetch(`${baseUrl}/api/projects/${project.code}/share/${share.token}`, {

@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260904-admin-user-card-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260904-multi-tag-filter-1" />
   </head>
   <body>
     <script>
@@ -143,6 +143,21 @@
               <div id="routeFollowStatus" class="route-follow-status">기록된 동선을 불러오면 답사 따라가기를 시작할 수 있습니다.</div>
             </div>
             <p class="hint">공사구역은 코드와 대표 색상을 지정해 프로젝트와 함께 저장·공유합니다.</p>
+            <div class="milestone-tools">
+              <select id="constructionFilter" aria-label="공사구역 필터">
+                <option value="all">전체</option>
+                <option value="construction">공사구역만</option>
+                <option value="memo-pin">현장 메모만</option>
+                <option value="with-memo">메모 있음</option>
+                <option value="tagged">태그 있음</option>
+                <option value="map">현재 지도</option>
+              </select>
+              <details id="constructionTagFilter" class="multi-tag-filter">
+                <summary id="constructionTagFilterSummary">태그 선택</summary>
+                <div id="constructionTagFilterMenu" class="multi-tag-filter__menu"></div>
+              </details>
+              <button id="constructionFilterReset" type="button">초기화</button>
+            </div>
             <div id="milestoneList" class="milestone-list"></div>
           </div>
           <p id="statusText" class="status-text status-message">현재 위치 권한을 허용하면 이동 경로가 자동으로 기록됩니다.</p>
@@ -191,6 +206,10 @@
               <option value="route">동선·이름순</option>
               <option value="captured">촬영 최신순</option>
             </select>
+            <details id="photoTagFilter" class="multi-tag-filter">
+              <summary id="photoTagFilterSummary">태그 선택</summary>
+              <div id="photoTagFilterMenu" class="multi-tag-filter__menu"></div>
+            </details>
             <button id="photoViewToggle" type="button">격자 보기</button>
           </div>
           <div id="photoList" class="photo-list"></div>
@@ -294,6 +313,7 @@
         <h2 id="constructionDetailTitle"></h2>
         <span id="constructionDetailMeta" class="construction-detail__meta"></span>
         <p id="constructionDetailMemo" class="construction-detail__memo"></p>
+        <div id="constructionDetailTags" class="construction-detail__tags"></div>
         <div class="construction-detail__naver-actions">
           <button id="constructionDetailNaverBtn" type="button">네이버 지도보기</button>
           <button id="constructionDetailRoadviewBtn" type="button">로드뷰 보기</button>
@@ -314,6 +334,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260904-admin-user-card-1"></script>
+    <script src="/app.js?v=20260904-multi-tag-filter-1"></script>
   </body>
 </html>

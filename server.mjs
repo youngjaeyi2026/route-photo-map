@@ -1096,6 +1096,7 @@ function createSharedProjectView(project, share) {
           type: "construction",
           name: pin.name || "공사구역",
           memo: pin.memo || "",
+          tags: String(pin.tags || ""),
           displayCode: pin.displayCode || pin.code || "",
           color: pin.color || "#c34236",
           lat: Number(pin.lat),

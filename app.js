@@ -43,8 +43,11 @@ const state = {
   autoFollow: true,
   mapProvider: "osm",
   photoFilter: "all",
+  photoTagFilters: [],
   photoSort: "route",
   photoView: "list",
+  constructionFilter: "all",
+  constructionTagFilters: [],
   activePhotoId: null,
   photoModalSequenceIds: [],
   activeConstructionPinId: null,
@@ -115,6 +118,9 @@ const els = {
   naverMapBase: document.querySelector("#naverMapBase"),
   wakeLockToggle: document.querySelector("#wakeLockToggle"),
   photoFilter: document.querySelector("#photoFilter"),
+  photoTagFilter: document.querySelector("#photoTagFilter"),
+  photoTagFilterSummary: document.querySelector("#photoTagFilterSummary"),
+  photoTagFilterMenu: document.querySelector("#photoTagFilterMenu"),
   photoSort: document.querySelector("#photoSort"),
   photoViewToggle: document.querySelector("#photoViewToggle"),
   photoModal: document.querySelector("#photoModal"),
@@ -138,6 +144,7 @@ const els = {
   constructionDetailTitle: document.querySelector("#constructionDetailTitle"),
   constructionDetailMeta: document.querySelector("#constructionDetailMeta"),
   constructionDetailMemo: document.querySelector("#constructionDetailMemo"),
+  constructionDetailTags: document.querySelector("#constructionDetailTags"),
   constructionDetailNaverBtn: document.querySelector("#constructionDetailNaverBtn"),
   constructionDetailRoadviewBtn: document.querySelector("#constructionDetailRoadviewBtn"),
   projectName: document.querySelector("#projectName"),
@@ -189,6 +196,11 @@ const els = {
   sharePhotoToggleBtn: document.querySelector("#sharePhotoToggleBtn"),
   shareConstructionToggleBtn: document.querySelector("#shareConstructionToggleBtn"),
   constructionVisibilityBtn: document.querySelector("#constructionVisibilityBtn"),
+  constructionFilter: document.querySelector("#constructionFilter"),
+  constructionTagFilter: document.querySelector("#constructionTagFilter"),
+  constructionTagFilterSummary: document.querySelector("#constructionTagFilterSummary"),
+  constructionTagFilterMenu: document.querySelector("#constructionTagFilterMenu"),
+  constructionFilterReset: document.querySelector("#constructionFilterReset"),
   routeFollowStatus: document.querySelector("#routeFollowStatus"),
   addConstructionPinBtn: document.querySelector("#addConstructionPinBtn"),
   addMapMemoBtn: document.querySelector("#addMapMemoBtn"),
@@ -322,7 +334,11 @@ map.on("dragstart zoomstart", () => {
 map.on("moveend zoomend", (event) => {
   renderPhotoMapMarkers(getVisiblePhotos());
   const nextConstructionNamesExpanded = map.getZoom() >= CONSTRUCTION_NAME_ZOOM;
-  if (event.type === "zoomend" || nextConstructionNamesExpanded !== constructionNamesExpanded) {
+  if (
+    event.type === "zoomend" ||
+    state.constructionFilter === "map" ||
+    nextConstructionNamesExpanded !== constructionNamesExpanded
+  ) {
     constructionNamesExpanded = nextConstructionNamesExpanded;
     renderMilestones();
     renderProjectOverlays();
@@ -363,6 +379,17 @@ els.photoFilter.addEventListener("change", (event) => {
   state.photoFilter = event.target.value;
   persistPhotoDisplaySettings();
   renderPhotos();
+});
+els.constructionFilter?.addEventListener("change", (event) => {
+  state.constructionFilter = event.target.value;
+  persistPhotoDisplaySettings();
+  renderMilestones();
+});
+els.constructionFilterReset?.addEventListener("click", () => {
+  state.constructionFilter = "all";
+  state.constructionTagFilters = [];
+  persistPhotoDisplaySettings();
+  renderMilestones();
 });
 els.photoSort?.addEventListener("change", (event) => {
   state.photoSort = event.target.value === "captured" ? "captured" : "route";
@@ -4807,6 +4834,10 @@ function addMapPin(type = "construction") {
   if (memo === null) {
     return;
   }
+  const tags = window.prompt(`${label} 태그 (쉼표로 구분)`, "");
+  if (tags === null) {
+    return;
+  }
   let displayCode = "";
   const code = window.prompt("지도 표시 코드 (예: C1, D1)", getNextConstructionCode());
   if (code === null) {
@@ -4819,6 +4850,7 @@ function addMapPin(type = "construction") {
     type: "construction",
     name: name.trim() || `${label} ${state.milestones.length + 1}`,
     memo: memo.trim(),
+    tags: normalizeTagValues(tags).join(", "),
     lat: position.lat,
     lng: position.lng,
     priority: null,
@@ -4851,6 +4883,10 @@ function addMapMemo() {
     setStatus("현장 메모 내용을 입력해 주세요.");
     return;
   }
+  const tags = window.prompt("현장 메모 태그 (쉼표로 구분)", "");
+  if (tags === null) {
+    return;
+  }
   const code = getNextMemoCode();
   state.milestones.push({
     id: crypto.randomUUID(),
@@ -4860,6 +4896,7 @@ function addMapMemo() {
     lat: position.lat,
     lng: position.lng,
     memo: content,
+    tags: normalizeTagValues(tags).join(", "),
     createdAt: Date.now(),
   });
   state.constructionPinsVisible = true;
@@ -4892,15 +4929,24 @@ function renderMilestones() {
   }
   els.milestoneList.innerHTML = "";
 
-  const pins = state.milestones
+  const allPins = state.milestones
     .filter(isMapInfoPin)
     .sort(compareMapInfoPinsForList);
-  renderConstructionVisibilityControls(pins.length);
+  const pins = getVisibleMapInfoPins(allPins);
+  renderConstructionFilterControls();
+  renderConstructionVisibilityControls(allPins.length);
 
-  if (pins.length === 0) {
+  if (allPins.length === 0) {
     const empty = document.createElement("p");
     empty.className = "status-text";
     empty.textContent = "아직 등록된 공사구역 또는 현장 메모가 없습니다.";
+    els.milestoneList.append(empty);
+    return;
+  }
+  if (pins.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "status-text";
+    empty.textContent = "필터 조건에 맞는 공사구역 또는 현장 메모가 없습니다.";
     els.milestoneList.append(empty);
     return;
   }
@@ -4937,11 +4983,23 @@ function renderMilestones() {
     item.className = "pin-list-item";
 
     const body = document.createElement("div");
+    body.className = "pin-info";
     const title = document.createElement("strong");
     title.textContent = `${pinLabel}. ${pin.name || typeLabel}`;
     const memo = document.createElement("small");
     memo.textContent = pin.memo?.trim() || "메모 없음";
     body.append(title, memo);
+    const tags = getPinTags(pin);
+    if (tags.length > 0) {
+      const tagList = document.createElement("div");
+      tagList.className = "pin-tag-list";
+      tags.forEach((tag) => {
+        const chip = document.createElement("span");
+        chip.textContent = tag;
+        tagList.append(chip);
+      });
+      body.append(tagList);
+    }
 
     const actions = document.createElement("div");
     actions.className = "pin-list-actions pin-icon-actions";
@@ -5257,6 +5315,10 @@ function editMapPin(pinId) {
   if (memo === null) {
     return;
   }
+  const tags = window.prompt("태그를 쉼표로 구분해 입력", pin.tags || "");
+  if (tags === null) {
+    return;
+  }
   let displayCode = pin.displayCode;
   if (pin.type === "construction") {
     const code = window.prompt("지도 표시 코드 (예: C1, D1)", getMapPinLabel(pin));
@@ -5267,6 +5329,7 @@ function editMapPin(pinId) {
   }
   if (!isMemo) pin.name = name.trim() || getPinTypeLabel(pin.type);
   pin.memo = memo.trim();
+  pin.tags = normalizeTagValues(tags).join(", ");
   if (pin.type === "construction") {
     pin.displayCode = displayCode;
     pin.autoRouteCode = /^C\d+/i.test(displayCode);
@@ -5355,7 +5418,10 @@ function normalizeConstructionColor(value) {
 }
 
 function normalizeMilestones(milestones) {
-  const normalized = milestones.map((pin) => ({ ...pin }));
+  const normalized = milestones.map((pin) => ({
+    ...pin,
+    tags: normalizeTagValues(pin?.tags).join(", "),
+  }));
   const constructions = normalized
     .filter((pin) => pin.type === "construction")
     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
@@ -5412,6 +5478,62 @@ function createMemoMarkerIcon(pin) {
   });
 }
 
+function getVisibleMapInfoPins(pins = state.milestones.filter(isMapInfoPin)) {
+  const filter = state.constructionFilter || "all";
+  const selectedTags = normalizeTagValues(state.constructionTagFilters);
+  const bounds = getCurrentMapBounds();
+  return pins.filter((pin) => {
+    if (selectedTags.length > 0 && !selectedTags.some((tag) => getPinTags(pin).includes(tag))) {
+      return false;
+    }
+    if (filter === "construction") return pin.type === "construction";
+    if (filter === "memo-pin") return pin.type === "memo";
+    if (filter === "with-memo") return Boolean(pin.memo?.trim());
+    if (filter === "tagged") return getPinTags(pin).length > 0;
+    if (filter === "map") return bounds && containsPoint(bounds, pin);
+    return true;
+  });
+}
+
+function renderConstructionFilterControls() {
+  const availableFilters = new Set(["all", "construction", "memo-pin", "with-memo", "tagged", "map"]);
+  if (!availableFilters.has(state.constructionFilter)) {
+    state.constructionFilter = "all";
+  }
+  if (els.constructionFilter) {
+    els.constructionFilter.value = state.constructionFilter;
+  }
+  const availableTags = getAllConstructionTags();
+  state.constructionTagFilters = normalizeTagValues(state.constructionTagFilters).filter((tag) =>
+    availableTags.includes(tag),
+  );
+  renderMultiTagFilter({
+    details: els.constructionTagFilter,
+    summary: els.constructionTagFilterSummary,
+    menu: els.constructionTagFilterMenu,
+    availableTags,
+    selectedTags: state.constructionTagFilters,
+    emptyText: "등록된 구역·메모 태그가 없습니다.",
+    onChange: (tags) => {
+      state.constructionTagFilters = tags;
+      persistPhotoDisplaySettings();
+      renderMilestones();
+    },
+  });
+  if (els.constructionFilterReset) {
+    els.constructionFilterReset.disabled =
+      state.constructionFilter === "all" && normalizeTagValues(state.constructionTagFilters).length === 0;
+  }
+}
+
+function getPinTags(pin) {
+  return normalizeTagValues(pin?.tags);
+}
+
+function getAllConstructionTags() {
+  return [...new Set(state.milestones.filter(isMapInfoPin).flatMap((pin) => getPinTags(pin)))];
+}
+
 function createConstructionMarkerIcon(pin) {
   const code = getMapPinLabel(pin);
   const name = String(pin.name || "").trim();
@@ -5455,6 +5577,22 @@ function openMapPinDetail(pin, projectName = "") {
   els.constructionDetailMeta.textContent = `${Number(pin.lat).toFixed(5)}, ${Number(pin.lng).toFixed(5)}`;
   els.constructionDetailMemo.textContent = pin.memo?.trim() || "등록된 메모가 없습니다.";
   els.constructionDetailMemo.classList.toggle("is-empty", !pin.memo?.trim());
+  if (els.constructionDetailTags) {
+    els.constructionDetailTags.innerHTML = "";
+    const tags = getPinTags(pin);
+    if (tags.length === 0) {
+      const empty = document.createElement("span");
+      empty.className = "is-empty";
+      empty.textContent = "등록된 태그가 없습니다.";
+      els.constructionDetailTags.append(empty);
+    } else {
+      tags.forEach((tag) => {
+        const chip = document.createElement("span");
+        chip.textContent = tag;
+        els.constructionDetailTags.append(chip);
+      });
+    }
+  }
   els.constructionDetailModal.hidden = false;
   document.body.classList.add("is-construction-detail-open");
 }
@@ -6101,13 +6239,13 @@ function escapeRegExp(value) {
 
 function getVisiblePhotos() {
   const filter = state.photoFilter || "all";
+  const selectedTags = normalizeTagValues(state.photoTagFilters);
   const todayKey = new Date().toDateString();
   const bounds = getCurrentMapBounds();
 
   const filtered = state.photos.filter((photo) => {
-    if (filter.startsWith("tag:")) {
-      const selectedTag = filter.slice(4);
-      return getPhotoTags(photo).includes(selectedTag);
+    if (selectedTags.length > 0 && !selectedTags.some((tag) => getPhotoTags(photo).includes(tag))) {
+      return false;
     }
     if (filter === "positioned") {
       return hasPhotoPosition(photo);
@@ -6153,33 +6291,31 @@ function comparePhotosForDisplay(left, right) {
 }
 
 function syncPhotoFilterOptions() {
-  const currentValue = state.photoFilter || "all";
-  const baseOptions = [
-    ["all", "전체"],
-    ["hidden", "사진 숨김"],
-    ["positioned", "네이버 지도 가능"],
-    ["missing", "위치 없음"],
-    ["map", "현재 지도"],
-    ["memo", "메모 있음"],
-    ["tagged", "태그 있음"],
-  ];
-  const tags = getAllPhotoTags();
-  els.photoFilter.innerHTML = "";
-  baseOptions.forEach(([value, label]) => {
-    els.photoFilter.append(new Option(label, value));
-  });
-  tags.forEach((tag) => {
-    els.photoFilter.append(new Option(`태그: ${tag}`, `tag:${tag}`));
-  });
-  els.photoFilter.append(new Option("오늘", "today"));
-  const availableValues = new Set([
-    ...baseOptions.map(([value]) => value),
-    ...tags.map((tag) => `tag:${tag}`),
-    "today",
-  ]);
-  if (!availableValues.has(currentValue)) {
+  const availableValues = new Set(["all", "hidden", "positioned", "missing", "map", "memo", "tagged", "today"]);
+  if (String(state.photoFilter || "").startsWith("tag:")) {
+    state.photoTagFilters = normalizeTagValues([
+      ...state.photoTagFilters,
+      String(state.photoFilter).slice(4),
+    ]);
+    state.photoFilter = "all";
+  } else if (!availableValues.has(state.photoFilter)) {
     state.photoFilter = "all";
   }
+  const availableTags = getAllPhotoTags();
+  state.photoTagFilters = normalizeTagValues(state.photoTagFilters).filter((tag) => availableTags.includes(tag));
+  renderMultiTagFilter({
+    details: els.photoTagFilter,
+    summary: els.photoTagFilterSummary,
+    menu: els.photoTagFilterMenu,
+    availableTags,
+    selectedTags: state.photoTagFilters,
+    emptyText: "등록된 사진 태그가 없습니다.",
+    onChange: (tags) => {
+      state.photoTagFilters = tags;
+      persistPhotoDisplaySettings();
+      renderPhotos();
+    },
+  });
 }
 
 function getAllPhotoTags() {
@@ -6244,6 +6380,57 @@ function closePhotoModal() {
     els.photoModalCount.textContent = "";
   }
   document.body.classList.remove("is-photo-modal-open");
+}
+
+function normalizeTagValues(value) {
+  const source = Array.isArray(value) ? value : String(value || "").split(",");
+  return [...new Set(source.map((tag) => String(tag || "").trim()).filter(Boolean))];
+}
+
+function renderMultiTagFilter({ details, summary, menu, availableTags, selectedTags, emptyText, onChange }) {
+  if (!details || !summary || !menu) {
+    return;
+  }
+  const wasOpen = details.open;
+  const available = normalizeTagValues(availableTags).sort((a, b) => a.localeCompare(b, "ko"));
+  const selected = normalizeTagValues(selectedTags).filter((tag) => available.includes(tag));
+  summary.textContent = selected.length > 0 ? `태그 ${selected.length}개` : "태그 선택";
+  summary.classList.toggle("is-active", selected.length > 0);
+  menu.innerHTML = "";
+
+  if (available.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = emptyText;
+    menu.append(empty);
+  } else {
+    available.forEach((tag) => {
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      const text = document.createElement("span");
+      checkbox.type = "checkbox";
+      checkbox.checked = selected.includes(tag);
+      text.textContent = tag;
+      checkbox.addEventListener("change", () => {
+        const next = new Set(selected);
+        if (checkbox.checked) {
+          next.add(tag);
+        } else {
+          next.delete(tag);
+        }
+        onChange([...next]);
+      });
+      label.append(checkbox, text);
+      menu.append(label);
+    });
+  }
+
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.textContent = "태그 전체 해제";
+  clearButton.disabled = selected.length === 0;
+  clearButton.addEventListener("click", () => onChange([]));
+  menu.append(clearButton);
+  details.open = wasOpen;
 }
 
 function buildNearbyPhotoSequence(anchorPhoto, preferredPhotos = [], photoPool = null) {
@@ -6780,8 +6967,11 @@ function persistPhotoDisplaySettings() {
     }
     const saved = JSON.parse(storedValue);
     saved.photoFilter = state.photoFilter;
+    saved.photoTagFilters = normalizeTagValues(state.photoTagFilters);
     saved.photoSort = state.photoSort;
     saved.photoView = state.photoView;
+    saved.constructionFilter = state.constructionFilter;
+    saved.constructionTagFilters = normalizeTagValues(state.constructionTagFilters);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     return true;
   } catch (error) {
@@ -6814,8 +7004,11 @@ function getPersistPayload() {
     autoFollow: state.autoFollow,
     mapProvider: state.mapProvider,
     photoFilter: state.photoFilter,
+    photoTagFilters: state.photoTagFilters,
     photoSort: state.photoSort,
     photoView: state.photoView,
+    constructionFilter: state.constructionFilter,
+    constructionTagFilters: state.constructionTagFilters,
     projectCode: state.projectCode,
     projectName: state.projectName,
     projectAccessRole: state.projectAccessRole,
@@ -7224,8 +7417,11 @@ function loadState() {
     state.autoFollow = saved.autoFollow !== false;
     state.mapProvider = saved.mapProvider || "osm";
     state.photoFilter = saved.photoFilter || "all";
+    state.photoTagFilters = normalizeTagValues(saved.photoTagFilters);
     state.photoSort = saved.photoSort === "captured" ? "captured" : "route";
     state.photoView = saved.photoView || "list";
+    state.constructionFilter = saved.constructionFilter || "all";
+    state.constructionTagFilters = normalizeTagValues(saved.constructionTagFilters);
     state.projectCode = saved.projectCode || "";
     state.projectName = typeof saved.projectName === "string" ? saved.projectName : "프로젝트A";
     state.projectAccessRole = saved.projectAccessRole || "";
@@ -7262,8 +7458,11 @@ function loadState() {
     state.autoFollow = true;
     state.mapProvider = "osm";
     state.photoFilter = "all";
+    state.photoTagFilters = [];
     state.photoSort = "route";
     state.photoView = "list";
+    state.constructionFilter = "all";
+    state.constructionTagFilters = [];
     state.projectCode = "";
     state.projectName = "프로젝트A";
     state.projectAccessRole = "";

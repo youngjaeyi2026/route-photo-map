@@ -1345,12 +1345,16 @@ body.is-follow-mode .control-panel {
 
 .photo-tools {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
 .photo-tools select,
-.photo-tools button {
+.photo-tools > button,
+.multi-tag-filter > summary,
+.milestone-tools select,
+.milestone-tools > button {
+  box-sizing: border-box;
   min-height: 38px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1361,15 +1365,118 @@ body.is-follow-mode .control-panel {
   font-weight: 800;
 }
 
-.photo-tools select {
+.photo-tools select,
+.milestone-tools select {
   min-width: 0;
   padding: 0 10px;
 }
 
-.photo-tools button {
-  width: 94px;
+.photo-tools > button {
+  width: 100%;
   padding: 0 12px;
   white-space: nowrap;
+}
+
+.milestone-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.milestone-tools > button {
+  min-width: 66px;
+  padding: 0 10px;
+}
+
+.multi-tag-filter {
+  position: relative;
+  min-width: 0;
+}
+
+.multi-tag-filter > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0 10px;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.multi-tag-filter > summary::-webkit-details-marker {
+  display: none;
+}
+
+.multi-tag-filter > summary::after {
+  margin-left: 8px;
+  content: "▾";
+  font-size: 10px;
+}
+
+.multi-tag-filter > summary.is-active {
+  border-color: #9bc8b2;
+  color: var(--green-dark);
+  background: #eaf4ee;
+}
+
+.multi-tag-filter__menu {
+  position: absolute;
+  z-index: 1200;
+  top: calc(100% + 5px);
+  left: 0;
+  display: grid;
+  gap: 5px;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(280px, 82vw);
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(23, 47, 37, 0.18);
+}
+
+.multi-tag-filter:not([open]) .multi-tag-filter__menu {
+  display: none;
+}
+
+.multi-tag-filter__menu label {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-height: 30px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.multi-tag-filter__menu input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--green);
+}
+
+.multi-tag-filter__menu p {
+  margin: 2px 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.multi-tag-filter__menu button {
+  width: 100%;
+  min-height: 30px;
+  margin-top: 3px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--green-dark);
+  background: #eaf4ee;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .photo-list {
@@ -1618,6 +1725,29 @@ body.is-follow-mode .control-panel {
 
 .pin-list-item small {
   margin-top: 3px;
+}
+
+.pin-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.pin-list-item .pin-tag-list span,
+.construction-detail__tags span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  overflow: visible;
+  border-radius: 999px;
+  padding: 0 7px;
+  color: var(--green-dark);
+  background: #e2f4dc;
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .pin-list-actions {
@@ -2091,6 +2221,18 @@ body.is-follow-mode .control-panel {
 .construction-detail__memo.is-empty {
   color: var(--muted);
   background: var(--soft);
+}
+
+.construction-detail__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.construction-detail__tags span.is-empty {
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
 }
 
 .construction-detail__naver-actions {
@@ -2676,13 +2818,16 @@ body.is-follow-mode .control-panel {
   }
 
   .photo-tools select,
-  .photo-tools button {
+  .photo-tools > button,
+  .multi-tag-filter > summary,
+  .milestone-tools select,
+  .milestone-tools > button {
     min-height: 32px;
     font-size: 12px;
   }
 
-.photo-tools button {
-  width: 82px;
+.photo-tools > button {
+  width: 100%;
 }
 
 .photo-tools button.is-active {
