@@ -54,6 +54,7 @@ const mimeTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -659,6 +660,18 @@ async function saveProjectState(code, body, user = null) {
       points: Array.isArray(body?.points) ? body.points : [],
       photos: Array.isArray(body?.photos) ? body.photos : [],
       milestones: Array.isArray(body?.milestones) ? body.milestones : [],
+      plannedRoutes: Object.prototype.hasOwnProperty.call(body || {}, "plannedRoutes")
+        ? sanitizePlannedRoutes(body.plannedRoutes)
+        : sanitizePlannedRoutes(previous.lastState?.plannedRoutes),
+      activePlannedRouteId: Object.prototype.hasOwnProperty.call(body || {}, "activePlannedRouteId")
+        ? body.activePlannedRouteId || null
+        : previous.lastState?.activePlannedRouteId || null,
+      mapReferences: Object.prototype.hasOwnProperty.call(body || {}, "mapReferences")
+        ? sanitizeMapReferences(body.mapReferences)
+        : sanitizeMapReferences(previous.lastState?.mapReferences),
+      activeMapReferenceId: Object.prototype.hasOwnProperty.call(body || {}, "activeMapReferenceId")
+        ? body.activeMapReferenceId || null
+        : previous.lastState?.activeMapReferenceId || null,
       savedAt: now,
     },
   });
@@ -708,11 +721,60 @@ async function deleteProjectSession(project, sessionId, user = null) {
       points: Array.isArray(nextPrimarySession?.points) ? nextPrimarySession.points : [],
       photos: Array.isArray(nextPrimarySession?.photos) ? nextPrimarySession.photos : [],
       milestones: Array.isArray(project.lastState?.milestones) ? project.lastState.milestones : [],
+      plannedRoutes: Array.isArray(project.lastState?.plannedRoutes) ? project.lastState.plannedRoutes : [],
+      activePlannedRouteId: project.lastState?.activePlannedRouteId || null,
+      mapReferences: Array.isArray(project.lastState?.mapReferences) ? project.lastState.mapReferences : [],
+      activeMapReferenceId: project.lastState?.activeMapReferenceId || null,
       reason: "delete-session",
       allowSessionReduction: true,
     },
     user,
   );
+}
+
+function sanitizePlannedRoutes(routes) {
+  if (!Array.isArray(routes)) {
+    return [];
+  }
+  return routes.slice(0, 20).map((route, index) => ({
+    id: String(route?.id || `planned-${index + 1}`).slice(0, 100),
+    name: String(route?.name || `사전 답사 ${index + 1}`).trim().slice(0, 120),
+    memo: String(route?.memo || "").slice(0, 2000),
+    source: route?.source === "image" ? "image" : "naver-manual",
+    visible: route?.visible !== false,
+    createdAt: route?.createdAt || Date.now(),
+    updatedAt: route?.updatedAt || route?.createdAt || Date.now(),
+    points: (Array.isArray(route?.points) ? route.points : [])
+      .slice(0, 10000)
+      .map((point) => ({ lat: Number(point?.lat), lng: Number(point?.lng) }))
+      .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
+  })).filter((route) => route.points.length >= 2);
+}
+
+function sanitizeMapReferences(references) {
+  if (!Array.isArray(references)) return [];
+  return references.slice(0, 12).map((reference, index) => ({
+    id: String(reference?.id || `map-reference-${index + 1}`).slice(0, 100),
+    name: String(reference?.name || `참고 지도 ${index + 1}`).trim().slice(0, 160),
+    src: String(reference?.src || "").slice(0, maxBodyBytes),
+    width: Math.max(1, Number(reference?.width || 1)),
+    height: Math.max(1, Number(reference?.height || 1)),
+    opacity: Math.min(0.85, Math.max(0.15, Number(reference?.opacity || 0.48))),
+    visible: reference?.visible !== false,
+    sourceType: reference?.sourceType === "pdf" ? "pdf" : "image",
+    pageNumber: Number(reference?.pageNumber || 1),
+    createdAt: reference?.createdAt || Date.now(),
+    updatedAt: reference?.updatedAt || reference?.createdAt || Date.now(),
+    controlPoints: (Array.isArray(reference?.controlPoints) ? reference.controlPoints : [])
+      .slice(0, 6)
+      .map((point) => ({
+        imageX: Number(point?.imageX), imageY: Number(point?.imageY),
+        lat: Number(point?.lat), lng: Number(point?.lng),
+      }))
+      .filter((point) =>
+        Number.isFinite(point.imageX) && Number.isFinite(point.imageY) &&
+        Number.isFinite(point.lat) && Number.isFinite(point.lng)),
+  })).filter((reference) => reference.src && reference.controlPoints.length >= 3);
 }
 
 function countProjectRecordItems(sessions, lastState) {
@@ -1105,6 +1167,18 @@ function createSharedProjectView(project, share) {
         }))
         .filter((pin) => Number.isFinite(pin.lat) && Number.isFinite(pin.lng))
     : [];
+  const plannedRoutes = sanitizePlannedRoutes(project.lastState?.plannedRoutes);
+  const activePlannedRouteId = plannedRoutes.some(
+    (route) => route.id === project.lastState?.activePlannedRouteId,
+  )
+    ? project.lastState.activePlannedRouteId
+    : plannedRoutes[0]?.id || null;
+  const mapReferences = sanitizeMapReferences(project.lastState?.mapReferences);
+  const activeMapReferenceId = mapReferences.some(
+    (reference) => reference.id === project.lastState?.activeMapReferenceId,
+  )
+    ? project.lastState.activeMapReferenceId
+    : mapReferences[0]?.id || null;
 
   return {
     code: "",
@@ -1117,6 +1191,10 @@ function createSharedProjectView(project, share) {
       points: routePoints,
       photos: sharedPhotos,
       milestones,
+      plannedRoutes,
+      activePlannedRouteId,
+      mapReferences,
+      activeMapReferenceId,
       savedAt: project.lastState?.savedAt || project.updatedAt || null,
     },
   };
@@ -1169,6 +1247,19 @@ async function prepareProjectPayload(code, project) {
 
   const photoMap = new Map();
   const lastStatePhotos = await uploadPhotoListToR2(code, project.lastState?.photos || [], photoMap);
+  const mapReferences = [];
+  for (const reference of project.lastState?.mapReferences || []) {
+    if (String(reference?.src || "").startsWith("data:image/")) {
+      const src = await uploadDataUrlToR2(code, {
+        id: reference.id,
+        displayName: `map-${reference.name || reference.id}`,
+        src: reference.src,
+      });
+      mapReferences.push({ ...reference, src });
+    } else {
+      mapReferences.push(reference);
+    }
+  }
   const sessions = [];
   for (const session of project.sessions || []) {
     sessions.push({
@@ -1183,6 +1274,7 @@ async function prepareProjectPayload(code, project) {
     lastState: {
       ...(project.lastState || {}),
       photos: lastStatePhotos,
+      mapReferences,
     },
   };
 }

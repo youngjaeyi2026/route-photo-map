@@ -41,7 +41,7 @@ const state = {
   wakeLock: null,
   wakeLockEnabled: false,
   autoFollow: true,
-  mapProvider: "osm",
+  mapProvider: "naver",
   photoFilter: "all",
   photoTagFilters: [],
   photoSort: "route",
@@ -92,6 +92,15 @@ const state = {
   points: [],
   photos: [],
   milestones: [],
+  plannedRoutes: [],
+  activePlannedRouteId: null,
+  plannedRouteDraft: null,
+  planningMode: false,
+  mapReferences: [],
+  activeMapReferenceId: null,
+  mapReferenceDraft: null,
+  mapAlignmentMode: false,
+  pendingMapReferenceImagePoint: null,
   overlayProjects: [],
   sessions: [],
   pendingSessionDeletes: [],
@@ -213,6 +222,26 @@ const els = {
   colorPickerOptions: document.querySelector("#colorPickerOptions"),
   colorPickerCancelBtn: document.querySelector("#colorPickerCancelBtn"),
   colorPickerConfirmBtn: document.querySelector("#colorPickerConfirmBtn"),
+  plannedRouteSection: document.querySelector("#plannedRouteSection"),
+  plannedRouteName: document.querySelector("#plannedRouteName"),
+  plannedRouteMemo: document.querySelector("#plannedRouteMemo"),
+  plannedRouteStartBtn: document.querySelector("#plannedRouteStartBtn"),
+  plannedRouteUndoBtn: document.querySelector("#plannedRouteUndoBtn"),
+  plannedRouteSaveBtn: document.querySelector("#plannedRouteSaveBtn"),
+  plannedRouteCancelBtn: document.querySelector("#plannedRouteCancelBtn"),
+  plannedRouteStatus: document.querySelector("#plannedRouteStatus"),
+  plannedRouteList: document.querySelector("#plannedRouteList"),
+  mapReferenceInput: document.querySelector("#mapReferenceInput"),
+  mapReferencePreview: document.querySelector("#mapReferencePreview"),
+  mapReferencePreviewImage: document.querySelector("#mapReferencePreviewImage"),
+  mapReferencePreviewPoints: document.querySelector("#mapReferencePreviewPoints"),
+  mapReferenceUndoBtn: document.querySelector("#mapReferenceUndoBtn"),
+  mapReferenceSaveBtn: document.querySelector("#mapReferenceSaveBtn"),
+  mapReferenceCancelBtn: document.querySelector("#mapReferenceCancelBtn"),
+  mapReferenceOpacity: document.querySelector("#mapReferenceOpacity"),
+  mapReferencePreviewZoom: document.querySelector("#mapReferencePreviewZoom"),
+  mapReferenceStatus: document.querySelector("#mapReferenceStatus"),
+  mapReferenceList: document.querySelector("#mapReferenceList"),
 };
 
 const map = L.map("map", {
@@ -254,6 +283,13 @@ const photoLayer = L.layerGroup().addTo(map);
 const milestoneLayer = L.layerGroup().addTo(map);
 const projectOverlayLayer = L.layerGroup().addTo(map);
 const pointLayer = L.layerGroup().addTo(map);
+const plannedRouteLayer = L.layerGroup().addTo(map);
+const mapReferenceControlLayer = L.layerGroup().addTo(map);
+let mapReferenceCanvas = null;
+let mapReferenceCanvasContext = null;
+let mapReferenceRenderFrame = null;
+let mapReferenceRenderRevision = 0;
+const mapReferenceImageCache = new Map();
 let programmaticMapMove = false;
 let lastFollowMapMoveAt = 0;
 let followInteractionPauseUntil = 0;
@@ -300,6 +336,18 @@ refreshServerHealth();
 refreshAuth();
 
 map.on("click", (event) => {
+  if (state.mapAlignmentMode) {
+    if (state.pendingMapReferenceImagePoint) {
+      addMapReferenceControlPair(event.latlng);
+    } else {
+      setMapReferenceStatus("먼저 왼쪽의 업로드 지도에서 같은 지점을 선택하세요.");
+    }
+    return;
+  }
+  if (state.planningMode) {
+    addPlannedRoutePoint(event.latlng);
+    return;
+  }
   if (state.pointEditMode) {
     if (state.pointAddMode) {
       state.pointAddMode = addManualRoutePoint(event.latlng);
@@ -524,6 +572,21 @@ els.constructionVisibilityBtn?.addEventListener("click", toggleConstructionVisib
 els.addConstructionPinBtn?.addEventListener("click", () => addMapPin("construction"));
 els.addMapMemoBtn?.addEventListener("click", addMapMemo);
 els.addOverlayProjectBtn?.addEventListener("click", () => addOverlayProject());
+els.plannedRouteStartBtn?.addEventListener("click", startPlannedRouteEditing);
+els.plannedRouteUndoBtn?.addEventListener("click", undoPlannedRoutePoint);
+els.plannedRouteSaveBtn?.addEventListener("click", savePlannedRoute);
+els.plannedRouteCancelBtn?.addEventListener("click", cancelPlannedRouteEditing);
+els.mapReferenceInput?.addEventListener("change", handleMapReferenceInput);
+els.mapReferencePreview?.addEventListener("click", selectMapReferenceImagePoint);
+els.mapReferencePreviewImage?.addEventListener("load", renderMapReferencePreviewPoints);
+els.mapReferenceUndoBtn?.addEventListener("click", undoMapReferenceControlPoint);
+els.mapReferenceSaveBtn?.addEventListener("click", saveMapReferenceAlignment);
+els.mapReferenceCancelBtn?.addEventListener("click", cancelMapReferenceAlignment);
+els.mapReferenceOpacity?.addEventListener("input", updateMapReferenceOpacity);
+els.mapReferencePreviewZoom?.addEventListener("input", (event) => {
+  els.mapReferencePreviewImage.style.width = `${event.target.value}%`;
+  renderMapReferencePreviewPoints();
+});
 els.overlayProjectCode?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     addOverlayProject();
@@ -1868,10 +1931,12 @@ async function createServerProject() {
     state.points.length > 0 ||
     state.photos.length > 0 ||
     state.milestones.length > 0 ||
+    state.plannedRoutes.length > 0 ||
+    state.mapReferences.length > 0 ||
     state.sessions.length > 0;
   if (hasCurrentData) {
     const ok = window.confirm(
-      "새 프로젝트를 시작할까요?\n\n현재 화면의 거리, 위치점, 사진, 공사구역, 저장된 기록이 새 프로젝트 기준으로 초기화됩니다.",
+      "새 프로젝트를 시작할까요?\n\n현재 화면의 거리, 위치점, 사진, 공사구역, 참고 지도, 사전 답사, 저장된 기록이 새 프로젝트 기준으로 초기화됩니다.",
     );
     if (!ok) {
       return;
@@ -1944,6 +2009,15 @@ function resetForNewProject() {
   state.points = [];
   state.photos = [];
   state.milestones = [];
+  state.plannedRoutes = [];
+  state.activePlannedRouteId = null;
+  state.planningMode = false;
+  state.plannedRouteDraft = null;
+  state.mapReferences = [];
+  state.activeMapReferenceId = null;
+  state.mapAlignmentMode = false;
+  state.mapReferenceDraft = null;
+  state.pendingMapReferenceImagePoint = null;
   state.constructionPinsVisible = true;
   state.photoPinsVisible = true;
   state.sessions = [];
@@ -2095,6 +2169,16 @@ async function performProjectSync(job) {
       body: JSON.stringify(payload),
     });
     if (state.projectCode === syncProjectCode) {
+      if (Array.isArray(project.lastState?.plannedRoutes)) {
+        state.plannedRoutes = normalizePlannedRoutes(project.lastState.plannedRoutes);
+        state.activePlannedRouteId = project.lastState.activePlannedRouteId || state.plannedRoutes[0]?.id || null;
+      }
+      if (Array.isArray(project.lastState?.mapReferences)) {
+        state.mapReferences = normalizeMapReferences(project.lastState.mapReferences);
+        state.activeMapReferenceId = project.lastState.activeMapReferenceId || state.mapReferences[0]?.id || null;
+        renderMapReferenceTools();
+        scheduleMapReferenceRender();
+      }
       applyProjectMeta(project);
       state.syncDirty = false;
       state.syncing = false;
@@ -2152,6 +2236,10 @@ function createProjectSyncPayload(reason) {
     points: structuredClone(state.points),
     photos: structuredClone(state.photos),
     milestones: structuredClone(state.milestones),
+    plannedRoutes: structuredClone(state.plannedRoutes),
+    activePlannedRouteId: state.activePlannedRouteId,
+    mapReferences: structuredClone(state.mapReferences),
+    activeMapReferenceId: state.activeMapReferenceId,
     sessions: structuredClone(state.sessions),
     primarySessionId: state.primarySessionId,
     baseUpdatedAt: state.projectRevision || null,
@@ -2277,6 +2365,17 @@ function applyProject(project) {
   state.milestones = normalizeMilestones(
     Array.isArray(lastState.milestones) ? structuredClone(lastState.milestones) : [],
   );
+  state.plannedRoutes = normalizePlannedRoutes(lastState.plannedRoutes || project.plannedRoutes);
+  state.activePlannedRouteId =
+    lastState.activePlannedRouteId || project.activePlannedRouteId || state.plannedRoutes[0]?.id || null;
+  state.mapReferences = normalizeMapReferences(lastState.mapReferences || project.mapReferences);
+  state.activeMapReferenceId =
+    lastState.activeMapReferenceId || project.activeMapReferenceId || state.mapReferences[0]?.id || null;
+  state.mapAlignmentMode = false;
+  state.mapReferenceDraft = null;
+  state.pendingMapReferenceImagePoint = null;
+  state.planningMode = false;
+  state.plannedRouteDraft = null;
   state.constructionPinsVisible = true;
   state.photoPinsVisible = true;
   state.points = [];
@@ -2861,7 +2960,16 @@ function resetWorkspaceForSignedOut() {
   state.points = [];
   state.photos = [];
   state.milestones = [];
+  state.plannedRoutes = [];
+  state.activePlannedRouteId = null;
+  state.planningMode = false;
+  state.plannedRouteDraft = null;
   state.overlayProjects = [];
+  state.mapReferences = [];
+  state.activeMapReferenceId = null;
+  state.mapAlignmentMode = false;
+  state.mapReferenceDraft = null;
+  state.pendingMapReferenceImagePoint = null;
   state.sessions = [];
   state.primarySessionId = null;
   state.continuingSessionId = null;
@@ -3167,6 +3275,15 @@ async function deleteMyProject(project) {
       state.points = [];
       state.photos = [];
       state.milestones = [];
+      state.plannedRoutes = [];
+      state.activePlannedRouteId = null;
+      state.planningMode = false;
+      state.plannedRouteDraft = null;
+      state.mapReferences = [];
+      state.activeMapReferenceId = null;
+      state.mapAlignmentMode = false;
+      state.mapReferenceDraft = null;
+      state.pendingMapReferenceImagePoint = null;
       state.sessions = [];
       state.primarySessionId = null;
       state.shareLinks = [];
@@ -3497,7 +3614,16 @@ function endSharedView(message) {
   state.points = [];
   state.photos = [];
   state.milestones = [];
+  state.plannedRoutes = [];
+  state.activePlannedRouteId = null;
+  state.planningMode = false;
+  state.plannedRouteDraft = null;
   state.overlayProjects = [];
+  state.mapReferences = [];
+  state.activeMapReferenceId = null;
+  state.mapAlignmentMode = false;
+  state.mapReferenceDraft = null;
+  state.pendingMapReferenceImagePoint = null;
   state.sessions = [];
   state.primarySessionId = null;
   state.selectedPosition = null;
@@ -3733,11 +3859,12 @@ function syncNaverBaseMap(resize = false) {
 }
 
 map.on("move zoom", scheduleNaverBaseMapSync);
+map.on("move zoom resize", scheduleMapReferenceRender);
 map.on("resize", () => syncNaverBaseMap(true));
 
 function clearData() {
   const ok = window.confirm(
-    "현재 화면을 새 작업 상태로 초기화할까요?\n\n화면의 동선, 사진, 공사구역, 기록, 비교 프로젝트와 현재 프로젝트 연결이 해제됩니다. 서버에 저장된 기존 프로젝트는 삭제되지 않습니다.",
+    "현재 화면을 새 작업 상태로 초기화할까요?\n\n화면의 동선, 사진, 공사구역, 참고 지도, 사전 답사, 기록, 비교 프로젝트와 현재 프로젝트 연결이 해제됩니다. 서버에 저장된 기존 프로젝트는 삭제되지 않습니다.",
   );
   if (!ok) {
     return;
@@ -3759,7 +3886,16 @@ function clearData() {
   state.points = [];
   state.photos = [];
   state.milestones = [];
+  state.plannedRoutes = [];
+  state.activePlannedRouteId = null;
+  state.planningMode = false;
+  state.plannedRouteDraft = null;
   state.constructionPinsVisible = true;
+  state.mapReferences = [];
+  state.activeMapReferenceId = null;
+  state.mapAlignmentMode = false;
+  state.mapReferenceDraft = null;
+  state.pendingMapReferenceImagePoint = null;
   state.photoPinsVisible = true;
   state.overlayProjects = [];
   state.sessions = [];
@@ -3805,8 +3941,753 @@ function clearData() {
   setStatus("화면을 초기화하고 로그인 영역을 제외한 작업 영역을 숨겼습니다.");
 }
 
+function normalizeMapReferences(references) {
+  if (!Array.isArray(references)) return [];
+  return references
+    .map((reference, index) => ({
+      id: String(reference?.id || `map-reference-${index + 1}`),
+      name: String(reference?.name || `참고 지도 ${index + 1}`).trim(),
+      src: String(reference?.src || ""),
+      width: Math.max(1, Number(reference?.width || 1)),
+      height: Math.max(1, Number(reference?.height || 1)),
+      opacity: Math.min(0.85, Math.max(0.15, Number(reference?.opacity || 0.48))),
+      visible: reference?.visible !== false,
+      sourceType: reference?.sourceType === "pdf" ? "pdf" : "image",
+      pageNumber: Number(reference?.pageNumber || 1),
+      createdAt: reference?.createdAt || Date.now(),
+      updatedAt: reference?.updatedAt || reference?.createdAt || Date.now(),
+      controlPoints: (Array.isArray(reference?.controlPoints) ? reference.controlPoints : [])
+        .map((point) => ({
+          imageX: Number(point?.imageX),
+          imageY: Number(point?.imageY),
+          lat: Number(point?.lat),
+          lng: Number(point?.lng),
+        }))
+        .filter((point) =>
+          Number.isFinite(point.imageX) && Number.isFinite(point.imageY) &&
+          Number.isFinite(point.lat) && Number.isFinite(point.lng)),
+    }))
+    .filter((reference) => reference.src && reference.controlPoints.length >= 3);
+}
+
+async function handleMapReferenceInput(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  if (state.shareView || !state.projectCode) {
+    setMapReferenceStatus("참고 지도를 저장할 프로젝트를 먼저 만들거나 불러와 주세요.");
+    return;
+  }
+  if (state.tracking || state.destinationFollow || state.pointEditMode || state.planningMode) {
+    setMapReferenceStatus("진행 중인 기록이나 편집을 마친 뒤 참고 지도를 올려 주세요.");
+    return;
+  }
+  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  const isImage = file.type.startsWith("image/");
+  if (!isPdf && !isImage) {
+    setMapReferenceStatus("JPG, PNG, WEBP 또는 PDF 파일을 선택해 주세요.");
+    return;
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    setMapReferenceStatus("파일이 너무 큽니다. 50MB 이하 이미지 또는 PDF를 사용해 주세요.");
+    return;
+  }
+  try {
+    setMapReferenceStatus(isPdf ? "PDF 첫 페이지를 지도 이미지로 변환하고 있습니다." : "지도 이미지를 준비하고 있습니다.");
+    const source = isPdf ? await renderPdfMapReference(file) : await readFileAsDataUrl(file);
+    const prepared = await resizeMapReferenceImage(source, 2400);
+    state.mapAlignmentMode = true;
+    state.pendingMapReferenceImagePoint = null;
+    state.mapReferenceDraft = {
+      id: crypto.randomUUID(),
+      name: file.name.replace(/\.[^.]+$/, "") || "참고 지도",
+      src: prepared.src,
+      width: prepared.width,
+      height: prepared.height,
+      opacity: 0.48,
+      visible: true,
+      sourceType: isPdf ? "pdf" : "image",
+      pageNumber: 1,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      controlPoints: [],
+    };
+    els.mapReferenceOpacity.value = "48";
+    els.mapReferencePreviewZoom.value = "100";
+    els.mapReferencePreviewImage.style.width = "100%";
+    await applyMapProvider("naver");
+    renderMapReferenceTools();
+    setMapReferenceStatus("업로드 지도에서 첫 번째 기준점을 선택한 뒤 네이버지도에서 같은 지점을 선택하세요.");
+  } catch (error) {
+    console.warn("Map reference preparation failed", error);
+    setMapReferenceStatus(isPdf
+      ? "PDF를 변환하지 못했습니다. 인터넷 연결을 확인하거나 첫 페이지를 이미지로 저장해 올려 주세요."
+      : "지도 이미지를 읽지 못했습니다.");
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("file_read_failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function renderPdfMapReference(file) {
+  const pdfjs = await import("/vendor/pdfjs/pdf.min.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.mjs";
+  const documentTask = pdfjs.getDocument({ data: await file.arrayBuffer() });
+  const pdfDocument = await documentTask.promise;
+  const page = await pdfDocument.getPage(1);
+  const baseViewport = page.getViewport({ scale: 1 });
+  const scale = Math.min(3, 2400 / Math.max(baseViewport.width, baseViewport.height));
+  const viewport = page.getViewport({ scale: Math.max(1.25, scale) });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const context = canvas.getContext("2d", { alpha: false });
+  await page.render({ canvasContext: context, viewport }).promise;
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
+async function resizeMapReferenceImage(src, maxDimension) {
+  const image = await loadMapReferenceImage(src);
+  const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  if (scale === 1 && src.startsWith("data:image/") && src.length < 2_500_000) {
+    return { src, width, height };
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: false });
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+  return { src: canvas.toDataURL("image/jpeg", 0.88), width, height };
+}
+
+function loadMapReferenceImage(src) {
+  if (mapReferenceImageCache.has(src)) return mapReferenceImageCache.get(src);
+  const promise = new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("map_reference_image_failed"));
+    image.src = src;
+  });
+  mapReferenceImageCache.set(src, promise);
+  promise.catch(() => mapReferenceImageCache.delete(src));
+  return promise;
+}
+
+function selectMapReferenceImagePoint(event) {
+  if (!state.mapAlignmentMode || !state.mapReferenceDraft || state.pendingMapReferenceImagePoint) return;
+  if (state.mapReferenceDraft.controlPoints.length >= 6) {
+    setMapReferenceStatus("정합점은 최대 6개입니다. 위치 맞춤을 저장해 주세요.");
+    return;
+  }
+  const bounds = els.mapReferencePreviewImage.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return;
+  state.pendingMapReferenceImagePoint = {
+    imageX: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
+    imageY: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)),
+  };
+  renderMapReferencePreviewPoints();
+  setMapReferenceStatus(`네이버지도에서 같은 지점을 선택하세요 · 정합점 ${state.mapReferenceDraft.controlPoints.length + 1}`);
+}
+
+function addMapReferenceControlPair(latlng) {
+  const draft = state.mapReferenceDraft;
+  const imagePoint = state.pendingMapReferenceImagePoint;
+  if (!draft || !imagePoint) return;
+  draft.controlPoints.push({ ...imagePoint, lat: latlng.lat, lng: latlng.lng });
+  draft.updatedAt = Date.now();
+  state.pendingMapReferenceImagePoint = null;
+  renderMapReferenceTools();
+  scheduleMapReferenceRender();
+  const count = draft.controlPoints.length;
+  setMapReferenceStatus(count < 3
+    ? `정합점 ${count}개 완료 · 업로드 지도에서 다음 기준점을 선택하세요.`
+    : `정합점 ${count}개 완료 · 겹침을 확인하고 저장하거나 최대 6개까지 추가하세요.`);
+}
+
+function undoMapReferenceControlPoint() {
+  if (!state.mapAlignmentMode || !state.mapReferenceDraft) return;
+  if (state.pendingMapReferenceImagePoint) {
+    state.pendingMapReferenceImagePoint = null;
+  } else {
+    state.mapReferenceDraft.controlPoints.pop();
+  }
+  renderMapReferenceTools();
+  scheduleMapReferenceRender();
+}
+
+function cancelMapReferenceAlignment() {
+  state.mapAlignmentMode = false;
+  state.mapReferenceDraft = null;
+  state.pendingMapReferenceImagePoint = null;
+  renderMapReferenceTools();
+  scheduleMapReferenceRender();
+  setMapReferenceStatus("위치 맞춤을 취소했습니다.");
+}
+
+async function saveMapReferenceAlignment() {
+  const draft = state.mapReferenceDraft;
+  if (!draft || draft.controlPoints.length < 3) {
+    setMapReferenceStatus("서로 떨어진 기준점을 최소 3개 지정해 주세요.");
+    return;
+  }
+  const transform = calculateMapReferenceTransform(draft);
+  if (!transform) {
+    setMapReferenceStatus("기준점이 한쪽에 몰려 위치를 계산할 수 없습니다. 넓게 떨어진 지점으로 다시 지정해 주세요.");
+    return;
+  }
+  try {
+    if (draft.src.startsWith("data:image/") && state.serverHealth?.files === "cloudflare-r2") {
+      setMapReferenceStatus("참고 지도 원본을 서버에 올리고 있습니다.");
+      const uploaded = await uploadProjectPhoto({ id: draft.id, displayName: draft.name, src: draft.src });
+      mapReferenceImageCache.delete(draft.src);
+      draft.src = uploaded.src;
+    }
+  } catch (error) {
+    console.warn("Map reference upload failed", error);
+    setMapReferenceStatus("참고 지도 업로드에 실패했습니다. 네트워크 연결을 확인한 뒤 다시 저장해 주세요.");
+    return;
+  }
+  const existingIndex = state.mapReferences.findIndex((reference) => reference.id === draft.id);
+  if (existingIndex >= 0) state.mapReferences[existingIndex] = structuredClone(draft);
+  else state.mapReferences.unshift(structuredClone(draft));
+  state.activeMapReferenceId = draft.id;
+  state.mapAlignmentMode = false;
+  state.mapReferenceDraft = null;
+  state.pendingMapReferenceImagePoint = null;
+  persist();
+  saveProjectRecoveryBackup("map-reference");
+  renderMapReferenceTools();
+  scheduleMapReferenceRender();
+  const serverSaved = await syncProjectState("map-reference");
+  setMapReferenceStatus(serverSaved
+    ? "참고 지도의 위치 맞춤을 프로젝트에 저장했습니다. 이제 위에 사전동선을 그릴 수 있습니다."
+    : "위치 맞춤을 이 기기에 보관했습니다. 서버 연결 후 다시 동기화해 주세요.");
+}
+
+function updateMapReferenceOpacity(event) {
+  const opacity = Number(event.target.value) / 100;
+  const target = state.mapAlignmentMode
+    ? state.mapReferenceDraft
+    : state.mapReferences.find((reference) => reference.id === state.activeMapReferenceId);
+  if (!target) return;
+  target.opacity = opacity;
+  target.updatedAt = Date.now();
+  if (!state.mapAlignmentMode) {
+    persist();
+    void syncProjectState("map-reference-opacity");
+  }
+  scheduleMapReferenceRender();
+}
+
+function editMapReference(referenceId) {
+  if (state.shareView) return;
+  const reference = state.mapReferences.find((item) => item.id === referenceId);
+  if (!reference) return;
+  state.mapAlignmentMode = true;
+  state.mapReferenceDraft = structuredClone(reference);
+  state.pendingMapReferenceImagePoint = null;
+  els.mapReferenceOpacity.value = String(Math.round(reference.opacity * 100));
+  void applyMapProvider("naver");
+  renderMapReferenceTools();
+  scheduleMapReferenceRender();
+  setMapReferenceStatus("기존 정합점을 확인하고 취소한 뒤 다시 지정하거나 추가할 수 있습니다.");
+}
+
+function toggleMapReference(referenceId) {
+  const reference = state.mapReferences.find((item) => item.id === referenceId);
+  if (!reference) return;
+  if (state.activeMapReferenceId !== referenceId) {
+    state.activeMapReferenceId = referenceId;
+    reference.visible = true;
+  } else {
+    reference.visible = reference.visible === false;
+  }
+  persist();
+  renderMapReferenceTools();
+  scheduleMapReferenceRender();
+  void syncProjectState("map-reference-visibility");
+}
+
+function deleteMapReference(referenceId) {
+  const reference = state.mapReferences.find((item) => item.id === referenceId);
+  if (!reference || !window.confirm(`'${reference.name}' 참고 지도를 삭제할까요?`)) return;
+  state.mapReferences = state.mapReferences.filter((item) => item.id !== referenceId);
+  if (state.activeMapReferenceId === referenceId) {
+    state.activeMapReferenceId = state.mapReferences[0]?.id || null;
+  }
+  persist();
+  renderMapReferenceTools();
+  scheduleMapReferenceRender();
+  void syncProjectState("delete-map-reference");
+}
+
+function setMapReferenceStatus(message) {
+  if (els.mapReferenceStatus) els.mapReferenceStatus.textContent = message;
+}
+
+function renderMapReferenceTools() {
+  const draft = state.mapAlignmentMode ? state.mapReferenceDraft : null;
+  els.mapReferencePreview.hidden = !draft;
+  if (draft) {
+    if (els.mapReferencePreviewImage.src !== draft.src) els.mapReferencePreviewImage.src = draft.src;
+    els.mapReferenceOpacity.value = String(Math.round(draft.opacity * 100));
+  } else {
+    els.mapReferencePreviewImage.removeAttribute("src");
+  }
+  renderMapReferencePreviewPoints();
+  els.mapReferenceUndoBtn.disabled = !draft || (!draft.controlPoints.length && !state.pendingMapReferenceImagePoint);
+  els.mapReferenceSaveBtn.disabled = !draft || draft.controlPoints.length < 3;
+  els.mapReferenceCancelBtn.disabled = !draft;
+  els.mapReferenceInput.disabled = Boolean(state.shareView || state.mapAlignmentMode);
+  els.mapReferenceList.replaceChildren();
+  state.mapReferences.forEach((reference) => {
+    const item = document.createElement("article");
+    item.className = "map-reference-item";
+    item.classList.toggle("is-active", reference.id === state.activeMapReferenceId);
+    const info = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = reference.name;
+    const meta = document.createElement("span");
+    meta.textContent = `${reference.sourceType === "pdf" ? "PDF 1쪽" : "지도 이미지"} · 정합점 ${reference.controlPoints.length}개`;
+    info.append(title, meta);
+    const actions = document.createElement("div");
+    actions.className = "map-reference-item__actions";
+    [
+      [reference.id === state.activeMapReferenceId && reference.visible !== false ? "숨기기" : "지도에 보기", () => toggleMapReference(reference.id), reference.id === state.activeMapReferenceId && reference.visible !== false],
+      ["다시 맞춤", () => editMapReference(reference.id), false],
+      ["삭제", () => deleteMapReference(reference.id), false],
+    ].forEach(([label, handler, active]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.classList.toggle("is-active", active);
+      button.disabled = Boolean(state.shareView);
+      button.addEventListener("click", handler);
+      actions.append(button);
+    });
+    item.append(info, actions);
+    els.mapReferenceList.append(item);
+  });
+}
+
+function renderMapReferencePreviewPoints() {
+  if (!els.mapReferencePreviewPoints) return;
+  els.mapReferencePreviewPoints.replaceChildren();
+  const draft = state.mapReferenceDraft;
+  if (!draft) return;
+  els.mapReferencePreviewPoints.style.width = `${els.mapReferencePreviewImage.offsetWidth}px`;
+  els.mapReferencePreviewPoints.style.height = `${els.mapReferencePreviewImage.offsetHeight}px`;
+  const points = [...draft.controlPoints.map((point) => ({ ...point, pending: false }))];
+  if (state.pendingMapReferenceImagePoint) points.push({ ...state.pendingMapReferenceImagePoint, pending: true });
+  points.forEach((point, index) => {
+    const marker = document.createElement("span");
+    marker.className = "map-reference-preview__point";
+    marker.classList.toggle("is-pending", point.pending);
+    marker.style.left = `${point.imageX * 100}%`;
+    marker.style.top = `${point.imageY * 100}%`;
+    marker.textContent = String(index + 1);
+    els.mapReferencePreviewPoints.append(marker);
+  });
+}
+
+function ensureMapReferenceCanvas() {
+  if (mapReferenceCanvas || typeof map.getContainer !== "function") return;
+  mapReferenceCanvas = document.createElement("canvas");
+  mapReferenceCanvas.className = "map-reference-overlay-canvas";
+  map.getContainer().append(mapReferenceCanvas);
+  mapReferenceCanvasContext = mapReferenceCanvas.getContext("2d");
+}
+
+function scheduleMapReferenceRender() {
+  if (mapReferenceRenderFrame !== null) return;
+  mapReferenceRenderFrame = window.requestAnimationFrame(() => {
+    mapReferenceRenderFrame = null;
+    void renderMapReferenceOverlay();
+  });
+}
+
+async function renderMapReferenceOverlay() {
+  const renderRevision = ++mapReferenceRenderRevision;
+  ensureMapReferenceCanvas();
+  if (!mapReferenceCanvas || !mapReferenceCanvasContext || typeof map.getSize !== "function") return;
+  const size = map.getSize();
+  const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+  const width = Math.max(1, Math.round(size.x * pixelRatio));
+  const height = Math.max(1, Math.round(size.y * pixelRatio));
+  if (mapReferenceCanvas.width !== width || mapReferenceCanvas.height !== height) {
+    mapReferenceCanvas.width = width;
+    mapReferenceCanvas.height = height;
+  }
+  mapReferenceCanvas.style.width = `${size.x}px`;
+  mapReferenceCanvas.style.height = `${size.y}px`;
+  const context = mapReferenceCanvasContext;
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.clearRect(0, 0, width, height);
+  const reference = state.mapAlignmentMode && state.mapReferenceDraft?.controlPoints.length >= 3
+    ? state.mapReferenceDraft
+    : state.mapReferences.find((item) => item.id === state.activeMapReferenceId && item.visible !== false);
+  if (!reference || reference.controlPoints.length < 3) {
+    renderMapReferenceControlMarkers(null);
+    return;
+  }
+  const transform = calculateMapReferenceTransform(reference);
+  if (!transform) return;
+  try {
+    const image = await loadMapReferenceImage(reference.src);
+    if (renderRevision !== mapReferenceRenderRevision) return;
+    context.save();
+    context.globalAlpha = reference.opacity;
+    context.setTransform(
+      pixelRatio * transform.a,
+      pixelRatio * transform.b,
+      pixelRatio * transform.c,
+      pixelRatio * transform.d,
+      pixelRatio * transform.e,
+      pixelRatio * transform.f,
+    );
+    context.drawImage(image, 0, 0, reference.width, reference.height);
+    context.restore();
+  } catch (error) {
+    console.warn("Map reference render failed", error);
+  }
+  renderMapReferenceControlMarkers(state.mapAlignmentMode ? reference : null);
+}
+
+function renderMapReferenceControlMarkers(reference) {
+  mapReferenceControlLayer.clearLayers();
+  if (!reference) return;
+  reference.controlPoints.forEach((point, index) => {
+    L.marker([point.lat, point.lng], {
+      icon: L.divIcon({
+        className: "map-reference-control-icon",
+        html: `<span>${index + 1}</span>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      }),
+      interactive: false,
+    }).addTo(mapReferenceControlLayer);
+  });
+}
+
+function calculateMapReferenceTransform(reference) {
+  if (!reference || reference.controlPoints.length < 3 || typeof map.latLngToContainerPoint !== "function") return null;
+  const rows = reference.controlPoints.map((point) => [
+    point.imageX * reference.width,
+    point.imageY * reference.height,
+    1,
+  ]);
+  const targets = reference.controlPoints.map((point) => map.latLngToContainerPoint([point.lat, point.lng]));
+  const xCoefficients = solveLeastSquares3(rows, targets.map((point) => point.x));
+  const yCoefficients = solveLeastSquares3(rows, targets.map((point) => point.y));
+  if (!xCoefficients || !yCoefficients) return null;
+  return {
+    a: xCoefficients[0], c: xCoefficients[1], e: xCoefficients[2],
+    b: yCoefficients[0], d: yCoefficients[1], f: yCoefficients[2],
+  };
+}
+
+function solveLeastSquares3(rows, values) {
+  const normal = Array.from({ length: 3 }, () => [0, 0, 0]);
+  const right = [0, 0, 0];
+  rows.forEach((row, rowIndex) => {
+    for (let i = 0; i < 3; i += 1) {
+      right[i] += row[i] * values[rowIndex];
+      for (let j = 0; j < 3; j += 1) normal[i][j] += row[i] * row[j];
+    }
+  });
+  for (let column = 0; column < 3; column += 1) {
+    let pivot = column;
+    for (let row = column + 1; row < 3; row += 1) {
+      if (Math.abs(normal[row][column]) > Math.abs(normal[pivot][column])) pivot = row;
+    }
+    if (Math.abs(normal[pivot][column]) < 1e-8) return null;
+    [normal[column], normal[pivot]] = [normal[pivot], normal[column]];
+    [right[column], right[pivot]] = [right[pivot], right[column]];
+    const divisor = normal[column][column];
+    for (let j = column; j < 3; j += 1) normal[column][j] /= divisor;
+    right[column] /= divisor;
+    for (let row = 0; row < 3; row += 1) {
+      if (row === column) continue;
+      const factor = normal[row][column];
+      for (let j = column; j < 3; j += 1) normal[row][j] -= factor * normal[column][j];
+      right[row] -= factor * right[column];
+    }
+  }
+  return right;
+}
+
+function normalizePlannedRoutes(routes) {
+  if (!Array.isArray(routes)) {
+    return [];
+  }
+  return routes
+    .map((route, index) => ({
+      id: String(route?.id || `planned-${index + 1}`),
+      name: String(route?.name || `사전 답사 ${index + 1}`).trim(),
+      memo: String(route?.memo || ""),
+      source: route?.source === "image" ? "image" : "naver-manual",
+      visible: route?.visible !== false,
+      createdAt: route?.createdAt || Date.now(),
+      updatedAt: route?.updatedAt || route?.createdAt || Date.now(),
+      points: (Array.isArray(route?.points) ? route.points : [])
+        .map((point) => ({ lat: Number(point?.lat), lng: Number(point?.lng) }))
+        .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
+    }))
+    .filter((route) => route.points.length >= 2);
+}
+
+async function startPlannedRouteEditing(routeId = null) {
+  if (state.shareView) {
+    setStatus("공유 화면에서는 사전 답사를 수정할 수 없습니다.", "warning");
+    return;
+  }
+  if (!state.projectCode) {
+    setProjectStatus("사전 답사를 저장할 프로젝트를 먼저 만들거나 불러와 주세요.");
+    els.projectName?.focus();
+    return;
+  }
+  if (state.tracking || state.destinationFollow || state.pointEditMode || state.mapAlignmentMode) {
+    setStatus("기록·따라가기·위치 편집을 마친 뒤 사전 답사를 만들어 주세요.", "warning");
+    return;
+  }
+  const existing = state.plannedRoutes.find((route) => route.id === routeId);
+  state.planningMode = true;
+  state.plannedRouteDraft = existing
+    ? structuredClone(existing)
+    : {
+        id: crypto.randomUUID(),
+        name: `${state.projectName || "프로젝트"} 사전 답사`,
+        memo: "",
+        source: "naver-manual",
+        visible: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        points: [],
+      };
+  els.plannedRouteName.value = state.plannedRouteDraft.name;
+  els.plannedRouteMemo.value = state.plannedRouteDraft.memo;
+  await applyMapProvider("naver");
+  renderPlannedRoutes();
+  if (existing?.points?.length) {
+    fitPlannedRoute(existing.points);
+  }
+  setStatus("네이버지도 위 도로를 출발지부터 도착지 순서로 선택하세요.", "active");
+}
+
+function addPlannedRoutePoint(latlng) {
+  if (!state.planningMode || !state.plannedRouteDraft) {
+    return;
+  }
+  state.plannedRouteDraft.points.push({ lat: latlng.lat, lng: latlng.lng });
+  state.plannedRouteDraft.updatedAt = Date.now();
+  renderPlannedRoutes();
+  setStatus(`사전 답사 위치점 ${state.plannedRouteDraft.points.length}개를 지정했습니다.`, "active");
+}
+
+function undoPlannedRoutePoint() {
+  if (!state.planningMode || !state.plannedRouteDraft?.points.length) {
+    return;
+  }
+  state.plannedRouteDraft.points.pop();
+  state.plannedRouteDraft.updatedAt = Date.now();
+  renderPlannedRoutes();
+}
+
+function cancelPlannedRouteEditing() {
+  state.planningMode = false;
+  state.plannedRouteDraft = null;
+  if (els.plannedRouteName) els.plannedRouteName.value = "";
+  if (els.plannedRouteMemo) els.plannedRouteMemo.value = "";
+  renderPlannedRoutes();
+  setStatus("사전 답사 편집을 취소했습니다.", "warning");
+}
+
+async function savePlannedRoute() {
+  const draft = state.plannedRouteDraft;
+  if (!state.planningMode || !draft || draft.points.length < 2) {
+    setStatus("사전 답사는 위치점을 2개 이상 지정해야 저장할 수 있습니다.", "warning");
+    return;
+  }
+  draft.name = els.plannedRouteName.value.trim() || `${state.projectName || "프로젝트"} 사전 답사`;
+  draft.memo = els.plannedRouteMemo.value.trim();
+  draft.updatedAt = Date.now();
+  const existingIndex = state.plannedRoutes.findIndex((route) => route.id === draft.id);
+  if (existingIndex >= 0) {
+    state.plannedRoutes[existingIndex] = structuredClone(draft);
+  } else {
+    state.plannedRoutes.unshift(structuredClone(draft));
+  }
+  state.activePlannedRouteId = draft.id;
+  state.planningMode = false;
+  state.plannedRouteDraft = null;
+  els.plannedRouteName.value = "";
+  els.plannedRouteMemo.value = "";
+  persist();
+  saveProjectRecoveryBackup("planned-route");
+  renderPlannedRoutes();
+  const serverSaved = await syncProjectState("planned-route");
+  setStatus(
+    serverSaved
+      ? "사전 답사를 프로젝트에 저장했습니다. 프로젝트 공유에도 함께 표시됩니다."
+      : "사전 답사를 이 기기에 보관했습니다. 서버 연결 후 다시 동기화해 주세요.",
+    serverSaved ? "success" : "warning",
+  );
+}
+
+function setActivePlannedRoute(routeId) {
+  state.activePlannedRouteId = routeId;
+  persist();
+  renderPlannedRoutes();
+  void syncProjectState("planned-route-active");
+}
+
+function togglePlannedRouteVisibility(routeId) {
+  const route = state.plannedRoutes.find((item) => item.id === routeId);
+  if (!route) return;
+  route.visible = route.visible === false;
+  route.updatedAt = Date.now();
+  persist();
+  renderPlannedRoutes();
+  void syncProjectState("planned-route-visibility");
+}
+
+function deletePlannedRoute(routeId) {
+  const route = state.plannedRoutes.find((item) => item.id === routeId);
+  if (!route || !window.confirm(`'${route.name}' 사전 답사를 삭제할까요?`)) {
+    return;
+  }
+  state.plannedRoutes = state.plannedRoutes.filter((item) => item.id !== routeId);
+  if (state.activePlannedRouteId === routeId) {
+    state.activePlannedRouteId = state.plannedRoutes[0]?.id || null;
+  }
+  persist();
+  renderPlannedRoutes();
+  void syncProjectState("delete-planned-route");
+}
+
+function fitPlannedRoute(points) {
+  const bounds = L.latLngBounds([]);
+  points.forEach((point) => bounds.extend([point.lat, point.lng]));
+  if (bounds.isValid()) {
+    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 17 });
+  }
+}
+
+function renderPlannedRoutes() {
+  plannedRouteLayer.clearLayers();
+  const routesToDraw = state.plannedRoutes.filter((route) => route.visible !== false);
+  routesToDraw.forEach((route) => {
+    L.polyline(route.points.map((point) => [point.lat, point.lng]), {
+      color: route.id === state.activePlannedRouteId ? "#d96c1f" : "#c98c2b",
+      weight: route.id === state.activePlannedRouteId ? 6 : 4,
+      opacity: 0.9,
+      dashArray: "12 9",
+      lineCap: "round",
+      lineJoin: "round",
+    }).addTo(plannedRouteLayer);
+  });
+
+  const draft = state.planningMode ? state.plannedRouteDraft : null;
+  if (draft) {
+    if (draft.points.length > 0) {
+      L.polyline(draft.points.map((point) => [point.lat, point.lng]), {
+        color: "#ee7b22",
+        weight: 6,
+        opacity: 0.95,
+        dashArray: "10 7",
+        lineCap: "round",
+        lineJoin: "round",
+      }).addTo(plannedRouteLayer);
+    }
+    draft.points.forEach((point, index) => {
+      const marker = L.marker([point.lat, point.lng], {
+        draggable: true,
+        icon: L.divIcon({
+          className: "planned-route-point-icon",
+          html: `<span>${index + 1}</span>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        }),
+      }).addTo(plannedRouteLayer);
+      marker.on("dragend", (event) => {
+        const next = event.target.getLatLng();
+        draft.points[index] = { lat: next.lat, lng: next.lng };
+        draft.updatedAt = Date.now();
+        renderPlannedRoutes();
+      });
+    });
+  }
+
+  if (!els.plannedRouteList) return;
+  els.plannedRouteList.replaceChildren();
+  state.plannedRoutes.forEach((route) => {
+    const item = document.createElement("article");
+    item.className = "planned-route-item";
+    item.classList.toggle("is-active", route.id === state.activePlannedRouteId);
+    const info = document.createElement("div");
+    info.className = "planned-route-item__info";
+    const title = document.createElement("strong");
+    title.textContent = route.name;
+    const meta = document.createElement("span");
+    const distance = route.points.reduce((total, point, index, points) =>
+      index ? total + getDistanceMeters(points[index - 1], point) : total, 0);
+    meta.textContent = `${route.points.length}점 · ${formatDistance(distance)}${route.memo ? ` · ${route.memo}` : ""}`;
+    info.append(title, meta);
+    const actions = document.createElement("div");
+    actions.className = "planned-route-item__actions";
+    const actionItems = [
+      [route.visible === false ? "보기" : "숨기기", () => togglePlannedRouteVisibility(route.id), false],
+      [route.id === state.activePlannedRouteId ? "기준" : "기준 지정", () => setActivePlannedRoute(route.id), route.id === state.activePlannedRouteId],
+      ["수정", () => startPlannedRouteEditing(route.id), false],
+      ["삭제", () => deletePlannedRoute(route.id), false],
+    ];
+    actionItems.forEach(([label, handler, active]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.classList.toggle("is-active", active);
+      button.disabled = Boolean(state.shareView);
+      button.addEventListener("click", handler);
+      actions.append(button);
+    });
+    item.append(info, actions);
+    els.plannedRouteList.append(item);
+  });
+  if (state.plannedRoutes.length === 0 && !state.planningMode) {
+    const empty = document.createElement("p");
+    empty.className = "status-text";
+    empty.textContent = "저장된 사전 답사가 없습니다.";
+    els.plannedRouteList.append(empty);
+  }
+  els.plannedRouteStartBtn.textContent = state.planningMode ? "지도에서 위치 선택 중" : "사전 답사 만들기";
+  els.plannedRouteStartBtn.disabled = state.planningMode || state.mapAlignmentMode || Boolean(state.shareView);
+  els.plannedRouteUndoBtn.disabled = !state.planningMode || !draft?.points.length;
+  els.plannedRouteSaveBtn.disabled = !state.planningMode || (draft?.points.length || 0) < 2;
+  els.plannedRouteCancelBtn.disabled = !state.planningMode;
+  els.plannedRouteName.disabled = !state.planningMode;
+  els.plannedRouteMemo.disabled = !state.planningMode;
+  els.plannedRouteStatus.textContent = state.planningMode
+    ? `지도 클릭으로 경로를 지정하는 중입니다 · ${draft?.points.length || 0}점`
+    : state.activePlannedRouteId
+      ? "주황색 점선은 현장 기록과 구분되는 사전 답사 기준선입니다."
+      : "만들기를 누른 뒤 지도 위 도로를 이동 순서대로 선택하세요.";
+}
+
 function render() {
   renderRouteLines();
+  renderMapReferenceTools();
+  scheduleMapReferenceRender();
+  renderPlannedRoutes();
 
   const latest = getLatestPosition();
   if (latest) {
@@ -6848,6 +7729,12 @@ function getSessionUpdatedTime(session) {
 
 function fitToData() {
   const bounds = L.latLngBounds([]);
+  state.mapReferences
+    .filter((reference) => reference.visible !== false)
+    .forEach((reference) => reference.controlPoints.forEach((point) => bounds.extend([point.lat, point.lng])));
+  state.plannedRoutes
+    .filter((route) => route.visible !== false)
+    .forEach((route) => route.points.forEach((point) => bounds.extend([point.lat, point.lng])));
   state.points.forEach((point) => bounds.extend([point.lat, point.lng]));
   if (state.photoPinsVisible) {
     state.photos.filter(hasPhotoPosition).forEach((photo) => bounds.extend([photo.lat, photo.lng]));
@@ -6986,6 +7873,10 @@ function getPersistPayload() {
     points: state.points,
     photos: state.photos,
     milestones: state.milestones,
+    plannedRoutes: state.plannedRoutes,
+    activePlannedRouteId: state.activePlannedRouteId,
+    mapReferences: state.mapReferences,
+    activeMapReferenceId: state.activeMapReferenceId,
     overlayProjects: state.overlayProjects,
     sessions: state.sessions,
     pendingSessionDeletes: state.pendingSessionDeletes,
@@ -7028,7 +7919,9 @@ function saveProjectRecoveryBackup(reason = "local", serverConfirmed = false) {
     state.sessions.length > 0 ||
     state.points.length > 0 ||
     state.photos.length > 0 ||
-    state.milestones.length > 0;
+    state.milestones.length > 0 ||
+    state.plannedRoutes.length > 0 ||
+    state.mapReferences.length > 0;
   if (!hasRecordData) {
     return;
   }
@@ -7044,6 +7937,10 @@ function saveProjectRecoveryBackup(reason = "local", serverConfirmed = false) {
     points: structuredClone(state.points),
     photos: createRecoveryPhotoList(state.photos),
     milestones: structuredClone(state.milestones),
+    plannedRoutes: structuredClone(state.plannedRoutes),
+    activePlannedRouteId: state.activePlannedRouteId,
+    mapReferences: structuredClone(state.mapReferences),
+    activeMapReferenceId: state.activeMapReferenceId,
     sessions: state.sessions.map((session) => ({
       ...structuredClone(session),
       photos: createRecoveryPhotoList(session.photos || []),
@@ -7172,6 +8069,10 @@ function applyProjectRecoveryBackup(project, backup) {
   state.milestones = normalizeMilestones(
     Array.isArray(backup.milestones) ? structuredClone(backup.milestones) : [],
   );
+  state.plannedRoutes = normalizePlannedRoutes(backup.plannedRoutes || state.plannedRoutes);
+  state.activePlannedRouteId = backup.activePlannedRouteId || state.plannedRoutes[0]?.id || null;
+  state.mapReferences = normalizeMapReferences(backup.mapReferences || state.mapReferences);
+  state.activeMapReferenceId = backup.activeMapReferenceId || state.mapReferences[0]?.id || null;
   const primarySession = state.sessions.find((session) => session.id === state.primarySessionId);
   if (primarySession) {
     state.points = structuredClone(primarySession.points || state.points);
@@ -7392,6 +8293,15 @@ function loadState() {
     state.points = Array.isArray(saved.points) ? saved.points : [];
     state.photos = Array.isArray(saved.photos) ? saved.photos : [];
     state.milestones = normalizeMilestones(Array.isArray(saved.milestones) ? saved.milestones : []);
+    state.plannedRoutes = normalizePlannedRoutes(saved.plannedRoutes);
+    state.activePlannedRouteId = saved.activePlannedRouteId || state.plannedRoutes[0]?.id || null;
+    state.mapReferences = normalizeMapReferences(saved.mapReferences);
+    state.activeMapReferenceId = saved.activeMapReferenceId || state.mapReferences[0]?.id || null;
+    state.mapAlignmentMode = false;
+    state.mapReferenceDraft = null;
+    state.pendingMapReferenceImagePoint = null;
+    state.planningMode = false;
+    state.plannedRouteDraft = null;
     state.overlayProjects = Array.isArray(saved.overlayProjects)
       ? saved.overlayProjects.map((project, index) => normalizeOverlayProject(project, index)).filter(Boolean)
       : [];
@@ -7415,7 +8325,7 @@ function loadState() {
     state.continuingSessionId = saved.continuingSessionId || null;
     state.wakeLockEnabled = Boolean(saved.wakeLockEnabled);
     state.autoFollow = saved.autoFollow !== false;
-    state.mapProvider = saved.mapProvider || "osm";
+    state.mapProvider = saved.mapProvider || "naver";
     state.photoFilter = saved.photoFilter || "all";
     state.photoTagFilters = normalizeTagValues(saved.photoTagFilters);
     state.photoSort = saved.photoSort === "captured" ? "captured" : "route";
@@ -7436,6 +8346,15 @@ function loadState() {
     state.points = [];
     state.photos = [];
     state.milestones = [];
+    state.plannedRoutes = [];
+    state.activePlannedRouteId = null;
+    state.mapReferences = [];
+    state.activeMapReferenceId = null;
+    state.mapAlignmentMode = false;
+    state.mapReferenceDraft = null;
+    state.pendingMapReferenceImagePoint = null;
+    state.planningMode = false;
+    state.plannedRouteDraft = null;
     state.overlayProjects = [];
     state.sessions = [];
     state.primarySessionId = null;
@@ -7456,7 +8375,7 @@ function loadState() {
     state.continuingSessionId = null;
     state.wakeLockEnabled = false;
     state.autoFollow = true;
-    state.mapProvider = "osm";
+    state.mapProvider = "naver";
     state.photoFilter = "all";
     state.photoTagFilters = [];
     state.photoSort = "route";

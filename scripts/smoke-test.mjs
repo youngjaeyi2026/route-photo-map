@@ -73,7 +73,13 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260904-multi-tag-filter-1/);
+  assert.match(pageHtml, /20260909-map-alignment-1/);
+  assert.match(pageHtml, /id="mapReferenceInput"[^>]+application\/pdf/);
+  assert.match(pageHtml, /id="mapReferencePreview"/);
+  assert.match(pageHtml, /id="mapReferenceSaveBtn"/);
+  const pdfModuleResponse = await fetch(`${baseUrl}/vendor/pdfjs/pdf.min.mjs`);
+  assert.equal(pdfModuleResponse.status, 200);
+  assert.match(pdfModuleResponse.headers.get("content-type") || "", /text\/javascript/);
   assert.match(pageHtml, /id="naverMapBase"/);
   assert.match(pageHtml, /id="photoInput"[^>]+multiple/);
   assert.match(pageHtml, /id="photoModalPrevious"/);
@@ -194,6 +200,13 @@ try {
   const appResponse = await fetch(`${baseUrl}/app.js`);
   const appSource = await appResponse.text();
   assert.equal(appResponse.status, 200);
+  const affineSolverSource = appSource.match(/function solveLeastSquares3\(rows, values\) \{[\s\S]+?\n\}/)?.[0];
+  assert.ok(affineSolverSource);
+  const solveAffine = Function(`${affineSolverSource}; return solveLeastSquares3;`)();
+  assert.deepEqual(
+    solveAffine([[0, 0, 1], [10, 0, 1], [0, 10, 1]], [5, 25, 5]).map((value) => Math.round(value)),
+    [2, 0, 5],
+  );
   assert.match(
     appSource,
     /state\.milestones = normalizeMilestones\([\s\S]+?const primarySession[\s\S]+?if \(primarySession\)/,
@@ -482,6 +495,31 @@ try {
       tags: "안전,점검",
     },
   ];
+  const plannedRoutes = [
+    {
+      id: "planned-1",
+      name: "사전 답사 A",
+      memo: "현장 확인용",
+      visible: true,
+      points: routePoints,
+    },
+  ];
+  const mapReferences = [
+    {
+      id: "map-reference-1",
+      name: "A구간 계획도",
+      src: "data:image/png;base64,iVBORw0KGgo=",
+      width: 1000,
+      height: 800,
+      opacity: 0.48,
+      visible: true,
+      controlPoints: [
+        { imageX: 0.1, imageY: 0.1, lat: 37.5, lng: 127.0 },
+        { imageX: 0.9, imageY: 0.1, lat: 37.5, lng: 127.01 },
+        { imageX: 0.1, imageY: 0.9, lat: 37.51, lng: 127.0 },
+      ],
+    },
+  ];
   const saveResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -490,6 +528,10 @@ try {
       points: routePoints,
       photos: privatePhotos,
       milestones: constructionPins,
+      plannedRoutes,
+      activePlannedRouteId: "planned-1",
+      mapReferences,
+      activeMapReferenceId: "map-reference-1",
       sessions: [{ id: "route-1", points: routePoints, photos: privatePhotos }],
       primarySessionId: "route-1",
     }),
@@ -645,6 +687,10 @@ try {
   assert.deepEqual(shared.project.sessions[0].photos, []);
   assert.deepEqual(shared.project.lastState.photos, []);
   assert.deepEqual(shared.project.lastState.milestones, []);
+  assert.equal(shared.project.lastState.plannedRoutes[0].name, "사전 답사 A");
+  assert.equal(shared.project.lastState.activePlannedRouteId, "planned-1");
+  assert.equal(shared.project.lastState.mapReferences[0].name, "A구간 계획도");
+  assert.equal(shared.project.lastState.activeMapReferenceId, "map-reference-1");
   assert.equal(shared.share.includePhotos, false);
   assert.equal(shared.share.includeConstruction, false);
   assert.doesNotMatch(sharedText, /private-photo|공유 금지 사진|example\.invalid/);
@@ -667,6 +713,26 @@ try {
   assert.equal(detailedShared.project.lastState.milestones[0].displayCode, "D1");
   assert.equal(detailedShared.project.lastState.milestones[0].color, "#315f9e");
   assert.equal(detailedShared.project.lastState.milestones[0].tags, "교량,보수");
+
+  const legacyMobileSaveResponse = await fetch(`${baseUrl}/api/projects/${project.code}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "smoke-test",
+      points: routePoints,
+      photos: privatePhotos,
+      milestones: constructionPins,
+      sessions: [{ id: "route-1", points: routePoints, photos: privatePhotos }],
+      primarySessionId: "route-1",
+      reason: "mobile-save-without-planned-routes",
+    }),
+  });
+  assert.equal(legacyMobileSaveResponse.status, 200);
+  const legacyMobileSaved = await legacyMobileSaveResponse.json();
+  assert.equal(legacyMobileSaved.lastState.plannedRoutes[0].id, "planned-1");
+  assert.equal(legacyMobileSaved.lastState.activePlannedRouteId, "planned-1");
+  assert.equal(legacyMobileSaved.lastState.mapReferences[0].id, "map-reference-1");
+  assert.equal(legacyMobileSaved.lastState.activeMapReferenceId, "map-reference-1");
 
   const customExpiry = new Date(Date.now() + 1000 * 60 * 60 * 36).toISOString();
   const updateShareResponse = await fetch(`${baseUrl}/api/projects/${project.code}/share/${share.token}`, {

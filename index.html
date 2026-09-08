@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260904-multi-tag-filter-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260909-map-alignment-1" />
   </head>
   <body>
     <script>
@@ -98,6 +98,50 @@
             <span class="metric-value" id="photoValue">0</span>
             <span class="metric-label">사진</span>
           </div>
+        </section>
+
+        <section id="plannedRouteSection" class="panel-section planned-route-section">
+          <div class="section-title">
+            <h2>사전 답사</h2>
+            <span class="badge">참고용</span>
+          </div>
+          <p class="hint">네이버지도에서 이동 예정 경로를 미리 만들고 현장 답사 때 비교합니다.</p>
+          <div class="map-reference-tools">
+            <label class="map-reference-upload" for="mapReferenceInput">지도 이미지/PDF 업로드</label>
+            <input id="mapReferenceInput" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" />
+            <div id="mapReferencePreview" class="map-reference-preview" hidden>
+              <img id="mapReferencePreviewImage" alt="업로드한 지도 정합점 선택" />
+              <div id="mapReferencePreviewPoints" class="map-reference-preview__points"></div>
+            </div>
+            <label class="map-reference-opacity">
+              <span>원본 확대</span>
+              <input id="mapReferencePreviewZoom" type="range" min="100" max="400" step="25" value="100" />
+            </label>
+            <div class="map-reference-alignment-actions">
+              <button id="mapReferenceUndoBtn" type="button" disabled>정합점 취소</button>
+              <button id="mapReferenceSaveBtn" type="button" disabled>위치 맞춤 저장</button>
+              <button id="mapReferenceCancelBtn" type="button" disabled>취소</button>
+            </div>
+            <label class="map-reference-opacity">
+              <span>겹침 투명도</span>
+              <input id="mapReferenceOpacity" type="range" min="15" max="85" value="48" />
+            </label>
+            <p id="mapReferenceStatus" class="status-text">이미지 또는 PDF를 올리면 위치 맞춤을 시작합니다.</p>
+            <p class="hint">교차로 중심, 교량 끝, 건물 모서리처럼 양쪽 지도에서 정확히 찾을 수 있고 서로 멀리 떨어진 지점을 선택하세요.</p>
+            <div id="mapReferenceList" class="map-reference-list"></div>
+          </div>
+          <div class="planned-route-form">
+            <input id="plannedRouteName" type="text" placeholder="사전 답사명" aria-label="사전 답사 이름" />
+            <textarea id="plannedRouteMemo" rows="2" placeholder="메모 (선택)" aria-label="사전 답사 메모"></textarea>
+          </div>
+          <div class="planned-route-actions">
+            <button id="plannedRouteStartBtn" class="primary-action" type="button">사전 답사 만들기</button>
+            <button id="plannedRouteUndoBtn" type="button" disabled>마지막 점 취소</button>
+            <button id="plannedRouteSaveBtn" type="button" disabled>사전 답사 저장</button>
+            <button id="plannedRouteCancelBtn" type="button" disabled>취소</button>
+          </div>
+          <p id="plannedRouteStatus" class="status-text">만들기를 누른 뒤 지도 위 도로를 이동 순서대로 선택하세요.</p>
+          <div id="plannedRouteList" class="planned-route-list"></div>
         </section>
 
         <section id="recordSection" class="panel-section record-section">
@@ -250,8 +294,8 @@
           <label class="setting-row">
             <span>지도</span>
             <select id="mapProvider">
-              <option value="osm">OpenStreetMap</option>
               <option value="naver">네이버지도</option>
+              <option value="osm">OpenStreetMap</option>
               <option value="google">구글지도</option>
             </select>
           </label>
@@ -334,6 +378,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260904-multi-tag-filter-1"></script>
+    <script src="/app.js?v=20260909-map-alignment-1"></script>
   </body>
 </html>
