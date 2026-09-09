@@ -293,6 +293,7 @@ let mapReferenceRenderFrame = null;
 let mapReferenceRenderRevision = 0;
 const mapReferenceImageCache = new Map();
 const mapReferenceExtractionCache = new Map();
+let mapReferencePreviewDrag = null;
 let programmaticMapMove = false;
 let lastFollowMapMoveAt = 0;
 let followInteractionPauseUntil = 0;
@@ -580,15 +581,17 @@ els.plannedRouteUndoBtn?.addEventListener("click", undoPlannedRoutePoint);
 els.plannedRouteSaveBtn?.addEventListener("click", savePlannedRoute);
 els.plannedRouteCancelBtn?.addEventListener("click", cancelPlannedRouteEditing);
 els.mapReferenceInput?.addEventListener("change", handleMapReferenceInput);
-els.mapReferencePreview?.addEventListener("click", selectMapReferenceImagePoint);
+els.mapReferencePreview?.addEventListener("pointerdown", beginMapReferencePreviewDrag);
+els.mapReferencePreview?.addEventListener("pointermove", moveMapReferencePreviewDrag);
+els.mapReferencePreview?.addEventListener("pointerup", endMapReferencePreviewDrag);
+els.mapReferencePreview?.addEventListener("pointercancel", cancelMapReferencePreviewDrag);
 els.mapReferencePreviewImage?.addEventListener("load", renderMapReferencePreviewPoints);
 els.mapReferenceUndoBtn?.addEventListener("click", undoMapReferenceControlPoint);
 els.mapReferenceSaveBtn?.addEventListener("click", saveMapReferenceAlignment);
 els.mapReferenceCancelBtn?.addEventListener("click", cancelMapReferenceAlignment);
 els.mapReferenceOpacity?.addEventListener("input", updateMapReferenceOpacity);
 els.mapReferencePreviewZoom?.addEventListener("input", (event) => {
-  els.mapReferencePreviewImage.style.width = `${event.target.value}%`;
-  renderMapReferencePreviewPoints();
+  updateMapReferencePreviewZoom(event.target.value);
 });
 els.overlayProjectCode?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
@@ -4105,6 +4108,67 @@ function loadMapReferenceImage(src) {
   return promise;
 }
 
+function beginMapReferencePreviewDrag(event) {
+  if (!els.mapReferencePreview || event.button !== 0) return;
+  mapReferencePreviewDrag = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    scrollLeft: els.mapReferencePreview.scrollLeft,
+    scrollTop: els.mapReferencePreview.scrollTop,
+    moved: false,
+  };
+  els.mapReferencePreview.setPointerCapture?.(event.pointerId);
+}
+
+function moveMapReferencePreviewDrag(event) {
+  const drag = mapReferencePreviewDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  const deltaX = event.clientX - drag.startX;
+  const deltaY = event.clientY - drag.startY;
+  if (!drag.moved && Math.hypot(deltaX, deltaY) >= 5) {
+    drag.moved = true;
+    els.mapReferencePreview.classList.add("is-panning");
+  }
+  if (!drag.moved) return;
+  event.preventDefault();
+  els.mapReferencePreview.scrollLeft = drag.scrollLeft - deltaX;
+  els.mapReferencePreview.scrollTop = drag.scrollTop - deltaY;
+}
+
+function endMapReferencePreviewDrag(event) {
+  const drag = mapReferencePreviewDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  mapReferencePreviewDrag = null;
+  els.mapReferencePreview.classList.remove("is-panning");
+  els.mapReferencePreview.releasePointerCapture?.(event.pointerId);
+  if (!drag.moved) selectMapReferenceImagePoint(event);
+}
+
+function cancelMapReferencePreviewDrag(event) {
+  if (!mapReferencePreviewDrag || mapReferencePreviewDrag.pointerId !== event.pointerId) return;
+  mapReferencePreviewDrag = null;
+  els.mapReferencePreview.classList.remove("is-panning");
+}
+
+function updateMapReferencePreviewZoom(value) {
+  const preview = els.mapReferencePreview;
+  const image = els.mapReferencePreviewImage;
+  if (!preview || !image) return;
+  const horizontalCenter = preview.scrollWidth
+    ? (preview.scrollLeft + preview.clientWidth / 2) / preview.scrollWidth
+    : 0.5;
+  const verticalCenter = preview.scrollHeight
+    ? (preview.scrollTop + preview.clientHeight / 2) / preview.scrollHeight
+    : 0.5;
+  image.style.width = `${value}%`;
+  window.requestAnimationFrame(() => {
+    preview.scrollLeft = horizontalCenter * preview.scrollWidth - preview.clientWidth / 2;
+    preview.scrollTop = verticalCenter * preview.scrollHeight - preview.clientHeight / 2;
+    renderMapReferencePreviewPoints();
+  });
+}
+
 function selectMapReferenceImagePoint(event) {
   if (state.mapColorExtractionMode) {
     void selectMapReferenceRouteColor(event);
@@ -4371,6 +4435,7 @@ function renderMapReferenceTools() {
   els.mapReferenceCancelBtn.disabled = !draft && !extractionReference;
   els.mapReferenceInput.disabled = Boolean(state.shareView || state.mapAlignmentMode || state.mapColorExtractionMode);
   els.mapReferenceList.replaceChildren();
+  updateMapPointSelectionCursor();
   state.mapReferences.forEach((reference) => {
     const item = document.createElement("article");
     item.className = "map-reference-item";
@@ -4405,6 +4470,13 @@ function renderMapReferenceTools() {
     item.append(info, actions);
     els.mapReferenceList.append(item);
   });
+}
+
+function updateMapPointSelectionCursor() {
+  document.body.classList.toggle(
+    "is-map-point-selection",
+    Boolean(state.mapAlignmentMode || state.planningMode || state.pointAddMode),
+  );
 }
 
 function renderMapReferencePreviewPoints() {
@@ -4751,6 +4823,7 @@ function fitPlannedRoute(points) {
 }
 
 function renderPlannedRoutes() {
+  updateMapPointSelectionCursor();
   plannedRouteLayer.clearLayers();
   const routesToDraw = state.plannedRoutes.filter((route) => route.visible !== false);
   routesToDraw.forEach((route) => {
