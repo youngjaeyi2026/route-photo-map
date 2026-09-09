@@ -101,6 +101,8 @@ const state = {
   mapReferenceDraft: null,
   mapAlignmentMode: false,
   pendingMapReferenceImagePoint: null,
+  mapColorExtractionMode: false,
+  mapColorExtractionReferenceId: null,
   overlayProjects: [],
   sessions: [],
   pendingSessionDeletes: [],
@@ -290,6 +292,7 @@ let mapReferenceCanvasContext = null;
 let mapReferenceRenderFrame = null;
 let mapReferenceRenderRevision = 0;
 const mapReferenceImageCache = new Map();
+const mapReferenceExtractionCache = new Map();
 let programmaticMapMove = false;
 let lastFollowMapMoveAt = 0;
 let followInteractionPauseUntil = 0;
@@ -3956,6 +3959,8 @@ function normalizeMapReferences(references) {
       pageNumber: Number(reference?.pageNumber || 1),
       createdAt: reference?.createdAt || Date.now(),
       updatedAt: reference?.updatedAt || reference?.createdAt || Date.now(),
+      displayMode: reference?.displayMode === "color" ? "color" : "source",
+      colorExtraction: normalizeMapReferenceColorExtraction(reference?.colorExtraction),
       controlPoints: (Array.isArray(reference?.controlPoints) ? reference.controlPoints : [])
         .map((point) => ({
           imageX: Number(point?.imageX),
@@ -3968,6 +3973,20 @@ function normalizeMapReferences(references) {
           Number.isFinite(point.lat) && Number.isFinite(point.lng)),
     }))
     .filter((reference) => reference.src && reference.controlPoints.length >= 3);
+}
+
+function normalizeMapReferenceColorExtraction(value) {
+  if (!value) return null;
+  const r = Number(value.r);
+  const g = Number(value.g);
+  const b = Number(value.b);
+  if (![r, g, b].every(Number.isFinite)) return null;
+  return {
+    r: Math.round(Math.min(255, Math.max(0, r))),
+    g: Math.round(Math.min(255, Math.max(0, g))),
+    b: Math.round(Math.min(255, Math.max(0, b))),
+    tolerance: Math.round(Math.min(120, Math.max(20, Number(value.tolerance || 58)))),
+  };
 }
 
 async function handleMapReferenceInput(event) {
@@ -4010,6 +4029,8 @@ async function handleMapReferenceInput(event) {
       pageNumber: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      displayMode: "source",
+      colorExtraction: null,
       controlPoints: [],
     };
     els.mapReferenceOpacity.value = "48";
@@ -4074,6 +4095,7 @@ function loadMapReferenceImage(src) {
   if (mapReferenceImageCache.has(src)) return mapReferenceImageCache.get(src);
   const promise = new Promise((resolve, reject) => {
     const image = new Image();
+    if (/^https?:\/\//i.test(src)) image.crossOrigin = "anonymous";
     image.onload = () => resolve(image);
     image.onerror = () => reject(new Error("map_reference_image_failed"));
     image.src = src;
@@ -4084,6 +4106,10 @@ function loadMapReferenceImage(src) {
 }
 
 function selectMapReferenceImagePoint(event) {
+  if (state.mapColorExtractionMode) {
+    void selectMapReferenceRouteColor(event);
+    return;
+  }
   if (!state.mapAlignmentMode || !state.mapReferenceDraft || state.pendingMapReferenceImagePoint) return;
   if (state.mapReferenceDraft.controlPoints.length >= 6) {
     setMapReferenceStatus("정합점은 최대 6개입니다. 위치 맞춤을 저장해 주세요.");
@@ -4097,6 +4123,55 @@ function selectMapReferenceImagePoint(event) {
   };
   renderMapReferencePreviewPoints();
   setMapReferenceStatus(`네이버지도에서 같은 지점을 선택하세요 · 정합점 ${state.mapReferenceDraft.controlPoints.length + 1}`);
+}
+
+async function selectMapReferenceRouteColor(event) {
+  const reference = state.mapReferences.find((item) => item.id === state.mapColorExtractionReferenceId);
+  if (!reference) return;
+  const bounds = els.mapReferencePreviewImage.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return;
+  const imageX = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width));
+  const imageY = Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height));
+  try {
+    const image = await loadMapReferenceImage(reference.src);
+    const sample = document.createElement("canvas");
+    sample.width = 9;
+    sample.height = 9;
+    const context = sample.getContext("2d", { willReadFrequently: true });
+    const sourceX = Math.max(0, Math.round(imageX * image.naturalWidth) - 4);
+    const sourceY = Math.max(0, Math.round(imageY * image.naturalHeight) - 4);
+    context.drawImage(image, sourceX, sourceY, 9, 9, 0, 0, 9, 9);
+    const pixels = context.getImageData(0, 0, 9, 9).data;
+    let selected = null;
+    for (let index = 0; index < pixels.length; index += 4) {
+      const r = pixels[index];
+      const g = pixels[index + 1];
+      const b = pixels[index + 2];
+      const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+      const score = chroma - Math.abs(135 - (r + g + b) / 3) * 0.08;
+      if (!selected || score > selected.score) selected = { r, g, b, score };
+    }
+    if (!selected || selected.score < 35) {
+      setMapReferenceStatus("색이 뚜렷한 노선의 중앙을 다시 선택해 주세요.");
+      return;
+    }
+    reference.colorExtraction = { r: selected.r, g: selected.g, b: selected.b, tolerance: 58 };
+    reference.displayMode = "color";
+    reference.updatedAt = Date.now();
+    state.mapColorExtractionMode = false;
+    state.mapColorExtractionReferenceId = null;
+    mapReferenceExtractionCache.clear();
+    persist();
+    renderMapReferenceTools();
+    scheduleMapReferenceRender();
+    const serverSaved = await syncProjectState("map-reference-color-extraction");
+    setMapReferenceStatus(serverSaved
+      ? `선 색상 RGB(${selected.r}, ${selected.g}, ${selected.b})만 추출해 지도에 표시했습니다.`
+      : "선 색상 추출 결과를 이 기기에 보관했습니다. 서버 연결 후 다시 동기화해 주세요.");
+  } catch (error) {
+    console.warn("Map reference color extraction failed", error);
+    setMapReferenceStatus("이미지 색상을 읽지 못했습니다. 원본 지도를 다시 올린 뒤 시도해 주세요.");
+  }
 }
 
 function addMapReferenceControlPair(latlng) {
@@ -4126,6 +4201,13 @@ function undoMapReferenceControlPoint() {
 }
 
 function cancelMapReferenceAlignment() {
+  if (state.mapColorExtractionMode) {
+    state.mapColorExtractionMode = false;
+    state.mapColorExtractionReferenceId = null;
+    renderMapReferenceTools();
+    setMapReferenceStatus("선 색상 선택을 취소했습니다.");
+    return;
+  }
   state.mapAlignmentMode = false;
   state.mapReferenceDraft = null;
   state.pendingMapReferenceImagePoint = null;
@@ -4191,9 +4273,15 @@ function updateMapReferenceOpacity(event) {
 
 function editMapReference(referenceId) {
   if (state.shareView) return;
+  if (state.planningMode || state.tracking || state.destinationFollow || state.pointEditMode) {
+    setMapReferenceStatus("진행 중인 기록이나 사전 답사 편집을 마친 뒤 다시 맞춰 주세요.");
+    return;
+  }
   const reference = state.mapReferences.find((item) => item.id === referenceId);
   if (!reference) return;
   state.mapAlignmentMode = true;
+  state.mapColorExtractionMode = false;
+  state.mapColorExtractionReferenceId = null;
   state.mapReferenceDraft = structuredClone(reference);
   state.pendingMapReferenceImagePoint = null;
   els.mapReferenceOpacity.value = String(Math.round(reference.opacity * 100));
@@ -4201,6 +4289,33 @@ function editMapReference(referenceId) {
   renderMapReferenceTools();
   scheduleMapReferenceRender();
   setMapReferenceStatus("기존 정합점을 확인하고 취소한 뒤 다시 지정하거나 추가할 수 있습니다.");
+}
+
+function startMapReferenceColorExtraction(referenceId) {
+  if (state.shareView || state.tracking || state.destinationFollow || state.pointEditMode || state.planningMode || state.mapAlignmentMode) {
+    setMapReferenceStatus("진행 중인 기록이나 편집을 마친 뒤 선 색상을 선택해 주세요.");
+    return;
+  }
+  const reference = state.mapReferences.find((item) => item.id === referenceId);
+  if (!reference) return;
+  state.mapColorExtractionMode = true;
+  state.mapColorExtractionReferenceId = referenceId;
+  els.mapReferencePreviewZoom.value = "100";
+  els.mapReferencePreviewImage.style.width = "100%";
+  renderMapReferenceTools();
+  setMapReferenceStatus("미리보기에서 추출할 노선 색상의 굵은 선 중앙을 한 번 선택하세요.");
+}
+
+function toggleMapReferenceDisplayMode(referenceId) {
+  const reference = state.mapReferences.find((item) => item.id === referenceId);
+  if (!reference?.colorExtraction) return;
+  reference.displayMode = reference.displayMode === "color" ? "source" : "color";
+  reference.updatedAt = Date.now();
+  persist();
+  renderMapReferenceTools();
+  scheduleMapReferenceRender();
+  void syncProjectState("map-reference-display-mode");
+  setMapReferenceStatus(reference.displayMode === "color" ? "선만 지도에 표시합니다." : "원본 지도를 표시합니다.");
 }
 
 function toggleMapReference(referenceId) {
@@ -4237,18 +4352,24 @@ function setMapReferenceStatus(message) {
 
 function renderMapReferenceTools() {
   const draft = state.mapAlignmentMode ? state.mapReferenceDraft : null;
-  els.mapReferencePreview.hidden = !draft;
+  const extractionReference = state.mapColorExtractionMode
+    ? state.mapReferences.find((item) => item.id === state.mapColorExtractionReferenceId)
+    : null;
+  const previewReference = draft || extractionReference;
+  els.mapReferencePreview.hidden = !previewReference;
+  if (previewReference) {
+    if (els.mapReferencePreviewImage.src !== previewReference.src) els.mapReferencePreviewImage.src = previewReference.src;
+  }
   if (draft) {
-    if (els.mapReferencePreviewImage.src !== draft.src) els.mapReferencePreviewImage.src = draft.src;
     els.mapReferenceOpacity.value = String(Math.round(draft.opacity * 100));
-  } else {
+  } else if (!extractionReference) {
     els.mapReferencePreviewImage.removeAttribute("src");
   }
   renderMapReferencePreviewPoints();
   els.mapReferenceUndoBtn.disabled = !draft || (!draft.controlPoints.length && !state.pendingMapReferenceImagePoint);
   els.mapReferenceSaveBtn.disabled = !draft || draft.controlPoints.length < 3;
-  els.mapReferenceCancelBtn.disabled = !draft;
-  els.mapReferenceInput.disabled = Boolean(state.shareView || state.mapAlignmentMode);
+  els.mapReferenceCancelBtn.disabled = !draft && !extractionReference;
+  els.mapReferenceInput.disabled = Boolean(state.shareView || state.mapAlignmentMode || state.mapColorExtractionMode);
   els.mapReferenceList.replaceChildren();
   state.mapReferences.forEach((reference) => {
     const item = document.createElement("article");
@@ -4258,15 +4379,21 @@ function renderMapReferenceTools() {
     const title = document.createElement("strong");
     title.textContent = reference.name;
     const meta = document.createElement("span");
-    meta.textContent = `${reference.sourceType === "pdf" ? "PDF 1쪽" : "지도 이미지"} · 정합점 ${reference.controlPoints.length}개`;
+    const extractionLabel = reference.colorExtraction ? " · 선 색상 추출됨" : "";
+    meta.textContent = `${reference.sourceType === "pdf" ? "PDF 1쪽" : "지도 이미지"} · 정합점 ${reference.controlPoints.length}개${extractionLabel}`;
     info.append(title, meta);
     const actions = document.createElement("div");
     actions.className = "map-reference-item__actions";
-    [
+    const actionItems = [
       [reference.id === state.activeMapReferenceId && reference.visible !== false ? "숨기기" : "지도에 보기", () => toggleMapReference(reference.id), reference.id === state.activeMapReferenceId && reference.visible !== false],
+      ...(reference.colorExtraction
+        ? [[reference.displayMode === "color" ? "원본 보기" : "선만 보기", () => toggleMapReferenceDisplayMode(reference.id), reference.displayMode === "color"]]
+        : []),
+      ["선 색상 선택", () => startMapReferenceColorExtraction(reference.id), false],
       ["다시 맞춤", () => editMapReference(reference.id), false],
       ["삭제", () => deleteMapReference(reference.id), false],
-    ].forEach(([label, handler, active]) => {
+    ];
+    actionItems.forEach(([label, handler, active]) => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
@@ -4343,7 +4470,9 @@ async function renderMapReferenceOverlay() {
   const transform = calculateMapReferenceTransform(reference);
   if (!transform) return;
   try {
-    const image = await loadMapReferenceImage(reference.src);
+    const image = reference.displayMode === "color" && reference.colorExtraction
+      ? await createMapReferenceColorCanvas(reference)
+      : await loadMapReferenceImage(reference.src);
     if (renderRevision !== mapReferenceRenderRevision) return;
     context.save();
     context.globalAlpha = reference.opacity;
@@ -4361,6 +4490,44 @@ async function renderMapReferenceOverlay() {
     console.warn("Map reference render failed", error);
   }
   renderMapReferenceControlMarkers(state.mapAlignmentMode ? reference : null);
+}
+
+async function createMapReferenceColorCanvas(reference) {
+  const extraction = normalizeMapReferenceColorExtraction(reference.colorExtraction);
+  if (!extraction) return loadMapReferenceImage(reference.src);
+  const key = `${reference.src}|${extraction.r},${extraction.g},${extraction.b}|${extraction.tolerance}`;
+  if (mapReferenceExtractionCache.has(key)) return mapReferenceExtractionCache.get(key);
+  const promise = (async () => {
+    const image = await loadMapReferenceImage(reference.src);
+    const canvas = document.createElement("canvas");
+    canvas.width = reference.width;
+    canvas.height = reference.height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    context.drawImage(image, 0, 0, reference.width, reference.height);
+    const imageData = context.getImageData(0, 0, reference.width, reference.height);
+    const pixels = imageData.data;
+    const thresholdSquared = extraction.tolerance * extraction.tolerance;
+    for (let index = 0; index < pixels.length; index += 4) {
+      const redDelta = pixels[index] - extraction.r;
+      const greenDelta = pixels[index + 1] - extraction.g;
+      const blueDelta = pixels[index + 2] - extraction.b;
+      const distanceSquared = redDelta * redDelta + greenDelta * greenDelta + blueDelta * blueDelta;
+      if (distanceSquared > thresholdSquared) {
+        pixels[index + 3] = 0;
+      } else {
+        pixels[index] = extraction.r;
+        pixels[index + 1] = extraction.g;
+        pixels[index + 2] = extraction.b;
+        pixels[index + 3] = 245;
+      }
+    }
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.putImageData(imageData, 0, 0);
+    return canvas;
+  })();
+  mapReferenceExtractionCache.set(key, promise);
+  promise.catch(() => mapReferenceExtractionCache.delete(key));
+  return promise;
 }
 
 function renderMapReferenceControlMarkers(reference) {
@@ -4670,7 +4837,7 @@ function renderPlannedRoutes() {
     els.plannedRouteList.append(empty);
   }
   els.plannedRouteStartBtn.textContent = state.planningMode ? "지도에서 위치 선택 중" : "사전 답사 만들기";
-  els.plannedRouteStartBtn.disabled = state.planningMode || state.mapAlignmentMode || Boolean(state.shareView);
+  els.plannedRouteStartBtn.disabled = state.planningMode || state.mapAlignmentMode || state.mapColorExtractionMode || Boolean(state.shareView);
   els.plannedRouteUndoBtn.disabled = !state.planningMode || !draft?.points.length;
   els.plannedRouteSaveBtn.disabled = !state.planningMode || (draft?.points.length || 0) < 2;
   els.plannedRouteCancelBtn.disabled = !state.planningMode;

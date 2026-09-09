@@ -765,6 +765,8 @@ function sanitizeMapReferences(references) {
     pageNumber: Number(reference?.pageNumber || 1),
     createdAt: reference?.createdAt || Date.now(),
     updatedAt: reference?.updatedAt || reference?.createdAt || Date.now(),
+    displayMode: reference?.displayMode === "color" ? "color" : "source",
+    colorExtraction: sanitizeMapReferenceColorExtraction(reference?.colorExtraction),
     controlPoints: (Array.isArray(reference?.controlPoints) ? reference.controlPoints : [])
       .slice(0, 6)
       .map((point) => ({
@@ -775,6 +777,18 @@ function sanitizeMapReferences(references) {
         Number.isFinite(point.imageX) && Number.isFinite(point.imageY) &&
         Number.isFinite(point.lat) && Number.isFinite(point.lng)),
   })).filter((reference) => reference.src && reference.controlPoints.length >= 3);
+}
+
+function sanitizeMapReferenceColorExtraction(value) {
+  if (!value) return null;
+  const channels = [Number(value.r), Number(value.g), Number(value.b)];
+  if (!channels.every(Number.isFinite)) return null;
+  return {
+    r: Math.round(Math.min(255, Math.max(0, channels[0]))),
+    g: Math.round(Math.min(255, Math.max(0, channels[1]))),
+    b: Math.round(Math.min(255, Math.max(0, channels[2]))),
+    tolerance: Math.round(Math.min(120, Math.max(20, Number(value.tolerance || 58)))),
+  };
 }
 
 function countProjectRecordItems(sessions, lastState) {

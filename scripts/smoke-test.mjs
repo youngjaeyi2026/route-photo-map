@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260909-map-alignment-1/);
+  assert.match(pageHtml, /20260909-color-route-1/);
   assert.match(pageHtml, /id="mapReferenceInput"[^>]+application\/pdf/);
   assert.match(pageHtml, /id="mapReferencePreview"/);
   assert.match(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -168,6 +168,7 @@ try {
   assert.match(naverMapScript, /intent:\/\/map/);
   assert.match(naverMapScript, /window\.location\.replace\(webMapUrl\)/);
   const serverSource = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(serverSource, /colorExtraction: sanitizeMapReferenceColorExtraction/);
   assert.match(
     serverSource,
     /request\.method === "POST" && url\.pathname === "\/api\/projects"[\s\S]+?databaseUrl && !currentUser[\s\S]+?login_required/,
@@ -199,6 +200,8 @@ try {
   );
   const appResponse = await fetch(`${baseUrl}/app.js`);
   const appSource = await appResponse.text();
+  assert.match(appSource, /function startMapReferenceColorExtraction/);
+  assert.match(appSource, /function createMapReferenceColorCanvas/);
   assert.equal(appResponse.status, 200);
   const affineSolverSource = appSource.match(/function solveLeastSquares3\(rows, values\) \{[\s\S]+?\n\}/)?.[0];
   assert.ok(affineSolverSource);
