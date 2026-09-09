@@ -762,6 +762,7 @@ function sanitizeMapReferences(references) {
     opacity: Math.min(0.85, Math.max(0.15, Number(reference?.opacity || 0.48))),
     visible: reference?.visible !== false,
     sourceType: reference?.sourceType === "pdf" ? "pdf" : "image",
+    alignmentMode: reference?.alignmentMode === "corners" ? "corners" : "points",
     pageNumber: Number(reference?.pageNumber || 1),
     createdAt: reference?.createdAt || Date.now(),
     updatedAt: reference?.updatedAt || reference?.createdAt || Date.now(),

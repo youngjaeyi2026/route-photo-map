@@ -73,10 +73,12 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260909-map-preview-pan-1/);
+  assert.match(pageHtml, /20260909-corner-align-1/);
   assert.match(pageHtml, /id="mapReferenceInput"[^>]+application\/pdf/);
   assert.match(pageHtml, /id="mapReferencePreview"/);
   assert.match(pageHtml, /id="mapReferenceSaveBtn"/);
+  assert.match(pageHtml, /id="mapReferenceFitBtn"/);
+  assert.match(pageHtml, /id="mapReferenceResetBtn"/);
   const pdfModuleResponse = await fetch(`${baseUrl}/vendor/pdfjs/pdf.min.mjs`);
   assert.equal(pdfModuleResponse.status, 200);
   assert.match(pdfModuleResponse.headers.get("content-type") || "", /text\/javascript/);
@@ -205,6 +207,9 @@ try {
   assert.match(appSource, /function updateMapReferencePreviewZoom/);
   assert.match(appSource, /function beginMapReferencePreviewDrag/);
   assert.match(appSource, /is-map-point-selection/);
+  assert.match(appSource, /function createScreenCornerControlPoints/);
+  assert.match(appSource, /function drawMapReferenceCornerMesh/);
+  assert.match(appSource, /function drawMapReferenceTriangle/);
   assert.equal(appResponse.status, 200);
   const affineSolverSource = appSource.match(/function solveLeastSquares3\(rows, values\) \{[\s\S]+?\n\}/)?.[0];
   assert.ok(affineSolverSource);
@@ -519,10 +524,12 @@ try {
       height: 800,
       opacity: 0.48,
       visible: true,
+      alignmentMode: "corners",
       controlPoints: [
-        { imageX: 0.1, imageY: 0.1, lat: 37.5, lng: 127.0 },
-        { imageX: 0.9, imageY: 0.1, lat: 37.5, lng: 127.01 },
-        { imageX: 0.1, imageY: 0.9, lat: 37.51, lng: 127.0 },
+        { imageX: 0, imageY: 0, lat: 37.5, lng: 127.0 },
+        { imageX: 1, imageY: 0, lat: 37.5, lng: 127.01 },
+        { imageX: 1, imageY: 1, lat: 37.51, lng: 127.01 },
+        { imageX: 0, imageY: 1, lat: 37.51, lng: 127.0 },
       ],
     },
   ];
@@ -696,6 +703,7 @@ try {
   assert.equal(shared.project.lastState.plannedRoutes[0].name, "사전 답사 A");
   assert.equal(shared.project.lastState.activePlannedRouteId, "planned-1");
   assert.equal(shared.project.lastState.mapReferences[0].name, "A구간 계획도");
+  assert.equal(shared.project.lastState.mapReferences[0].alignmentMode, "corners");
   assert.equal(shared.project.lastState.activeMapReferenceId, "map-reference-1");
   assert.equal(shared.share.includePhotos, false);
   assert.equal(shared.share.includeConstruction, false);

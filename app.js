@@ -238,6 +238,8 @@ const els = {
   mapReferencePreviewImage: document.querySelector("#mapReferencePreviewImage"),
   mapReferencePreviewPoints: document.querySelector("#mapReferencePreviewPoints"),
   mapReferenceUndoBtn: document.querySelector("#mapReferenceUndoBtn"),
+  mapReferenceFitBtn: document.querySelector("#mapReferenceFitBtn"),
+  mapReferenceResetBtn: document.querySelector("#mapReferenceResetBtn"),
   mapReferenceSaveBtn: document.querySelector("#mapReferenceSaveBtn"),
   mapReferenceCancelBtn: document.querySelector("#mapReferenceCancelBtn"),
   mapReferenceOpacity: document.querySelector("#mapReferenceOpacity"),
@@ -294,6 +296,8 @@ let mapReferenceRenderRevision = 0;
 const mapReferenceImageCache = new Map();
 const mapReferenceExtractionCache = new Map();
 let mapReferencePreviewDrag = null;
+let mapReferenceCornerHistory = [];
+let mapReferenceMarkerDragActive = false;
 let programmaticMapMove = false;
 let lastFollowMapMoveAt = 0;
 let followInteractionPauseUntil = 0;
@@ -341,6 +345,10 @@ refreshAuth();
 
 map.on("click", (event) => {
   if (state.mapAlignmentMode) {
+    if (state.mapReferenceDraft?.alignmentMode === "corners") {
+      setMapReferenceStatus("지도 위 네 모서리 또는 가운데 ＋ 표시를 드래그해 위치를 맞춰 주세요.");
+      return;
+    }
     if (state.pendingMapReferenceImagePoint) {
       addMapReferenceControlPair(event.latlng);
     } else {
@@ -587,6 +595,8 @@ els.mapReferencePreview?.addEventListener("pointerup", endMapReferencePreviewDra
 els.mapReferencePreview?.addEventListener("pointercancel", cancelMapReferencePreviewDrag);
 els.mapReferencePreviewImage?.addEventListener("load", renderMapReferencePreviewPoints);
 els.mapReferenceUndoBtn?.addEventListener("click", undoMapReferenceControlPoint);
+els.mapReferenceFitBtn?.addEventListener("click", fitMapReferenceDraftToScreen);
+els.mapReferenceResetBtn?.addEventListener("click", resetMapReferenceCorners);
 els.mapReferenceSaveBtn?.addEventListener("click", saveMapReferenceAlignment);
 els.mapReferenceCancelBtn?.addEventListener("click", cancelMapReferenceAlignment);
 els.mapReferenceOpacity?.addEventListener("input", updateMapReferenceOpacity);
@@ -2024,6 +2034,7 @@ function resetForNewProject() {
   state.mapAlignmentMode = false;
   state.mapReferenceDraft = null;
   state.pendingMapReferenceImagePoint = null;
+  mapReferenceCornerHistory = [];
   state.constructionPinsVisible = true;
   state.photoPinsVisible = true;
   state.sessions = [];
@@ -2380,6 +2391,7 @@ function applyProject(project) {
   state.mapAlignmentMode = false;
   state.mapReferenceDraft = null;
   state.pendingMapReferenceImagePoint = null;
+  mapReferenceCornerHistory = [];
   state.planningMode = false;
   state.plannedRouteDraft = null;
   state.constructionPinsVisible = true;
@@ -3959,6 +3971,7 @@ function normalizeMapReferences(references) {
       opacity: Math.min(0.85, Math.max(0.15, Number(reference?.opacity || 0.48))),
       visible: reference?.visible !== false,
       sourceType: reference?.sourceType === "pdf" ? "pdf" : "image",
+      alignmentMode: reference?.alignmentMode === "corners" ? "corners" : "points",
       pageNumber: Number(reference?.pageNumber || 1),
       createdAt: reference?.createdAt || Date.now(),
       updatedAt: reference?.updatedAt || reference?.createdAt || Date.now(),
@@ -4018,9 +4031,12 @@ async function handleMapReferenceInput(event) {
     setMapReferenceStatus(isPdf ? "PDF 첫 페이지를 지도 이미지로 변환하고 있습니다." : "지도 이미지를 준비하고 있습니다.");
     const source = isPdf ? await renderPdfMapReference(file) : await readFileAsDataUrl(file);
     const prepared = await resizeMapReferenceImage(source, 2400);
+    await applyMapProvider("naver");
     state.mapAlignmentMode = true;
+    state.mapColorExtractionMode = false;
+    state.mapColorExtractionReferenceId = null;
     state.pendingMapReferenceImagePoint = null;
-    state.mapReferenceDraft = {
+    const draft = {
       id: crypto.randomUUID(),
       name: file.name.replace(/\.[^.]+$/, "") || "참고 지도",
       src: prepared.src,
@@ -4029,19 +4045,23 @@ async function handleMapReferenceInput(event) {
       opacity: 0.48,
       visible: true,
       sourceType: isPdf ? "pdf" : "image",
+      alignmentMode: "corners",
       pageNumber: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       displayMode: "source",
       colorExtraction: null,
-      controlPoints: [],
+      controlPoints: createScreenCornerControlPoints(),
     };
+    draft.initialControlPoints = structuredClone(draft.controlPoints);
+    state.mapReferenceDraft = draft;
+    mapReferenceCornerHistory = [];
     els.mapReferenceOpacity.value = "48";
     els.mapReferencePreviewZoom.value = "100";
     els.mapReferencePreviewImage.style.width = "100%";
-    await applyMapProvider("naver");
     renderMapReferenceTools();
-    setMapReferenceStatus("업로드 지도에서 첫 번째 기준점을 선택한 뒤 네이버지도에서 같은 지점을 선택하세요.");
+    scheduleMapReferenceRender();
+    setMapReferenceStatus("지도를 화면에 올렸습니다. 네 모서리와 가운데 이동점을 드래그해 네이버지도에 맞춰 주세요.");
   } catch (error) {
     console.warn("Map reference preparation failed", error);
     setMapReferenceStatus(isPdf
@@ -4169,12 +4189,62 @@ function updateMapReferencePreviewZoom(value) {
   });
 }
 
+function createScreenCornerControlPoints(insetRatio = 0.08) {
+  if (typeof map.getSize !== "function" || typeof map.containerPointToLatLng !== "function") return [];
+  const size = map.getSize();
+  if (!size?.x || !size?.y) return [];
+  const insetX = Math.max(24, size.x * insetRatio);
+  const insetY = Math.max(24, size.y * insetRatio);
+  const imageCorners = [
+    { imageX: 0, imageY: 0, x: insetX, y: insetY },
+    { imageX: 1, imageY: 0, x: size.x - insetX, y: insetY },
+    { imageX: 1, imageY: 1, x: size.x - insetX, y: size.y - insetY },
+    { imageX: 0, imageY: 1, x: insetX, y: size.y - insetY },
+  ];
+  return imageCorners.map((corner) => {
+    const latlng = map.containerPointToLatLng([corner.x, corner.y]);
+    return { imageX: corner.imageX, imageY: corner.imageY, lat: latlng.lat, lng: latlng.lng };
+  });
+}
+
+function pushMapReferenceCornerHistory() {
+  const draft = state.mapReferenceDraft;
+  if (!draft || draft.alignmentMode !== "corners") return;
+  mapReferenceCornerHistory.push(structuredClone(draft.controlPoints));
+  if (mapReferenceCornerHistory.length > 20) mapReferenceCornerHistory.shift();
+  renderMapReferenceTools();
+}
+
+function fitMapReferenceDraftToScreen() {
+  const draft = state.mapReferenceDraft;
+  if (!state.mapAlignmentMode || draft?.alignmentMode !== "corners") return;
+  const next = createScreenCornerControlPoints();
+  if (next.length !== 4) return;
+  pushMapReferenceCornerHistory();
+  draft.controlPoints = next;
+  draft.updatedAt = Date.now();
+  renderMapReferenceTools();
+  scheduleMapReferenceRender();
+  setMapReferenceStatus("업로드 지도를 현재 화면에 다시 맞췄습니다. 네 모서리를 조절해 주세요.");
+}
+
+function resetMapReferenceCorners() {
+  const draft = state.mapReferenceDraft;
+  if (!state.mapAlignmentMode || draft?.alignmentMode !== "corners" || !draft.initialControlPoints?.length) return;
+  pushMapReferenceCornerHistory();
+  draft.controlPoints = structuredClone(draft.initialControlPoints);
+  draft.updatedAt = Date.now();
+  renderMapReferenceTools();
+  scheduleMapReferenceRender();
+  setMapReferenceStatus("이번 맞춤 작업을 시작했던 위치로 되돌렸습니다.");
+}
+
 function selectMapReferenceImagePoint(event) {
   if (state.mapColorExtractionMode) {
     void selectMapReferenceRouteColor(event);
     return;
   }
-  if (!state.mapAlignmentMode || !state.mapReferenceDraft || state.pendingMapReferenceImagePoint) return;
+  if (!state.mapAlignmentMode || !state.mapReferenceDraft || state.mapReferenceDraft.alignmentMode === "corners" || state.pendingMapReferenceImagePoint) return;
   if (state.mapReferenceDraft.controlPoints.length >= 6) {
     setMapReferenceStatus("정합점은 최대 6개입니다. 위치 맞춤을 저장해 주세요.");
     return;
@@ -4255,6 +4325,16 @@ function addMapReferenceControlPair(latlng) {
 
 function undoMapReferenceControlPoint() {
   if (!state.mapAlignmentMode || !state.mapReferenceDraft) return;
+  if (state.mapReferenceDraft.alignmentMode === "corners") {
+    const previous = mapReferenceCornerHistory.pop();
+    if (!previous) return;
+    state.mapReferenceDraft.controlPoints = previous;
+    state.mapReferenceDraft.updatedAt = Date.now();
+    renderMapReferenceTools();
+    scheduleMapReferenceRender();
+    setMapReferenceStatus("이전 모서리 위치로 되돌렸습니다.");
+    return;
+  }
   if (state.pendingMapReferenceImagePoint) {
     state.pendingMapReferenceImagePoint = null;
   } else {
@@ -4275,6 +4355,8 @@ function cancelMapReferenceAlignment() {
   state.mapAlignmentMode = false;
   state.mapReferenceDraft = null;
   state.pendingMapReferenceImagePoint = null;
+  mapReferenceCornerHistory = [];
+  mapReferenceMarkerDragActive = false;
   renderMapReferenceTools();
   scheduleMapReferenceRender();
   setMapReferenceStatus("위치 맞춤을 취소했습니다.");
@@ -4283,12 +4365,18 @@ function cancelMapReferenceAlignment() {
 async function saveMapReferenceAlignment() {
   const draft = state.mapReferenceDraft;
   if (!draft || draft.controlPoints.length < 3) {
-    setMapReferenceStatus("서로 떨어진 기준점을 최소 3개 지정해 주세요.");
+    setMapReferenceStatus(draft?.alignmentMode === "corners"
+      ? "네 모서리 위치를 확인해 주세요."
+      : "서로 떨어진 기준점을 최소 3개 지정해 주세요.");
     return;
   }
-  const transform = calculateMapReferenceTransform(draft);
-  if (!transform) {
-    setMapReferenceStatus("기준점이 한쪽에 몰려 위치를 계산할 수 없습니다. 넓게 떨어진 지점으로 다시 지정해 주세요.");
+  const validAlignment = draft.alignmentMode === "corners"
+    ? isValidMapReferenceCorners(draft)
+    : Boolean(calculateMapReferenceTransform(draft));
+  if (!validAlignment) {
+    setMapReferenceStatus(draft.alignmentMode === "corners"
+      ? "모서리가 서로 교차하거나 지도 영역이 너무 작습니다. 네 모서리를 다시 조절해 주세요."
+      : "기준점이 한쪽에 몰려 위치를 계산할 수 없습니다. 넓게 떨어진 지점으로 다시 지정해 주세요.");
     return;
   }
   try {
@@ -4304,12 +4392,15 @@ async function saveMapReferenceAlignment() {
     return;
   }
   const existingIndex = state.mapReferences.findIndex((reference) => reference.id === draft.id);
+  delete draft.initialControlPoints;
   if (existingIndex >= 0) state.mapReferences[existingIndex] = structuredClone(draft);
   else state.mapReferences.unshift(structuredClone(draft));
   state.activeMapReferenceId = draft.id;
   state.mapAlignmentMode = false;
   state.mapReferenceDraft = null;
   state.pendingMapReferenceImagePoint = null;
+  mapReferenceCornerHistory = [];
+  mapReferenceMarkerDragActive = false;
   persist();
   saveProjectRecoveryBackup("map-reference");
   renderMapReferenceTools();
@@ -4346,13 +4437,61 @@ function editMapReference(referenceId) {
   state.mapAlignmentMode = true;
   state.mapColorExtractionMode = false;
   state.mapColorExtractionReferenceId = null;
-  state.mapReferenceDraft = structuredClone(reference);
+  const draft = structuredClone(reference);
+  draft.controlPoints = createCornerControlPointsFromReference(reference);
+  draft.alignmentMode = "corners";
+  draft.initialControlPoints = structuredClone(draft.controlPoints);
+  state.mapReferenceDraft = draft;
+  mapReferenceCornerHistory = [];
   state.pendingMapReferenceImagePoint = null;
   els.mapReferenceOpacity.value = String(Math.round(reference.opacity * 100));
   void applyMapProvider("naver");
   renderMapReferenceTools();
   scheduleMapReferenceRender();
-  setMapReferenceStatus("기존 정합점을 확인하고 취소한 뒤 다시 지정하거나 추가할 수 있습니다.");
+  setMapReferenceStatus("네 모서리와 가운데 이동점을 드래그해 기존 지도를 다시 맞출 수 있습니다.");
+}
+
+function createCornerControlPointsFromReference(reference) {
+  if (reference.alignmentMode === "corners" && reference.controlPoints.length === 4) {
+    return structuredClone(reference.controlPoints);
+  }
+  const transform = calculateMapReferenceTransform(reference);
+  if (!transform || typeof map.containerPointToLatLng !== "function") return createScreenCornerControlPoints();
+  return [
+    { imageX: 0, imageY: 0 },
+    { imageX: 1, imageY: 0 },
+    { imageX: 1, imageY: 1 },
+    { imageX: 0, imageY: 1 },
+  ].map((corner) => {
+    const imageX = corner.imageX * reference.width;
+    const imageY = corner.imageY * reference.height;
+    const point = [
+      transform.a * imageX + transform.c * imageY + transform.e,
+      transform.b * imageX + transform.d * imageY + transform.f,
+    ];
+    const latlng = map.containerPointToLatLng(point);
+    return { ...corner, lat: latlng.lat, lng: latlng.lng };
+  });
+}
+
+function isValidMapReferenceCorners(reference) {
+  if (reference?.controlPoints?.length !== 4 || typeof map.latLngToContainerPoint !== "function") return false;
+  const points = reference.controlPoints.map((point) => map.latLngToContainerPoint([point.lat, point.lng]));
+  const area = Math.abs(points.reduce((total, point, index) => {
+    const next = points[(index + 1) % points.length];
+    return total + point.x * next.y - next.x * point.y;
+  }, 0) / 2);
+  return area >= 800 && !segmentsIntersect(points[0], points[1], points[2], points[3]) &&
+    !segmentsIntersect(points[1], points[2], points[3], points[0]);
+}
+
+function segmentsIntersect(a, b, c, d) {
+  const cross = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const first = cross(a, b, c);
+  const second = cross(a, b, d);
+  const third = cross(c, d, a);
+  const fourth = cross(c, d, b);
+  return first * second < 0 && third * fourth < 0;
 }
 
 function startMapReferenceColorExtraction(referenceId) {
@@ -4419,7 +4558,7 @@ function renderMapReferenceTools() {
   const extractionReference = state.mapColorExtractionMode
     ? state.mapReferences.find((item) => item.id === state.mapColorExtractionReferenceId)
     : null;
-  const previewReference = draft || extractionReference;
+  const previewReference = extractionReference || (draft?.alignmentMode === "points" ? draft : null);
   els.mapReferencePreview.hidden = !previewReference;
   if (previewReference) {
     if (els.mapReferencePreviewImage.src !== previewReference.src) els.mapReferencePreviewImage.src = previewReference.src;
@@ -4430,8 +4569,13 @@ function renderMapReferenceTools() {
     els.mapReferencePreviewImage.removeAttribute("src");
   }
   renderMapReferencePreviewPoints();
-  els.mapReferenceUndoBtn.disabled = !draft || (!draft.controlPoints.length && !state.pendingMapReferenceImagePoint);
-  els.mapReferenceSaveBtn.disabled = !draft || draft.controlPoints.length < 3;
+  const isCornerDraft = draft?.alignmentMode === "corners";
+  els.mapReferenceFitBtn.disabled = !isCornerDraft;
+  els.mapReferenceResetBtn.disabled = !isCornerDraft;
+  els.mapReferenceUndoBtn.disabled = !draft || (isCornerDraft
+    ? mapReferenceCornerHistory.length === 0
+    : (!draft.controlPoints.length && !state.pendingMapReferenceImagePoint));
+  els.mapReferenceSaveBtn.disabled = !draft || (isCornerDraft ? !isValidMapReferenceCorners(draft) : draft.controlPoints.length < 3);
   els.mapReferenceCancelBtn.disabled = !draft && !extractionReference;
   els.mapReferenceInput.disabled = Boolean(state.shareView || state.mapAlignmentMode || state.mapColorExtractionMode);
   els.mapReferenceList.replaceChildren();
@@ -4445,7 +4589,8 @@ function renderMapReferenceTools() {
     title.textContent = reference.name;
     const meta = document.createElement("span");
     const extractionLabel = reference.colorExtraction ? " · 선 색상 추출됨" : "";
-    meta.textContent = `${reference.sourceType === "pdf" ? "PDF 1쪽" : "지도 이미지"} · 정합점 ${reference.controlPoints.length}개${extractionLabel}`;
+    const alignmentLabel = reference.alignmentMode === "corners" ? "네 모서리 맞춤" : `정합점 ${reference.controlPoints.length}개`;
+    meta.textContent = `${reference.sourceType === "pdf" ? "PDF 1쪽" : "지도 이미지"} · ${alignmentLabel}${extractionLabel}`;
     info.append(title, meta);
     const actions = document.createElement("div");
     actions.className = "map-reference-item__actions";
@@ -4539,8 +4684,9 @@ async function renderMapReferenceOverlay() {
     renderMapReferenceControlMarkers(null);
     return;
   }
-  const transform = calculateMapReferenceTransform(reference);
-  if (!transform) return;
+  const isCornerMode = reference.alignmentMode === "corners" && reference.controlPoints.length === 4;
+  const transform = isCornerMode ? null : calculateMapReferenceTransform(reference);
+  if (!isCornerMode && !transform) return;
   try {
     const image = reference.displayMode === "color" && reference.colorExtraction
       ? await createMapReferenceColorCanvas(reference)
@@ -4548,20 +4694,89 @@ async function renderMapReferenceOverlay() {
     if (renderRevision !== mapReferenceRenderRevision) return;
     context.save();
     context.globalAlpha = reference.opacity;
-    context.setTransform(
-      pixelRatio * transform.a,
-      pixelRatio * transform.b,
-      pixelRatio * transform.c,
-      pixelRatio * transform.d,
-      pixelRatio * transform.e,
-      pixelRatio * transform.f,
-    );
-    context.drawImage(image, 0, 0, reference.width, reference.height);
+    if (isCornerMode) {
+      drawMapReferenceCornerMesh(context, image, reference, pixelRatio);
+    } else {
+      context.setTransform(
+        pixelRatio * transform.a,
+        pixelRatio * transform.b,
+        pixelRatio * transform.c,
+        pixelRatio * transform.d,
+        pixelRatio * transform.e,
+        pixelRatio * transform.f,
+      );
+      context.drawImage(image, 0, 0, reference.width, reference.height);
+    }
     context.restore();
   } catch (error) {
     console.warn("Map reference render failed", error);
   }
-  renderMapReferenceControlMarkers(state.mapAlignmentMode ? reference : null);
+  if (!mapReferenceMarkerDragActive) {
+    renderMapReferenceControlMarkers(state.mapAlignmentMode ? reference : null);
+  }
+}
+
+function drawMapReferenceCornerMesh(context, image, reference, pixelRatio) {
+  const targets = reference.controlPoints.map((point) => {
+    const screen = map.latLngToContainerPoint([point.lat, point.lng]);
+    return { x: screen.x * pixelRatio, y: screen.y * pixelRatio };
+  });
+  const gridSize = 12;
+  const interpolate = (u, v) => ({
+    x: (1 - u) * (1 - v) * targets[0].x + u * (1 - v) * targets[1].x + u * v * targets[2].x + (1 - u) * v * targets[3].x,
+    y: (1 - u) * (1 - v) * targets[0].y + u * (1 - v) * targets[1].y + u * v * targets[2].y + (1 - u) * v * targets[3].y,
+  });
+  for (let row = 0; row < gridSize; row += 1) {
+    const v0 = row / gridSize;
+    const v1 = (row + 1) / gridSize;
+    for (let column = 0; column < gridSize; column += 1) {
+      const u0 = column / gridSize;
+      const u1 = (column + 1) / gridSize;
+      const source00 = { x: u0 * reference.width, y: v0 * reference.height };
+      const source10 = { x: u1 * reference.width, y: v0 * reference.height };
+      const source11 = { x: u1 * reference.width, y: v1 * reference.height };
+      const source01 = { x: u0 * reference.width, y: v1 * reference.height };
+      const target00 = interpolate(u0, v0);
+      const target10 = interpolate(u1, v0);
+      const target11 = interpolate(u1, v1);
+      const target01 = interpolate(u0, v1);
+      drawMapReferenceTriangle(context, image, reference, [source00, source10, source11], [target00, target10, target11]);
+      drawMapReferenceTriangle(context, image, reference, [source00, source11, source01], [target00, target11, target01]);
+    }
+  }
+}
+
+function drawMapReferenceTriangle(context, image, reference, source, target) {
+  const rows = source.map((point) => [point.x, point.y, 1]);
+  const x = solveLeastSquares3(rows, target.map((point) => point.x));
+  const y = solveLeastSquares3(rows, target.map((point) => point.y));
+  if (!x || !y) return;
+  context.save();
+  context.beginPath();
+  context.moveTo(target[0].x, target[0].y);
+  context.lineTo(target[1].x, target[1].y);
+  context.lineTo(target[2].x, target[2].y);
+  context.closePath();
+  context.clip();
+  context.setTransform(x[0], y[0], x[1], y[1], x[2], y[2]);
+  const sourceLeft = Math.max(0, Math.floor(Math.min(...source.map((point) => point.x))) - 1);
+  const sourceTop = Math.max(0, Math.floor(Math.min(...source.map((point) => point.y))) - 1);
+  const sourceRight = Math.min(reference.width, Math.ceil(Math.max(...source.map((point) => point.x))) + 1);
+  const sourceBottom = Math.min(reference.height, Math.ceil(Math.max(...source.map((point) => point.y))) + 1);
+  const sourceWidth = Math.max(1, sourceRight - sourceLeft);
+  const sourceHeight = Math.max(1, sourceBottom - sourceTop);
+  context.drawImage(
+    image,
+    sourceLeft,
+    sourceTop,
+    sourceWidth,
+    sourceHeight,
+    sourceLeft,
+    sourceTop,
+    sourceWidth,
+    sourceHeight,
+  );
+  context.restore();
 }
 
 async function createMapReferenceColorCanvas(reference) {
@@ -4605,16 +4820,80 @@ async function createMapReferenceColorCanvas(reference) {
 function renderMapReferenceControlMarkers(reference) {
   mapReferenceControlLayer.clearLayers();
   if (!reference) return;
+  const isCornerMode = reference.alignmentMode === "corners" && reference.controlPoints.length === 4;
   reference.controlPoints.forEach((point, index) => {
-    L.marker([point.lat, point.lng], {
+    const marker = L.marker([point.lat, point.lng], {
+      draggable: isCornerMode,
       icon: L.divIcon({
-        className: "map-reference-control-icon",
-        html: `<span>${index + 1}</span>`,
+        className: `map-reference-control-icon${isCornerMode ? " is-corner" : ""}`,
+        html: `<span>${isCornerMode ? ["↖", "↗", "↘", "↙"][index] : index + 1}</span>`,
         iconSize: [28, 28],
         iconAnchor: [14, 14],
       }),
-      interactive: false,
+      interactive: isCornerMode,
     }).addTo(mapReferenceControlLayer);
+    if (isCornerMode) {
+      marker.on("dragstart", () => {
+        mapReferenceMarkerDragActive = true;
+        pushMapReferenceCornerHistory();
+      });
+      marker.on("drag", (event) => {
+        const next = event.target.getLatLng();
+        reference.controlPoints[index].lat = next.lat;
+        reference.controlPoints[index].lng = next.lng;
+        reference.updatedAt = Date.now();
+        scheduleMapReferenceRender();
+      });
+      marker.on("dragend", () => {
+        mapReferenceMarkerDragActive = false;
+        renderMapReferenceTools();
+        scheduleMapReferenceRender();
+        setMapReferenceStatus("모서리를 이동했습니다. 도로가 일치하는지 확인해 주세요.");
+      });
+    }
+  });
+  if (!isCornerMode) return;
+  const center = reference.controlPoints.reduce(
+    (value, point) => ({ lat: value.lat + point.lat / 4, lng: value.lng + point.lng / 4 }),
+    { lat: 0, lng: 0 },
+  );
+  let dragStart = null;
+  const centerMarker = L.marker([center.lat, center.lng], {
+    draggable: true,
+    icon: L.divIcon({
+      className: "map-reference-control-icon is-center",
+      html: "<span>＋</span>",
+      iconSize: [34, 34],
+      iconAnchor: [17, 17],
+    }),
+  }).addTo(mapReferenceControlLayer);
+  centerMarker.on("dragstart", () => {
+    mapReferenceMarkerDragActive = true;
+    pushMapReferenceCornerHistory();
+    dragStart = {
+      center,
+      points: structuredClone(reference.controlPoints),
+    };
+  });
+  centerMarker.on("drag", (event) => {
+    if (!dragStart) return;
+    const next = event.target.getLatLng();
+    const latDelta = next.lat - dragStart.center.lat;
+    const lngDelta = next.lng - dragStart.center.lng;
+    reference.controlPoints = dragStart.points.map((point) => ({
+      ...point,
+      lat: point.lat + latDelta,
+      lng: point.lng + lngDelta,
+    }));
+    reference.updatedAt = Date.now();
+    scheduleMapReferenceRender();
+  });
+  centerMarker.on("dragend", () => {
+    mapReferenceMarkerDragActive = false;
+    dragStart = null;
+    renderMapReferenceTools();
+    scheduleMapReferenceRender();
+    setMapReferenceStatus("업로드 지도 전체를 이동했습니다.");
   });
 }
 

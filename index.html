@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260909-map-preview-pan-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260909-corner-align-1" />
   </head>
   <body>
     <script>
@@ -118,7 +118,9 @@
               <input id="mapReferencePreviewZoom" type="range" min="100" max="400" step="25" value="100" />
             </label>
             <div class="map-reference-alignment-actions">
-              <button id="mapReferenceUndoBtn" type="button" disabled>정합점 취소</button>
+              <button id="mapReferenceFitBtn" type="button" disabled>화면에 맞춤</button>
+              <button id="mapReferenceResetBtn" type="button" disabled>초기화</button>
+              <button id="mapReferenceUndoBtn" type="button" disabled>한 단계 취소</button>
               <button id="mapReferenceSaveBtn" type="button" disabled>위치 맞춤 저장</button>
               <button id="mapReferenceCancelBtn" type="button" disabled>취소</button>
             </div>
@@ -127,7 +129,7 @@
               <input id="mapReferenceOpacity" type="range" min="15" max="85" value="48" />
             </label>
             <p id="mapReferenceStatus" class="status-text">이미지 또는 PDF를 올리면 위치 맞춤을 시작합니다.</p>
-            <p class="hint">짧게 클릭하면 위치를 선택하고, 확대 후 누른 채 움직이면 원본 지도의 중심을 옮길 수 있습니다. 교차로 중심, 교량 끝처럼 양쪽 지도에서 찾기 쉬운 지점을 선택하세요.</p>
+            <p class="hint">네이버지도를 대상 지역에 먼저 맞춘 뒤 업로드하세요. 지도 위 네 모서리를 드래그해 크기·회전·기울기를 조절하고, 가운데 이동점을 드래그하면 전체 위치가 이동합니다.</p>
             <div id="mapReferenceList" class="map-reference-list"></div>
           </div>
           <div class="planned-route-form">
@@ -378,6 +380,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260909-map-preview-pan-1"></script>
+    <script src="/app.js?v=20260909-corner-align-1"></script>
   </body>
 </html>

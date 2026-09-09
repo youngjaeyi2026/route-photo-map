@@ -1544,6 +1544,22 @@ body.is-map-point-selection #map .leaflet-interactive {
   font-weight: 900;
 }
 
+.map-reference-control-icon.is-corner span {
+  border-color: #ffffff;
+  background: #d96c1f;
+  font-size: 15px;
+  cursor: move;
+}
+
+.map-reference-control-icon.is-center span {
+  width: 34px;
+  height: 34px;
+  border-color: #ffffff;
+  background: #1f7a57;
+  font-size: 20px;
+  cursor: move;
+}
+
 .planned-route-form input,
 .planned-route-form textarea {
   box-sizing: border-box;
