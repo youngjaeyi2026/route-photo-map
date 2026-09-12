@@ -3614,12 +3614,42 @@ async function verifyShareView(token) {
     return;
   }
   try {
-    await requestJson(`/api/share/${encodeURIComponent(token)}`);
+    const result = await requestJson(`/api/share/${encodeURIComponent(token)}`);
+    if (result.project?.updatedAt && result.project.updatedAt !== state.projectRevision) {
+      refreshSharedProject(result.project);
+      setProjectStatus("공유 운송 위치를 최신 상태로 갱신했습니다.");
+    }
   } catch (error) {
     if (error?.status === 404) {
       endSharedView("작성자가 공유를 종료했습니다.");
     }
   }
+}
+
+function refreshSharedProject(project) {
+  const lastState = project.lastState || {};
+  state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
+  state.primarySessionId = project.primarySessionId || state.sessions[0]?.id || null;
+  state.milestones = normalizeMilestones(
+    Array.isArray(lastState.milestones) ? structuredClone(lastState.milestones) : [],
+  );
+  state.plannedRoutes = normalizePlannedRoutes(lastState.plannedRoutes || project.plannedRoutes);
+  state.activePlannedRouteId =
+    lastState.activePlannedRouteId || project.activePlannedRouteId || state.plannedRoutes[0]?.id || null;
+  state.mapReferences = normalizeMapReferences(lastState.mapReferences || project.mapReferences);
+  state.activeMapReferenceId =
+    lastState.activeMapReferenceId || project.activeMapReferenceId || state.mapReferences[0]?.id || null;
+  const primarySession = state.sessions.find((session) => session.id === state.primarySessionId);
+  state.points = Array.isArray(primarySession?.points)
+    ? structuredClone(primarySession.points)
+    : (Array.isArray(lastState.points) ? structuredClone(lastState.points) : []);
+  state.photos = Array.isArray(primarySession?.photos)
+    ? structuredClone(primarySession.photos)
+    : (Array.isArray(lastState.photos) ? structuredClone(lastState.photos) : []);
+  state.selectedPosition = state.points.at(-1) || state.selectedPosition;
+  state.projectRevision = project.updatedAt;
+  render();
+  scheduleMapReferenceRender();
 }
 
 function endSharedView(message) {

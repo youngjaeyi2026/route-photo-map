@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260909-corner-align-1/);
+  assert.match(pageHtml, /20260912-transport-live-1/);
   assert.match(pageHtml, /id="mapReferenceInput"[^>]+application\/pdf/);
   assert.match(pageHtml, /id="mapReferencePreview"/);
   assert.match(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -210,6 +210,7 @@ try {
   assert.match(appSource, /function createScreenCornerControlPoints/);
   assert.match(appSource, /function drawMapReferenceCornerMesh/);
   assert.match(appSource, /function drawMapReferenceTriangle/);
+  assert.match(appSource, /function refreshSharedProject/);
   assert.equal(appResponse.status, 200);
   const affineSolverSource = appSource.match(/function solveLeastSquares3\(rows, values\) \{[\s\S]+?\n\}/)?.[0];
   assert.ok(affineSolverSource);
