@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260912-transport-live-1/);
+  assert.match(pageHtml, /20260912-transport-live-2/);
   assert.match(pageHtml, /id="mapReferenceInput"[^>]+application\/pdf/);
   assert.match(pageHtml, /id="mapReferencePreview"/);
   assert.match(pageHtml, /id="mapReferenceSaveBtn"/);

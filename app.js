@@ -2377,7 +2377,10 @@ function applyProject(project) {
   stopRouteFollowWatcher();
   milestoneLayer.clearLayers();
   state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
-  state.primarySessionId = project.primarySessionId || state.sessions[0]?.id || null;
+  const liveSharedSession = state.shareView
+    ? state.sessions.find((session) => session?.recordingActive === true)
+    : null;
+  state.primarySessionId = liveSharedSession?.id || project.primarySessionId || state.sessions[0]?.id || null;
   const lastState = project.lastState || {};
   state.milestones = normalizeMilestones(
     Array.isArray(lastState.milestones) ? structuredClone(lastState.milestones) : [],
@@ -3629,7 +3632,8 @@ async function verifyShareView(token) {
 function refreshSharedProject(project) {
   const lastState = project.lastState || {};
   state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
-  state.primarySessionId = project.primarySessionId || state.sessions[0]?.id || null;
+  const liveSession = state.sessions.find((session) => session?.recordingActive === true);
+  state.primarySessionId = liveSession?.id || project.primarySessionId || state.sessions[0]?.id || null;
   state.milestones = normalizeMilestones(
     Array.isArray(lastState.milestones) ? structuredClone(lastState.milestones) : [],
   );
