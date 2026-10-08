@@ -3020,7 +3020,7 @@ body.is-map-point-selection #map .leaflet-interactive {
   }
 
   .app-shell {
-    height: 100dvh;
+    height: 100vh;
     min-height: 0;
     overflow: hidden;
   }
@@ -3031,7 +3031,7 @@ body.is-map-point-selection #map .leaflet-interactive {
   }
 
   .control-panel {
-    height: 100dvh;
+    height: 100vh;
     min-height: 0;
     gap: 10px;
     overflow-x: hidden;

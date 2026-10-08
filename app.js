@@ -445,6 +445,10 @@ els.saveBtn.addEventListener("click", saveRecordNow);
 els.exportBtn.addEventListener("click", exportData);
 els.clearBtn.addEventListener("click", clearData);
 els.photoInput.addEventListener("change", handlePhotoInput);
+window.addEventListener("focus", restoreViewportAfterFilePicker);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) restoreViewportAfterFilePicker();
+});
 els.mapProvider.addEventListener("change", handleMapProviderChange);
 els.wakeLockToggle.addEventListener("change", handleWakeLockToggle);
 els.photoFilter.addEventListener("change", (event) => {
@@ -1145,6 +1149,7 @@ function shouldAcceptPoint(latest, nextPoint) {
 }
 
 async function handlePhotoInput(event, options = {}) {
+  restoreViewportAfterFilePicker();
   const files = Array.from(event.target.files || []);
   if (files.length === 0) {
     return;
@@ -1217,6 +1222,17 @@ async function handlePhotoInput(event, options = {}) {
     void syncProjectState("add-photo");
   }
   return true;
+}
+
+function restoreViewportAfterFilePicker() {
+  window.requestAnimationFrame(() => {
+    map.invalidateSize(false);
+    syncNaverBaseMap(true);
+  });
+  window.setTimeout(() => {
+    map.invalidateSize(false);
+    syncNaverBaseMap(true);
+  }, 250);
 }
 
 async function getBestPhotoPosition(file) {
