@@ -73,12 +73,10 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260918-web-sync-1/);
-  assert.match(pageHtml, /id="mapReferenceInput"[^>]+application\/pdf/);
-  assert.match(pageHtml, /id="mapReferencePreview"/);
-  assert.match(pageHtml, /id="mapReferenceSaveBtn"/);
-  assert.match(pageHtml, /id="mapReferenceFitBtn"/);
-  assert.match(pageHtml, /id="mapReferenceResetBtn"/);
+  assert.match(pageHtml, /20261008-pre-survey-retired/);
+  assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
+  assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
+  assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
   const pdfModuleResponse = await fetch(`${baseUrl}/vendor/pdfjs/pdf.min.mjs`);
   assert.equal(pdfModuleResponse.status, 200);
   assert.match(pdfModuleResponse.headers.get("content-type") || "", /text\/javascript/);
@@ -93,8 +91,9 @@ try {
   assert.doesNotMatch(pageHtml, /id="naverPanoramaModal"|id="naverPanoramaViewer"|id="naverComparisonPhoto"/);
   assert.match(pageHtml, /<option value="positioned">네이버 지도 가능<\/option>/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
-  assert.match(pageHtml, /id="followRouteBtn"[^>]*hidden/);
-  assert.match(pageHtml, /id="plannedRouteSection"[^>]*hidden[^>]*aria-hidden="true"/);
+  assert.doesNotMatch(pageHtml, /id="followRouteBtn"/);
+  assert.doesNotMatch(pageHtml, /id="plannedRouteSection"/);
+  assert.doesNotMatch(pageHtml, /지도 이미지\/PDF 업로드/);
   assert.match(pageHtml, /id="syncStatusPanel"/);
   assert.match(pageHtml, /id="retrySyncBtn"[^>]*hidden/);
   assert.match(pageHtml, /id="followMapControls"/);

@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260918-web-sync-1" />
+    <link rel="stylesheet" href="/styles.css?v=20261008-pre-survey-retired" />
   </head>
   <body>
     <script>
@@ -104,52 +104,6 @@
           </div>
         </section>
 
-        <section id="plannedRouteSection" class="panel-section planned-route-section" hidden aria-hidden="true">
-          <div class="section-title">
-            <h2>사전 답사</h2>
-            <span class="badge">참고용</span>
-          </div>
-          <p class="hint">네이버지도에서 이동 예정 경로를 미리 만들고 현장 답사 때 비교합니다.</p>
-          <div class="map-reference-tools">
-            <label class="map-reference-upload" for="mapReferenceInput">지도 이미지/PDF 업로드</label>
-            <input id="mapReferenceInput" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" />
-            <div id="mapReferencePreview" class="map-reference-preview" hidden>
-              <img id="mapReferencePreviewImage" alt="업로드한 지도 정합점 선택" />
-              <div id="mapReferencePreviewPoints" class="map-reference-preview__points"></div>
-            </div>
-            <label class="map-reference-opacity">
-              <span>원본 확대</span>
-              <input id="mapReferencePreviewZoom" type="range" min="100" max="400" step="25" value="100" />
-            </label>
-            <div class="map-reference-alignment-actions">
-              <button id="mapReferenceFitBtn" type="button" disabled>화면에 맞춤</button>
-              <button id="mapReferenceResetBtn" type="button" disabled>초기화</button>
-              <button id="mapReferenceUndoBtn" type="button" disabled>한 단계 취소</button>
-              <button id="mapReferenceSaveBtn" type="button" disabled>위치 맞춤 저장</button>
-              <button id="mapReferenceCancelBtn" type="button" disabled>취소</button>
-            </div>
-            <label class="map-reference-opacity">
-              <span>겹침 투명도</span>
-              <input id="mapReferenceOpacity" type="range" min="15" max="85" value="48" />
-            </label>
-            <p id="mapReferenceStatus" class="status-text">이미지 또는 PDF를 올리면 위치 맞춤을 시작합니다.</p>
-            <p class="hint">네이버지도를 대상 지역에 먼저 맞춘 뒤 업로드하세요. 지도 위 네 모서리를 드래그해 크기·회전·기울기를 조절하고, 가운데 이동점을 드래그하면 전체 위치가 이동합니다.</p>
-            <div id="mapReferenceList" class="map-reference-list"></div>
-          </div>
-          <div class="planned-route-form">
-            <input id="plannedRouteName" type="text" placeholder="사전 답사명" aria-label="사전 답사 이름" />
-            <textarea id="plannedRouteMemo" rows="2" placeholder="메모 (선택)" aria-label="사전 답사 메모"></textarea>
-          </div>
-          <div class="planned-route-actions">
-            <button id="plannedRouteStartBtn" class="primary-action" type="button">사전 답사 만들기</button>
-            <button id="plannedRouteUndoBtn" type="button" disabled>마지막 점 취소</button>
-            <button id="plannedRouteSaveBtn" type="button" disabled>사전 답사 저장</button>
-            <button id="plannedRouteCancelBtn" type="button" disabled>취소</button>
-          </div>
-          <p id="plannedRouteStatus" class="status-text">만들기를 누른 뒤 지도 위 도로를 이동 순서대로 선택하세요.</p>
-          <div id="plannedRouteList" class="planned-route-list"></div>
-        </section>
-
         <section id="recordSection" class="panel-section record-section">
           <div class="section-title">
             <h2 id="recordTitle">기록</h2>
@@ -174,7 +128,6 @@
             </div>
             <div class="field-action-group">
               <div class="field-action-grid">
-                <button id="followRouteBtn" type="button" hidden>답사 따라가기</button>
                 <button id="addConstructionPinBtn" type="button">공사구역 추가</button>
                 <button id="addMapMemoBtn" type="button">현장 메모 등록</button>
                 <button
@@ -190,7 +143,6 @@
                 <button id="sharePhotoToggleBtn" type="button" aria-pressed="true" hidden>사진 숨기기</button>
                 <button id="shareConstructionToggleBtn" type="button" aria-pressed="true" hidden>공사구역 숨기기</button>
               </div>
-              <div id="routeFollowStatus" class="route-follow-status" hidden>기록된 동선을 불러오면 답사 따라가기를 시작할 수 있습니다.</div>
             </div>
             <p class="hint">공사구역은 코드와 대표 색상을 지정해 프로젝트와 함께 저장·공유합니다.</p>
             <div class="milestone-tools">
@@ -384,6 +336,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260918-web-sync-1"></script>
+    <script src="/app.js?v=20261008-pre-survey-retired"></script>
   </body>
 </html>

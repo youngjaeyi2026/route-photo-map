@@ -19,6 +19,7 @@ const MAP_MARKER_SEPARATION_PX = 20;
 const WEB_TRACKING_SYNC_DISTANCE_METERS = 500;
 const WEB_TRACKING_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const LIVE_SHARED_SESSION_MAX_AGE_MS = 10 * 60 * 1000;
+const PRE_SURVEY_FEATURE_ENABLED = false;
 const REPRESENTATIVE_COLORS = [
   { name: "빨강", value: "#c34236" },
   { name: "주황", value: "#d96c1f" },
@@ -4729,6 +4730,7 @@ function setMapReferenceStatus(message) {
 }
 
 function renderMapReferenceTools() {
+  if (!PRE_SURVEY_FEATURE_ENABLED || !els.mapReferenceInput) return;
   const draft = state.mapAlignmentMode ? state.mapReferenceDraft : null;
   const extractionReference = state.mapColorExtractionMode
     ? state.mapReferences.find((item) => item.id === state.mapColorExtractionReferenceId)
@@ -4828,6 +4830,7 @@ function ensureMapReferenceCanvas() {
 }
 
 function scheduleMapReferenceRender() {
+  if (!PRE_SURVEY_FEATURE_ENABLED) return;
   if (mapReferenceRenderFrame !== null) return;
   mapReferenceRenderFrame = window.requestAnimationFrame(() => {
     mapReferenceRenderFrame = null;
@@ -5279,6 +5282,7 @@ function fitPlannedRoute(points) {
 function renderPlannedRoutes() {
   updateMapPointSelectionCursor();
   plannedRouteLayer.clearLayers();
+  if (!PRE_SURVEY_FEATURE_ENABLED) return;
   const routesToDraw = state.plannedRoutes.filter((route) => route.visible !== false);
   routesToDraw.forEach((route) => {
     L.polyline(route.points.map((point) => [point.lat, point.lng]), {
