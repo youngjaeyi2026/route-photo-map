@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261008-photo-layout-hotfix/);
+  assert.match(pageHtml, /20261008-viewport-fill/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -400,6 +400,7 @@ try {
   assert.match(css, /\.pin-icon-button\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px/s);
   assert.match(css, /\.color-picker-modal\s*\{/);
   assert.match(css, /\.field-action-group\s*\{[^}]*padding-top:\s*16px/s);
+  assert.match(css, /@media \(min-width:\s*861px\)[\s\S]+?\.app-shell\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*height:\s*auto;/s);
   assert.match(css, /#followRouteBtn\s*\{[^}]*min-height:\s*42px/s);
   assert.match(css, /#addConstructionPinBtn,\s*#addMapMemoBtn\s*\{[^}]*min-height:\s*42px/s);
   assert.match(css, /#constructionVisibilityBtn\s*\{[^}]*grid-column:\s*2;[^}]*min-height:\s*42px/s);
