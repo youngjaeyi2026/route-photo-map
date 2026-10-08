@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20260912-transport-live-2/);
+  assert.match(pageHtml, /20260918-web-sync-1/);
   assert.match(pageHtml, /id="mapReferenceInput"[^>]+application\/pdf/);
   assert.match(pageHtml, /id="mapReferencePreview"/);
   assert.match(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -93,7 +93,10 @@ try {
   assert.doesNotMatch(pageHtml, /id="naverPanoramaModal"|id="naverPanoramaViewer"|id="naverComparisonPhoto"/);
   assert.match(pageHtml, /<option value="positioned">네이버 지도 가능<\/option>/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
-  assert.match(pageHtml, /id="followRouteBtn"/);
+  assert.match(pageHtml, /id="followRouteBtn"[^>]*hidden/);
+  assert.match(pageHtml, /id="plannedRouteSection"[^>]*hidden[^>]*aria-hidden="true"/);
+  assert.match(pageHtml, /id="syncStatusPanel"/);
+  assert.match(pageHtml, /id="retrySyncBtn"[^>]*hidden/);
   assert.match(pageHtml, /id="followMapControls"/);
   assert.match(pageHtml, /id="followExitBtn"/);
   assert.match(pageHtml, /id="followPhotoToggleBtn"/);

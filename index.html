@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260912-transport-live-2" />
+    <link rel="stylesheet" href="/styles.css?v=20260918-web-sync-1" />
   </head>
   <body>
     <script>
@@ -63,6 +63,10 @@
             </div>
           </div>
           <p id="projectStatus" class="status-text">기록 완료 시 자동 저장됩니다. 다른 기기에서는 같은 공유 코드로 불러오기를 눌러 확인합니다.</p>
+          <div id="syncStatusPanel" class="sync-status-panel" aria-live="polite">
+            <span id="syncStatusLabel">서버 저장 상태를 확인하는 중입니다.</span>
+            <button id="retrySyncBtn" type="button" hidden>다시 전송</button>
+          </div>
           <div id="projectCollaboration" class="project-collaboration" hidden>
             <div class="project-collaboration__title">
               <h3>공동 편집</h3>
@@ -100,7 +104,7 @@
           </div>
         </section>
 
-        <section id="plannedRouteSection" class="panel-section planned-route-section">
+        <section id="plannedRouteSection" class="panel-section planned-route-section" hidden aria-hidden="true">
           <div class="section-title">
             <h2>사전 답사</h2>
             <span class="badge">참고용</span>
@@ -170,7 +174,7 @@
             </div>
             <div class="field-action-group">
               <div class="field-action-grid">
-                <button id="followRouteBtn" type="button">답사 따라가기</button>
+                <button id="followRouteBtn" type="button" hidden>답사 따라가기</button>
                 <button id="addConstructionPinBtn" type="button">공사구역 추가</button>
                 <button id="addMapMemoBtn" type="button">현장 메모 등록</button>
                 <button
@@ -186,7 +190,7 @@
                 <button id="sharePhotoToggleBtn" type="button" aria-pressed="true" hidden>사진 숨기기</button>
                 <button id="shareConstructionToggleBtn" type="button" aria-pressed="true" hidden>공사구역 숨기기</button>
               </div>
-              <div id="routeFollowStatus" class="route-follow-status">기록된 동선을 불러오면 답사 따라가기를 시작할 수 있습니다.</div>
+              <div id="routeFollowStatus" class="route-follow-status" hidden>기록된 동선을 불러오면 답사 따라가기를 시작할 수 있습니다.</div>
             </div>
             <p class="hint">공사구역은 코드와 대표 색상을 지정해 프로젝트와 함께 저장·공유합니다.</p>
             <div class="milestone-tools">
@@ -380,6 +384,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20260912-transport-live-2"></script>
+    <script src="/app.js?v=20260918-web-sync-1"></script>
   </body>
 </html>

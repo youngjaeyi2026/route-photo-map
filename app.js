@@ -16,6 +16,9 @@ const FOLLOW_INTERACTION_RESUME_MS = 4000;
 const CONSTRUCTION_NAME_ZOOM = 16;
 const MAP_MARKER_COLLISION_PX = 46;
 const MAP_MARKER_SEPARATION_PX = 20;
+const WEB_TRACKING_SYNC_DISTANCE_METERS = 500;
+const WEB_TRACKING_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const LIVE_SHARED_SESSION_MAX_AGE_MS = 10 * 60 * 1000;
 const REPRESENTATIVE_COLORS = [
   { name: "빨강", value: "#c34236" },
   { name: "주황", value: "#d96c1f" },
@@ -62,6 +65,7 @@ const state = {
   lastSyncedAt: null,
   lastSyncFailedAt: null,
   lastSyncError: "",
+  lastSyncedPointCount: 0,
   user: null,
   myProjects: [],
   shareLinks: [],
@@ -108,6 +112,7 @@ const state = {
   pendingSessionDeletes: [],
   primarySessionId: null,
   activeStartedAt: null,
+  liveSyncSessionId: null,
 };
 
 const els = {
@@ -162,6 +167,9 @@ const els = {
   projectCode: document.querySelector("#projectCode"),
   projectBadge: document.querySelector("#projectBadge"),
   projectStatus: document.querySelector("#projectStatus"),
+  syncStatusPanel: document.querySelector("#syncStatusPanel"),
+  syncStatusLabel: document.querySelector("#syncStatusLabel"),
+  retrySyncBtn: document.querySelector("#retrySyncBtn"),
   projectCollaboration: document.querySelector("#projectCollaboration"),
   projectAccessBadge: document.querySelector("#projectAccessBadge"),
   projectInviteControls: document.querySelector("#projectInviteControls"),
@@ -310,6 +318,9 @@ let projectOpenRequestId = 0;
 let projectSyncQueue = Promise.resolve();
 const pendingProjectSyncs = new Set();
 let recordCompletionPending = false;
+let trackingCheckpointAt = 0;
+let trackingDistanceSinceCheckpoint = 0;
+let trackingCheckpointLastPoint = null;
 let photoCacheMigrationPromise = null;
 let photoModalTouchStartX = null;
 let photoModalPhotoPool = [];
@@ -552,6 +563,7 @@ els.createProjectBtn.addEventListener("click", createServerProject);
 els.renameProjectBtn?.addEventListener("click", renameCurrentProject);
 els.openProjectBtn.addEventListener("click", () => openServerProject(els.projectCode.value));
 els.syncProjectBtn.addEventListener("click", () => syncProjectState("manual"));
+els.retrySyncBtn?.addEventListener("click", () => syncProjectState("manual-retry"));
 els.projectInviteBtn?.addEventListener("click", inviteProjectEditor);
 els.projectInviteEmail?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
@@ -679,6 +691,10 @@ function startTracking() {
   state.recordPanelOpen = true;
   state.autoFollow = true;
   state.activeStartedAt = state.activeStartedAt || Date.now();
+  state.liveSyncSessionId = state.continuingSessionId || state.liveSyncSessionId || crypto.randomUUID();
+  trackingCheckpointAt = 0;
+  trackingDistanceSinceCheckpoint = 0;
+  trackingCheckpointLastPoint = state.points.at(-1) || null;
   if (state.pollerId !== null) {
     window.clearInterval(state.pollerId);
     state.pollerId = null;
@@ -771,6 +787,10 @@ async function stopTracking(options = {}) {
     startRouteFollowWatcher();
   }
   if (clearCurrent && saved !== false && serverSaved) {
+    state.liveSyncSessionId = null;
+    resetTrackingCheckpointState();
+    persist();
+    renderSyncStatus();
     setStatus("서버 저장을 확인했습니다. 현재 화면을 다음 기록 상태로 초기화했습니다.", "success");
     return true;
   }
@@ -937,16 +957,51 @@ function addPointFromCoords(coords, timestamp = Date.now()) {
   const latest = state.points.at(-1);
   const accepted = shouldAcceptPoint(latest, nextPoint);
   if (!accepted.ok) {
+    if (state.tracking) {
+      maybeSyncTrackingCheckpoint(latest);
+    }
     setStatus(accepted.message);
     return null;
   }
 
   state.points.push(nextPoint);
   state.selectedPosition = nextPoint;
+  if (state.projectCode) {
+    state.syncDirty = true;
+  }
+  if (state.tracking) {
+    if (trackingCheckpointLastPoint) {
+      trackingDistanceSinceCheckpoint += getDistanceMeters(trackingCheckpointLastPoint, nextPoint);
+    }
+    trackingCheckpointLastPoint = nextPoint;
+  }
   persist();
+  renderSyncStatus();
+  if (state.tracking) {
+    maybeSyncTrackingCheckpoint(nextPoint);
+  }
   renderRouteProgress(nextPoint);
   followLatestPoint(nextPoint);
   return updateRouteFollowing(nextPoint);
+}
+
+function maybeSyncTrackingCheckpoint(latestPoint, force = false) {
+  if (!state.tracking || !state.projectCode || !state.liveSyncSessionId || !latestPoint) return;
+  const now = Date.now();
+  const firstCheckpoint = trackingCheckpointAt === 0;
+  const distanceReached = trackingDistanceSinceCheckpoint >= WEB_TRACKING_SYNC_DISTANCE_METERS;
+  const timeReached = !firstCheckpoint && now - trackingCheckpointAt >= WEB_TRACKING_SYNC_INTERVAL_MS;
+  if (!force && !firstCheckpoint && !distanceReached && !timeReached) return;
+
+  trackingCheckpointAt = now;
+  trackingDistanceSinceCheckpoint = 0;
+  void syncProjectState("tracking-checkpoint");
+}
+
+function resetTrackingCheckpointState() {
+  trackingCheckpointAt = 0;
+  trackingDistanceSinceCheckpoint = 0;
+  trackingCheckpointLastPoint = null;
 }
 
 function renderRouteProgress(point = getLatestPosition()) {
@@ -1595,6 +1650,7 @@ function saveCurrentSession(reason = "manual") {
         signature,
         continuedAt: updatedAt,
         updatedAt,
+        recordingActive: false,
       };
       state.sessions.splice(index, 1);
       state.sessions.unshift(updatedSession);
@@ -1618,7 +1674,7 @@ function saveCurrentSession(reason = "manual") {
   }
   const completedAt = Date.now();
   const session = {
-    id: crypto.randomUUID(),
+    id: state.liveSyncSessionId || crypto.randomUUID(),
     name: getDefaultSessionName(startedAt),
     memo: "",
     reason,
@@ -1629,6 +1685,7 @@ function saveCurrentSession(reason = "manual") {
     points: structuredClone(state.points),
     photos: structuredClone(state.photos),
     signature,
+    recordingActive: false,
   };
 
   try {
@@ -2042,6 +2099,9 @@ function resetForNewProject() {
   state.continuingSessionId = null;
   state.selectedPosition = state.initialPosition || null;
   state.activeStartedAt = null;
+  state.liveSyncSessionId = null;
+  state.lastSyncedPointCount = 0;
+  resetTrackingCheckpointState();
   state.destinationFollow = false;
   state.followProgressIndex = 0;
   state.routeOffTrack = false;
@@ -2171,6 +2231,7 @@ async function performProjectSync(job) {
     state.lastSyncError = "";
     persist();
     setProjectStatus("서버 동기화 중입니다. 연결이 불안정해도 현재 작업은 로컬에 보관됩니다.");
+    renderSyncStatus();
   }
 
   try {
@@ -2202,7 +2263,9 @@ async function performProjectSync(job) {
       state.lastSyncedAt = Date.now();
       state.lastSyncFailedAt = null;
       state.lastSyncError = "";
+      state.lastSyncedPointCount = state.points.length;
       persist();
+      renderSyncStatus();
       saveProjectRecoveryBackup("server-confirmed", true);
       if (state.user && reason !== "auto-retry") {
         loadMyProjects();
@@ -2217,6 +2280,7 @@ async function performProjectSync(job) {
       state.lastSyncFailedAt = Date.now();
       state.lastSyncError = error?.message || "network";
       persist();
+      renderSyncStatus();
     }
     if (state.projectCode === syncProjectCode) {
       if (error?.message === "request_body_too_large") {
@@ -2247,6 +2311,7 @@ async function performProjectSync(job) {
 
 function createProjectSyncPayload(reason) {
   reorderConstructionPinsByRouteOrder();
+  const sessions = createSessionsForSync(reason);
   return {
     name: state.projectName || "프로젝트A",
     reason,
@@ -2257,11 +2322,36 @@ function createProjectSyncPayload(reason) {
     activePlannedRouteId: state.activePlannedRouteId,
     mapReferences: structuredClone(state.mapReferences),
     activeMapReferenceId: state.activeMapReferenceId,
-    sessions: structuredClone(state.sessions),
+    sessions,
     primarySessionId: state.primarySessionId,
     baseUpdatedAt: state.projectRevision || null,
     allowSessionReduction: reason === "delete-session",
   };
+}
+
+function createSessionsForSync(reason) {
+  const sessions = structuredClone(state.sessions);
+  if (!state.tracking || !state.liveSyncSessionId || state.points.length === 0) return sessions;
+
+  const existing = sessions.find((session) => session.id === state.liveSyncSessionId);
+  const startedAt = existing?.startedAt || state.activeStartedAt || state.points[0]?.timestamp || Date.now();
+  const updatedAt = Date.now();
+  const liveSession = {
+    ...existing,
+    id: state.liveSyncSessionId,
+    name: existing?.name || getDefaultSessionName(startedAt),
+    memo: existing?.memo || "",
+    reason,
+    startedAt,
+    endedAt: state.points.at(-1)?.timestamp || updatedAt,
+    updatedAt,
+    distanceMeters: getTotalDistance(),
+    points: structuredClone(state.points),
+    photos: structuredClone(state.photos),
+    signature: getCurrentRecordSignature(),
+    recordingActive: true,
+  };
+  return [liveSession, ...sessions.filter((session) => session.id !== liveSession.id)].slice(0, 50);
 }
 
 async function preparePhotosForProjectSync() {
@@ -2378,7 +2468,7 @@ function applyProject(project) {
   milestoneLayer.clearLayers();
   state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
   const liveSharedSession = state.shareView
-    ? state.sessions.find((session) => session?.recordingActive === true)
+    ? state.sessions.find(isRecentlyActiveSharedSession)
     : null;
   state.primarySessionId = liveSharedSession?.id || project.primarySessionId || state.sessions[0]?.id || null;
   const lastState = project.lastState || {};
@@ -2419,6 +2509,13 @@ function applyProject(project) {
   state.routeOffTrack = false;
   state.routeDeviationSamples = 0;
   state.routeRecoverySamples = 0;
+  state.liveSyncSessionId = null;
+  state.lastSyncedPointCount = state.points.length;
+  state.syncDirty = false;
+  state.syncing = false;
+  state.lastSyncFailedAt = null;
+  state.lastSyncError = "";
+  resetTrackingCheckpointState();
   applyProjectMeta(project);
 }
 
@@ -2460,6 +2557,37 @@ function renderProjectState() {
     "is-live",
     serverReady && Boolean(state.projectCode || state.serverHealth?.storage === "tidb"),
   );
+  renderSyncStatus();
+}
+
+function renderSyncStatus() {
+  if (!els.syncStatusPanel || !els.syncStatusLabel || !els.retrySyncBtn) return;
+  els.syncStatusPanel.classList.remove("is-pending", "is-error");
+  if (!state.projectCode) {
+    els.syncStatusLabel.textContent = "프로젝트를 선택하면 서버 저장 상태를 표시합니다.";
+    els.retrySyncBtn.hidden = true;
+    return;
+  }
+  const pendingPointCount = Math.max(0, state.points.length - Number(state.lastSyncedPointCount || 0));
+  if (state.syncing) {
+    els.syncStatusPanel.classList.add("is-pending");
+    els.syncStatusLabel.textContent = `서버 전송 중${pendingPointCount ? ` · 위치점 ${pendingPointCount}개` : ""}`;
+    els.retrySyncBtn.hidden = true;
+    return;
+  }
+  if (state.syncDirty) {
+    const failed = Boolean(state.lastSyncFailedAt);
+    els.syncStatusPanel.classList.add(failed ? "is-error" : "is-pending");
+    els.syncStatusLabel.textContent = failed
+      ? `서버 전송 지연 · 휴대폰에 보관 중${pendingPointCount ? ` · 위치점 ${pendingPointCount}개` : ""}`
+      : `서버 전송 대기${pendingPointCount ? ` · 위치점 ${pendingPointCount}개` : " · 변경사항 있음"}`;
+    els.retrySyncBtn.hidden = false;
+    return;
+  }
+  els.syncStatusLabel.textContent = state.lastSyncedAt
+    ? `서버 저장 완료 · ${new Date(state.lastSyncedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+    : "서버 저장 전 · 기록 저장 또는 동기화를 실행해 주세요.";
+  els.retrySyncBtn.hidden = true;
 }
 
 async function loadProjectMembers() {
@@ -3632,7 +3760,7 @@ async function verifyShareView(token) {
 function refreshSharedProject(project) {
   const lastState = project.lastState || {};
   state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
-  const liveSession = state.sessions.find((session) => session?.recordingActive === true);
+  const liveSession = state.sessions.find(isRecentlyActiveSharedSession);
   state.primarySessionId = liveSession?.id || project.primarySessionId || state.sessions[0]?.id || null;
   state.milestones = normalizeMilestones(
     Array.isArray(lastState.milestones) ? structuredClone(lastState.milestones) : [],
@@ -3654,6 +3782,16 @@ function refreshSharedProject(project) {
   state.projectRevision = project.updatedAt;
   render();
   scheduleMapReferenceRender();
+}
+
+function isRecentlyActiveSharedSession(session) {
+  if (session?.recordingActive !== true) return false;
+  const lastActivityAt = Math.max(
+    Number(session.updatedAt) || 0,
+    Number(session.endedAt) || 0,
+    Number(session.points?.at?.(-1)?.timestamp) || 0,
+  );
+  return lastActivityAt > 0 && Date.now() - lastActivityAt <= LIVE_SHARED_SESSION_MAX_AGE_MS;
 }
 
 function endSharedView(message) {
@@ -3955,6 +4093,9 @@ function clearData() {
   state.continuingSessionId = null;
   state.selectedPosition = state.initialPosition || null;
   state.activeStartedAt = null;
+  state.liveSyncSessionId = null;
+  state.lastSyncedPointCount = 0;
+  resetTrackingCheckpointState();
   state.destinationFollow = false;
   state.followProgressIndex = 0;
   state.routeOffTrack = false;
@@ -8437,6 +8578,7 @@ function getPersistPayload() {
     selectedPosition: state.selectedPosition,
     initialPosition: state.initialPosition,
     activeStartedAt: state.activeStartedAt,
+    liveSyncSessionId: state.liveSyncSessionId,
     adminPanelOpen: state.adminPanelOpen,
     authPanelOpen: state.authPanelOpen,
     sharePanelOpen: state.sharePanelOpen,
@@ -8461,6 +8603,7 @@ function getPersistPayload() {
     lastSyncedAt: state.lastSyncedAt,
     lastSyncFailedAt: state.lastSyncFailedAt,
     lastSyncError: state.lastSyncError,
+    lastSyncedPointCount: state.lastSyncedPointCount,
   };
 }
 
@@ -8864,6 +9007,7 @@ function loadState() {
     state.selectedPosition = saved.selectedPosition || state.points.at(-1) || null;
     state.initialPosition = saved.initialPosition || null;
     state.activeStartedAt = saved.activeStartedAt || null;
+    state.liveSyncSessionId = saved.liveSyncSessionId || null;
     state.adminPanelOpen = Boolean(saved.adminPanelOpen);
     state.authPanelOpen = saved.authPanelOpen !== false;
     state.sharePanelOpen = Boolean(saved.sharePanelOpen);
@@ -8895,6 +9039,7 @@ function loadState() {
     state.lastSyncedAt = saved.lastSyncedAt || null;
     state.lastSyncFailedAt = saved.lastSyncFailedAt || null;
     state.lastSyncError = saved.lastSyncError || "";
+    state.lastSyncedPointCount = Number(saved.lastSyncedPointCount || 0);
   } catch {
     state.points = [];
     state.photos = [];
@@ -8914,6 +9059,8 @@ function loadState() {
     state.selectedPosition = null;
     state.initialPosition = null;
     state.activeStartedAt = null;
+    state.liveSyncSessionId = null;
+    state.lastSyncedPointCount = 0;
     state.adminPanelOpen = false;
     state.authPanelOpen = true;
     state.sharePanelOpen = false;

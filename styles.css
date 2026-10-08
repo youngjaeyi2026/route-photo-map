@@ -338,6 +338,12 @@ h2 {
   gap: 14px;
 }
 
+.planned-route-section[hidden],
+#followRouteBtn[hidden],
+#routeFollowStatus[hidden] {
+  display: none !important;
+}
+
 .section-title {
   display: flex;
   align-items: center;
@@ -788,6 +794,46 @@ label[for="photoInput"] {
 .project-controls {
   display: grid;
   gap: 8px;
+}
+
+.sync-status-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #d5e5dc;
+  border-radius: 8px;
+  color: #35594a;
+  background: #f3f8f5;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sync-status-panel.is-pending {
+  border-color: #efd5a4;
+  color: #7a5520;
+  background: #fff8e9;
+}
+
+.sync-status-panel.is-error {
+  border-color: #efc3bd;
+  color: #8a3328;
+  background: #fff1ee;
+}
+
+.sync-status-panel button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #1f7a57;
+  border-radius: 7px;
+  color: #ffffff;
+  background: #1f7a57;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
 }
 
 .auth-section {
