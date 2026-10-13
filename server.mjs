@@ -878,7 +878,7 @@ async function requestNaverDirectionsSegment(stops, option) {
   const goal = stops.at(-1);
   const waypoints = stops.slice(1, -1);
   const apiType = waypoints.length > 5 ? "map-direction-15/v1" : "map-direction/v1";
-  const url = new URL(`https://naveropenapi.apigw.ntruss.com/${apiType}/driving`);
+  const url = new URL(`https://maps.apigw.ntruss.com/${apiType}/driving`);
   url.searchParams.set("start", `${start.lng},${start.lat}`);
   url.searchParams.set("goal", `${goal.lng},${goal.lat}`);
   if (waypoints.length) {

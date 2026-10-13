@@ -202,6 +202,8 @@ try {
   assert.match(naverMapScript, /intent:\/\/map/);
   assert.match(naverMapScript, /window\.location\.replace\(webMapUrl\)/);
   const serverSource = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(serverSource, /https:\/\/maps\.apigw\.ntruss\.com\/\$\{apiType\}\/driving/);
+  assert.doesNotMatch(serverSource, /naveropenapi\.apigw\.ntruss\.com\/\$\{apiType\}\/driving/);
   assert.match(serverSource, /colorExtraction: sanitizeMapReferenceColorExtraction/);
   assert.match(
     serverSource,
