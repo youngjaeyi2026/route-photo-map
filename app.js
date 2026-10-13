@@ -12,6 +12,8 @@ const ROUTE_COMPLETED_COLOR = "#1f7a57";
 const ROUTE_REMAINING_COLOR = "#315f9e";
 const ROUTE_DEVIATION_METERS = 50;
 const NAVER_MAP_CLIENT_ID = "pie7hw0qho";
+const MAP_PROVIDER_POLICY_VERSION = 1;
+const NAVER_MAP_RETRY_DELAY_MS = 60 * 1000;
 const FOLLOW_INTERACTION_RESUME_MS = 4000;
 const CONSTRUCTION_NAME_ZOOM = 16;
 const MAP_MARKER_COLLISION_PX = 46;
@@ -266,7 +268,7 @@ L.control.zoom({ position: "bottomleft" }).addTo(map);
 const osmTileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
   attribution: "&copy; OpenStreetMap",
-}).addTo(map);
+});
 
 const routeLine = L.polyline([], {
   color: ROUTE_COMPLETED_COLOR,
@@ -329,8 +331,10 @@ let photoModalReadOnly = false;
 let photoModalSourceLabel = "";
 let naverMapsScriptPromise = null;
 let activeNaverBaseMap = null;
-let activeMapProvider = "osm";
+let activeMapProvider = "";
 let pendingMapProvider = "";
+let naverMapRetryAfter = 0;
+let naverMapRetryTimerId = null;
 let naverMapSyncFrame = null;
 let activeConstructionDetailPin = null;
 let naverExternalWindow = null;
@@ -3923,6 +3927,12 @@ async function handleMapProviderChange(event) {
     setStatus("구글지도는 아직 연결되지 않았습니다.", "warning");
     return;
   }
+  if (provider === "naver") {
+    naverMapRetryAfter = 0;
+  } else if (naverMapRetryTimerId !== null) {
+    window.clearTimeout(naverMapRetryTimerId);
+    naverMapRetryTimerId = null;
+  }
   await applyMapProvider(provider);
 }
 
@@ -3959,17 +3969,30 @@ async function applyMapProvider(provider, options = {}) {
       return;
     }
     await activateNaverMap(naverMaps);
+    naverMapRetryAfter = 0;
+    if (naverMapRetryTimerId !== null) {
+      window.clearTimeout(naverMapRetryTimerId);
+      naverMapRetryTimerId = null;
+    }
     pendingMapProvider = "";
     if (!options.quiet) {
       setStatus("네이버지도로 전환했습니다.", "success");
     }
   } catch {
     pendingMapProvider = "";
-    state.mapProvider = "osm";
-    els.mapProvider.value = "osm";
-    persist();
+    naverMapRetryAfter = Date.now() + NAVER_MAP_RETRY_DELAY_MS;
+    state.mapProvider = "naver";
+    els.mapProvider.value = "naver";
     activateOpenStreetMap();
-    setStatus("네이버지도를 불러오지 못해 OpenStreetMap을 유지합니다.", "warning");
+    setStatus("네이버지도를 불러오지 못해 OpenStreetMap을 임시로 표시합니다. 잠시 후 다시 시도합니다.", "warning");
+    if (naverMapRetryTimerId !== null) window.clearTimeout(naverMapRetryTimerId);
+    naverMapRetryTimerId = window.setTimeout(() => {
+      naverMapRetryTimerId = null;
+      naverMapRetryAfter = 0;
+      if (state.mapProvider === "naver" && activeMapProvider !== "naver") {
+        void applyMapProvider("naver", { quiet: true });
+      }
+    }, NAVER_MAP_RETRY_DELAY_MS);
   }
 }
 
@@ -8327,11 +8350,13 @@ function renderTrackingState() {
     els.autoFollowBtn.title = state.autoFollow ? "자동 따라가기 켜짐" : "자동 따라가기 꺼짐";
     els.autoFollowBtn.setAttribute("aria-label", els.autoFollowBtn.title);
   }
-  els.mapProvider.value = state.mapProvider || "osm";
+  els.mapProvider.value = state.mapProvider || "naver";
   const desiredMapProvider = state.mapProvider === "naver" ? "naver" : "osm";
   const canActivateMapProvider = Boolean(state.user || initialShareToken);
+  const retryAllowed = desiredMapProvider !== "naver" || Date.now() >= naverMapRetryAfter;
   if (
     canActivateMapProvider &&
+    retryAllowed &&
     desiredMapProvider !== activeMapProvider &&
     desiredMapProvider !== pendingMapProvider
   ) {
@@ -8609,6 +8634,7 @@ function getPersistPayload() {
     wakeLockEnabled: state.wakeLockEnabled,
     autoFollow: state.autoFollow,
     mapProvider: state.mapProvider,
+    mapProviderPolicyVersion: MAP_PROVIDER_POLICY_VERSION,
     photoFilter: state.photoFilter,
     photoTagFilters: state.photoTagFilters,
     photoSort: state.photoSort,
@@ -9042,7 +9068,8 @@ function loadState() {
     state.continuingSessionId = saved.continuingSessionId || null;
     state.wakeLockEnabled = Boolean(saved.wakeLockEnabled);
     state.autoFollow = saved.autoFollow !== false;
-    state.mapProvider = saved.mapProvider || "naver";
+    const hasCurrentMapPolicy = Number(saved.mapProviderPolicyVersion || 0) >= MAP_PROVIDER_POLICY_VERSION;
+    state.mapProvider = hasCurrentMapPolicy && saved.mapProvider === "osm" ? "osm" : "naver";
     state.photoFilter = saved.photoFilter || "all";
     state.photoTagFilters = normalizeTagValues(saved.photoTagFilters);
     state.photoSort = saved.photoSort === "captured" ? "captured" : "route";
