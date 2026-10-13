@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261013-naver-auto-retry/);
+  assert.match(pageHtml, /20261013-naver-first-paint/);
   const appScriptResponse = await fetch(`${baseUrl}/app.js`);
   const appScript = await appScriptResponse.text();
   assert.equal(appScriptResponse.status, 200);
@@ -346,9 +346,8 @@ try {
   assert.match(appSource, /function createOverlayVisibilityButton\(project, property, label\)/);
   assert.match(appSource, /photoModalReadOnly = Boolean\(options\.readOnly\)/);
   assert.match(appSource, /function applyMapProvider\(provider, options = \{\}\)[\s\S]+?activateNaverMap/);
-  assert.match(appSource, /const MAP_PROVIDER_POLICY_VERSION = 2/);
-  assert.match(appSource, /const NAVER_MAP_RETRY_DELAY_MS = 5 \* 1000/);
-  assert.match(appSource, /state\.mapProvider = "naver"/);
+  assert.match(appSource, /const MAP_PROVIDER_POLICY_VERSION = 1/);
+  assert.match(appSource, /state\.mapProvider = hasCurrentMapPolicy && saved\.mapProvider === "osm" \? "osm" : "naver"/);
   assert.match(appSource, /OpenStreetMap을 임시로 표시합니다\. 잠시 후 다시 시도합니다/);
   assert.match(appSource, /const osmTileLayer = L\.tileLayer\([\s\S]{0,220}?\)\.addTo\(map\)/);
   assert.match(appSource, /async function activateNaverMap\(naverMaps\)[\s\S]+?new naverMaps\.Map/);
