@@ -120,12 +120,17 @@
               <label class="secondary-action" for="photoInput">
                 <span>사진 추가</span>
               </label>
+              <label class="secondary-action auto-photo-action" for="autoPhotoInput">
+                <span>자동 사진 추가</span>
+              </label>
               <button id="pauseBtn" class="secondary-action" type="button" disabled>
                 <span>일시정지</span>
               </button>
               <button id="saveBtn" class="save-action" type="button">기록 저장</button>
               <input id="photoInput" type="file" accept="image/*" multiple />
+              <input id="autoPhotoInput" type="file" accept="image/*" multiple />
             </div>
+            <p class="hint">자동 사진 추가는 사진 GPS를 우선 사용하고, GPS가 없으면 촬영시각과 동선을 맞춥니다.</p>
             <div class="field-action-group">
               <div class="field-action-grid">
                 <button id="addConstructionPinBtn" type="button">공사구역 추가</button>

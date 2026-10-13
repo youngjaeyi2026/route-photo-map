@@ -470,12 +470,19 @@ label[for="photoInput"] {
   order: 2;
 }
 
-#pauseBtn {
+label[for="autoPhotoInput"] {
+  grid-column: 1 / -1;
   order: 3;
+  color: #ffffff;
+  background: #376aa4;
+}
+
+#pauseBtn {
+  order: 4;
 }
 
 #saveBtn {
-  order: 6;
+  order: 5;
 }
 
 #followRouteBtn {
@@ -577,7 +584,8 @@ label[for="photoInput"] {
   accent-color: var(--green);
 }
 
-#photoInput {
+#photoInput,
+#autoPhotoInput {
   position: absolute;
   width: 1px;
   height: 1px;

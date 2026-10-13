@@ -122,6 +122,7 @@ const els = {
   trackBtn: document.querySelector("#trackBtn"),
   pauseBtn: document.querySelector("#pauseBtn"),
   photoInput: document.querySelector("#photoInput"),
+  autoPhotoInput: document.querySelector("#autoPhotoInput"),
   locateBtn: document.querySelector("#locateBtn"),
   fitBtn: document.querySelector("#fitBtn"),
   autoFollowBtn: document.querySelector("#autoFollowBtn"),
@@ -449,6 +450,7 @@ els.saveBtn.addEventListener("click", saveRecordNow);
 els.exportBtn.addEventListener("click", exportData);
 els.clearBtn.addEventListener("click", clearData);
 els.photoInput.addEventListener("change", handlePhotoInput);
+els.autoPhotoInput?.addEventListener("change", (event) => handlePhotoInput(event, { automatic: true }));
 window.addEventListener("focus", restoreViewportAfterFilePicker);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) restoreViewportAfterFilePicker();
@@ -1163,14 +1165,20 @@ async function handlePhotoInput(event, options = {}) {
   event.target.value = "";
   let addedCount = 0;
   let failedCount = 0;
+  let gpsPlacedCount = 0;
+  let timePlacedCount = 0;
+  let reviewCount = 0;
   let lastLocationLabel = "지도 화면 중앙";
   for (const [index, file] of files.entries()) {
     setStatus(`사진을 저장하고 위치를 확인하는 중입니다. (${index + 1}/${files.length})`, "active");
     try {
-      const usesMapCenter = !options.position && !state.tracking;
+      const usesAutomaticPlacement = options.automatic === true;
+      const usesMapCenter = !usesAutomaticPlacement && !options.position && !state.tracking;
       const fixedPosition = options.position || (usesMapCenter ? getMapCenterPosition() : null);
       const [locationResult, photoSrc] = await Promise.all([
-        fixedPosition || usesMapCenter
+        usesAutomaticPlacement
+          ? getAutomaticPhotoPosition(file)
+          : fixedPosition || usesMapCenter
           ? Promise.resolve({
               position: fixedPosition,
               source: fixedPosition ? options.source || (usesMapCenter ? "map-center" : "map") : "none",
@@ -1190,7 +1198,8 @@ async function handlePhotoInput(event, options = {}) {
         lat: position?.lat ?? null,
         lng: position?.lng ?? null,
         locationSource: locationResult.source,
-        timestamp: Date.now() + index,
+        tags: usesAutomaticPlacement ? "추가 답사" : "",
+        timestamp: locationResult.capturedAt || Date.now() + index,
       };
       photo.localPhotoCached = await cacheLocalPhoto(photo);
       state.photos.unshift(photo);
@@ -1198,6 +1207,9 @@ async function handlePhotoInput(event, options = {}) {
         state.selectedPosition = { lat: position.lat, lng: position.lng, timestamp: Date.now() };
       }
       lastLocationLabel = locationResult.label;
+      if (locationResult.source === "exif") gpsPlacedCount += 1;
+      else if (locationResult.source === "route-time") timePlacedCount += 1;
+      else if (usesAutomaticPlacement) reviewCount += 1;
       addedCount += 1;
     } catch (error) {
       console.warn("Photo batch item failed", error);
@@ -1215,7 +1227,10 @@ async function handlePhotoInput(event, options = {}) {
     setStatus("선택한 사진을 추가하지 못했습니다. 사진 파일 형식과 용량을 확인해 주세요.", "error");
     return false;
   }
-  const resultText = `${lastLocationLabel}에 사진 ${addedCount}장을 추가했습니다.${failedCount ? ` ${failedCount}장은 처리하지 못했습니다.` : ""}`;
+  const automaticSummary = options.automatic
+    ? ` GPS 배치 ${gpsPlacedCount}장 · 촬영시각 배치 ${timePlacedCount}장 · 위치 확인 필요 ${reviewCount}장.`
+    : "";
+  const resultText = `${lastLocationLabel}에 사진 ${addedCount}장을 추가했습니다.${automaticSummary}${failedCount ? ` ${failedCount}장은 처리하지 못했습니다.` : ""}`;
   setStatus(
     locallySaved
       ? `${resultText} 위치 편집에서 사진별 위치를 조정할 수 있습니다.`
@@ -1226,6 +1241,53 @@ async function handlePhotoInput(event, options = {}) {
     void syncProjectState("add-photo");
   }
   return true;
+}
+
+async function getAutomaticPhotoPosition(file) {
+  const metadata = await withTimeout(getExifPhotoMetadata(file), 5000, null);
+  const capturedAt = metadata?.capturedAt || (Number(file.lastModified) > 0 ? file.lastModified : null);
+  if (metadata?.position) {
+    return {
+      position: { ...metadata.position, timestamp: capturedAt || Date.now() },
+      capturedAt,
+      source: "exif",
+      label: "사진 GPS 또는 동선",
+    };
+  }
+
+  const routePosition = findRoutePointByCaptureTime(capturedAt);
+  if (routePosition) {
+    return {
+      position: routePosition,
+      capturedAt,
+      source: "route-time",
+      label: "사진 GPS 또는 동선",
+    };
+  }
+
+  return {
+    position: null,
+    capturedAt,
+    source: "review-required",
+    label: "사진 GPS 또는 동선",
+  };
+}
+
+function findRoutePointByCaptureTime(capturedAt) {
+  if (!Number.isFinite(capturedAt)) return null;
+  const candidates = state.points
+    .filter((point) => Number.isFinite(Number(point?.timestamp)) && Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)));
+  if (candidates.length === 0) return null;
+  const nearest = candidates.reduce((best, point) => {
+    const difference = Math.abs(Number(point.timestamp) - capturedAt);
+    return !best || difference < best.difference ? { point, difference } : best;
+  }, null);
+  if (!nearest || nearest.difference > 12 * 60 * 60 * 1000) return null;
+  return {
+    lat: Number(nearest.point.lat),
+    lng: Number(nearest.point.lng),
+    timestamp: capturedAt,
+  };
 }
 
 function restoreViewportAfterFilePicker() {
@@ -1434,6 +1496,11 @@ function withTimeout(promise, timeoutMs, fallback) {
 }
 
 async function getExifGpsPosition(file) {
+  const metadata = await getExifPhotoMetadata(file);
+  return metadata?.position || null;
+}
+
+async function getExifPhotoMetadata(file) {
   if (!file.type.includes("jpeg") && !file.type.includes("jpg")) {
     return null;
   }
@@ -1453,7 +1520,8 @@ async function getExifGpsPosition(file) {
       offset += 2;
 
       if (marker === 0xffe1) {
-        return readExifGps(view, offset, size - 2);
+        const metadata = readExifMetadata(view, offset, size - 2);
+        if (metadata) return metadata;
       }
 
       offset += size - 2;
@@ -1465,7 +1533,7 @@ async function getExifGpsPosition(file) {
   return null;
 }
 
-function readExifGps(view, start, length) {
+function readExifMetadata(view, start, length) {
   const exifHeader = "Exif\0\0";
   for (let i = 0; i < exifHeader.length; i += 1) {
     if (view.getUint8(start + i) !== exifHeader.charCodeAt(i)) {
@@ -1476,26 +1544,56 @@ function readExifGps(view, start, length) {
   const tiffStart = start + 6;
   const littleEndian = view.getUint16(tiffStart) === 0x4949;
   const firstIfdOffset = readUint32(view, tiffStart + 4, littleEndian);
-  const gpsIfdOffset = findIfdValue(view, tiffStart, tiffStart + firstIfdOffset, 0x8825, littleEndian);
-  if (!gpsIfdOffset) {
-    return null;
+  const firstIfd = tiffStart + firstIfdOffset;
+  const gpsIfdOffset = findIfdValue(view, tiffStart, firstIfd, 0x8825, littleEndian);
+  let position = null;
+  if (gpsIfdOffset) {
+    const gpsIfd = tiffStart + gpsIfdOffset;
+    const latRef = findAsciiValue(view, tiffStart, gpsIfd, 0x0001, littleEndian);
+    const lat = findRationalArrayValue(view, tiffStart, gpsIfd, 0x0002, littleEndian);
+    const lngRef = findAsciiValue(view, tiffStart, gpsIfd, 0x0003, littleEndian);
+    const lng = findRationalArrayValue(view, tiffStart, gpsIfd, 0x0004, littleEndian);
+    if (latRef && lat && lngRef && lng) {
+      position = {
+        lat: convertDmsToDecimal(lat, latRef),
+        lng: convertDmsToDecimal(lng, lngRef),
+      };
+    }
   }
 
-  const gpsIfd = tiffStart + gpsIfdOffset;
-  const latRef = findAsciiValue(view, tiffStart, gpsIfd, 0x0001, littleEndian);
-  const lat = findRationalArrayValue(view, tiffStart, gpsIfd, 0x0002, littleEndian);
-  const lngRef = findAsciiValue(view, tiffStart, gpsIfd, 0x0003, littleEndian);
-  const lng = findRationalArrayValue(view, tiffStart, gpsIfd, 0x0004, littleEndian);
+  const exifIfdOffset = findIfdValue(view, tiffStart, firstIfd, 0x8769, littleEndian);
+  const exifIfd = exifIfdOffset ? tiffStart + exifIfdOffset : null;
+  const capturedText = (exifIfd && (
+    findAsciiStringValue(view, tiffStart, exifIfd, 0x9003, littleEndian)
+    || findAsciiStringValue(view, tiffStart, exifIfd, 0x9004, littleEndian)
+  )) || findAsciiStringValue(view, tiffStart, firstIfd, 0x0132, littleEndian);
+  const capturedAt = parseExifDateTime(capturedText);
+  return position || capturedAt ? { position, capturedAt } : null;
+}
 
-  if (!latRef || !lat || !lngRef || !lng) {
-    return null;
+function findAsciiStringValue(view, tiffStart, ifdStart, tagId, littleEndian) {
+  const entry = findIfdEntry(view, ifdStart, tagId, littleEndian);
+  if (!entry) return null;
+  const count = readUint32(view, entry + 4, littleEndian);
+  if (!count || count > 128) return null;
+  const valueOffset = count <= 4 ? entry + 8 : tiffStart + readUint32(view, entry + 8, littleEndian);
+  let value = "";
+  for (let index = 0; index < count; index += 1) {
+    const code = view.getUint8(valueOffset + index);
+    if (code === 0) break;
+    value += String.fromCharCode(code);
   }
+  return value.trim() || null;
+}
 
-  return {
-    lat: convertDmsToDecimal(lat, latRef),
-    lng: convertDmsToDecimal(lng, lngRef),
-    timestamp: Date.now(),
-  };
+function parseExifDateTime(value) {
+  const match = String(value || "").match(/^(\d{4}):(\d{2}):(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second] = match;
+  const timestamp = new Date(
+    Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second),
+  ).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 function findIfdValue(view, tiffStart, ifdStart, tagId, littleEndian) {

@@ -204,6 +204,7 @@ try {
   );
   const appResponse = await fetch(`${baseUrl}/app.js`);
   const appSource = await appResponse.text();
+  const indexSource = await (await fetch(`${baseUrl}/`)).text();
   assert.match(appSource, /function startMapReferenceColorExtraction/);
   assert.match(appSource, /function createMapReferenceColorCanvas/);
   assert.match(appSource, /function updateMapReferencePreviewZoom/);
@@ -384,7 +385,12 @@ try {
   const milestoneRenderer = appSource.match(/function renderMilestones\(\)[\s\S]+?function updateMapPinPosition/);
   assert.ok(milestoneRenderer);
   assert.doesNotMatch(milestoneRenderer[0], /pin\.lat\.toFixed|pin\.lng\.toFixed/);
-  assert.match(appSource, /const usesMapCenter = !options\.position && !state\.tracking/);
+  assert.match(appSource, /const usesAutomaticPlacement = options\.automatic === true/);
+  assert.match(appSource, /const usesMapCenter = !usesAutomaticPlacement && !options\.position && !state\.tracking/);
+  assert.match(appSource, /function findRoutePointByCaptureTime\(capturedAt\)/);
+  assert.match(appSource, /source: "route-time"/);
+  assert.match(appSource, /GPS 배치/);
+  assert.match(indexSource, /id="autoPhotoInput"[^>]+multiple/);
   assert.match(appSource, /usesMapCenter \? "map-center" : "map"/);
   assert.match(appSource, /options\.label \|\| \(fixedPosition \? "지도 화면 중앙" : "위치 정보 없음"\)/);
   assert.match(appSource, /if \(position && state\.tracking\) \{\s*state\.selectedPosition/);
