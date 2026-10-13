@@ -1443,6 +1443,179 @@ body.is-follow-mode .control-panel {
   gap: 8px;
 }
 
+.planned-route-notice {
+  margin: 0;
+  border: 1px solid #edc9a4;
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: #7a471c;
+  background: #fff8ee;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.planned-route-methods,
+.planned-route-stop-actions,
+.planned-route-search-row {
+  display: grid;
+  gap: 7px;
+}
+
+.planned-route-methods {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.planned-route-stop-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.planned-route-methods button,
+.planned-route-stop-actions button,
+.planned-route-search-row button,
+.planned-route-stop__actions button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 8px;
+  color: var(--green-dark);
+  background: #ffffff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.planned-route-methods button.is-active,
+.planned-route-stop-actions button.is-active {
+  color: #ffffff;
+  border-color: var(--green);
+  background: var(--green);
+}
+
+.planned-route-auto-controls {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #cddfd6;
+  border-radius: 9px;
+  padding: 9px;
+  background: #f6faf7;
+}
+
+.planned-route-auto-controls[hidden] {
+  display: none;
+}
+
+.planned-route-stop-list {
+  display: grid;
+  gap: 6px;
+}
+
+.planned-route-stop {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px;
+  background: #ffffff;
+}
+
+.planned-route-stop__badge {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: #d96c1f;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.planned-route-stop.is-waypoint .planned-route-stop__badge {
+  background: #315f9e;
+}
+
+.planned-route-stop__body {
+  min-width: 0;
+}
+
+.planned-route-stop__body input {
+  padding: 6px 8px;
+}
+
+.planned-route-stop__body small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.planned-route-stop__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  max-width: 132px;
+}
+
+.planned-route-stop__actions button {
+  min-width: 31px;
+  min-height: 29px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.planned-route-search-row {
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 0.7fr);
+  align-items: end;
+}
+
+.planned-route-search-row label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.planned-route-search-row .primary-action {
+  color: #ffffff;
+  background: var(--green);
+}
+
+.planned-route-status-field {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.route-review-phase-two details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.route-review-phase-two details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.route-review-phase-two__body {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
 .map-reference-tools {
   display: grid;
   gap: 8px;
@@ -1652,7 +1825,8 @@ body.is-map-point-selection #map .leaflet-interactive {
 
 .planned-route-form input,
 .planned-route-form textarea,
-.planned-route-form select {
+.planned-route-form select,
+.route-review-phase-two input {
   box-sizing: border-box;
   width: 100%;
   border: 1px solid var(--line);
@@ -3343,6 +3517,21 @@ body.is-map-point-selection #map .leaflet-interactive {
 }
 
 @media (max-width: 460px) {
+  .planned-route-stop {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+
+  .planned-route-stop__actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    max-width: none;
+  }
+
+  .planned-route-search-row {
+    grid-template-columns: 1fr;
+  }
+
   .follow-map-controls {
     top: 12px;
     right: 12px;

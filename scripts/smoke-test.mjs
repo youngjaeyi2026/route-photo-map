@@ -41,6 +41,8 @@ const child = spawn(process.execPath, ["server.mjs"], {
     R2_ENDPOINT: "",
     R2_ACCESS_KEY_ID: "",
     R2_SECRET_ACCESS_KEY: "",
+    NAVER_DIRECTIONS_CLIENT_ID: "",
+    NAVER_DIRECTIONS_CLIENT_SECRET: "",
     DATA_DIR: dataDir,
     MAX_BODY_BYTES: "4096",
   },
@@ -64,6 +66,21 @@ try {
   assert.equal(readyResponse.status, 503);
   assert.equal(readyBody.ready, false);
 
+  const routePreviewResponse = await fetch(`${baseUrl}/api/routes/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      option: "traoptimal",
+      stops: [
+        { kind: "start", lat: 35.978, lng: 126.617 },
+        { kind: "waypoint", lat: 35.9, lng: 126.95 },
+        { kind: "goal", lat: 35.8505, lng: 127.1048 },
+      ],
+    }),
+  });
+  assert.equal(routePreviewResponse.status, 503);
+  assert.equal((await routePreviewResponse.json()).error, "directions_not_configured");
+
   const legacyProjectResponse = await fetch(`${baseUrl}/api/projects/${legacyProjectCode}`);
   const legacyProject = await legacyProjectResponse.json();
   assert.equal(legacyProjectResponse.status, 200);
@@ -73,7 +90,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261013-candidate-routes/);
+  assert.match(pageHtml, /20261013-route-planner-v1/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -97,6 +114,11 @@ try {
   assert.match(pageHtml, /id="plannedRouteControls"[^>]+hidden/);
   assert.match(pageHtml, /id="plannedRouteStatusSelect"/);
   assert.match(pageHtml, /id="plannedRouteLength"/);
+  assert.match(pageHtml, /id="plannedRouteStartPointBtn"/);
+  assert.match(pageHtml, /id="plannedRouteWaypointBtn"/);
+  assert.match(pageHtml, /id="plannedRouteGoalPointBtn"/);
+  assert.match(pageHtml, /id="plannedRouteSearchBtn"/);
+  assert.match(pageHtml, /제한차량의 통과 가능성이나 운행허가를 판정하지 않는 사전검토용/);
   assert.match(pageHtml, /id="addObstaclePhotoBtn"/);
   assert.match(pageHtml, /id="obstaclePhotoInput"[^>]+multiple/);
   assert.doesNotMatch(pageHtml, /지도 이미지\/PDF 업로드/);
@@ -141,6 +163,7 @@ try {
   assert.match(css, /\.overlay-visibility-options\s*\{/);
   assert.match(css, /\.overlay-photo-marker\s*\{/);
   assert.match(css, /\.naver-map-base\s*\{/);
+  assert.match(css, /\.planned-route-stop\s*\{/);
   assert.match(css, /body\.is-naver-map #map \.leaflet-tile-pane/);
   assert.match(
     css,
@@ -336,6 +359,8 @@ try {
   assert.match(appSource, /function createSinglePhotoMarker\(photo\)[\s\S]+?const size = 42;[\s\S]+?photo-single-marker/);
   assert.match(appSource, /NAVER_MAP_CLIENT_ID = "pie7hw0qho"/);
   assert.match(appSource, /function loadNaverMapsApi\(\)/);
+  assert.match(appSource, /async function searchPlannedRoute\(\)/);
+  assert.match(appSource, /function movePlannedRouteWaypoint\(stopId, direction\)/);
   assert.match(appSource, /function waitForNaverMapsApi\(timeoutMs = 12000\)[\s\S]+?window\.setTimeout\(checkApi, 50\)/);
   assert.match(appSource, /function openNaverMapLocation\(position, name = "선택 위치"\)[\s\S]+?naver-map\.html/);
   assert.match(appSource, /function openNaverRoadview\(position, name = "선택 위치"\)/);
@@ -541,6 +566,20 @@ try {
       memo: "현장 확인용",
       visible: true,
       status: "review",
+      source: "naver-directions",
+      routeOption: "traavoidcaronly",
+      routeSummary: {
+        distance: 12345,
+        duration: 2345000,
+        tollFare: 0,
+        provider: "naver",
+        searchedAt: "2026-10-13T00:00:00.000Z",
+      },
+      stops: [
+        { id: "start", kind: "start", label: "군산항", lat: 37.5, lng: 127.0 },
+        { id: "waypoint", kind: "waypoint", label: "우회 검토", lat: 37.505, lng: 127.005 },
+        { id: "goal", kind: "goal", label: "도착지", lat: 37.51, lng: 127.01 },
+      ],
       vehicleSpec: {
         length: 38.9,
         width: 4.5,
@@ -739,6 +778,10 @@ try {
   assert.equal(shared.project.lastState.plannedRoutes[0].name, "사전 답사 A");
   assert.equal(shared.project.lastState.plannedRoutes[0].status, "review");
   assert.equal(shared.project.lastState.plannedRoutes[0].vehicleSpec.totalWeight, 147.5);
+  assert.equal(shared.project.lastState.plannedRoutes[0].source, "naver-directions");
+  assert.equal(shared.project.lastState.plannedRoutes[0].routeOption, "traavoidcaronly");
+  assert.equal(shared.project.lastState.plannedRoutes[0].routeSummary.distance, 12345);
+  assert.equal(shared.project.lastState.plannedRoutes[0].stops[1].kind, "waypoint");
   assert.equal(shared.project.lastState.activePlannedRouteId, "planned-1");
   assert.equal(shared.project.lastState.mapReferences[0].name, "A구간 계획도");
   assert.equal(shared.project.lastState.mapReferences[0].alignmentMode, "corners");

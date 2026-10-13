@@ -22,12 +22,16 @@ R2_ACCESS_KEY_ID=접근키
 R2_SECRET_ACCESS_KEY=비밀키
 R2_PUBLIC_BASE_URL=https://files.samwon.site
 ADMIN_EMAILS=관리자이메일
+NAVER_DIRECTIONS_CLIENT_ID=네이버클라우드 Maps API Key ID
+NAVER_DIRECTIONS_CLIENT_SECRET=네이버클라우드 Maps API Key
 MAX_BODY_BYTES=125829120
 MAX_PHOTO_BYTES=12582912
 DB_CONNECTION_LIMIT=4
 ```
 
 `R2_PUBLIC_BASE_URL`은 선택 사항입니다. 비워 두면 앱 서버의 `/api/files/...` 경로를 통해 사진을 제공합니다.
+
+`NAVER_DIRECTIONS_CLIENT_ID`와 `NAVER_DIRECTIONS_CLIENT_SECRET`은 1차 후보노선의 자동검색에 사용합니다. 네이버클라우드 Maps 애플리케이션에서 Directions 5와 Directions 15를 활성화하고 발급값을 Railway 서버 환경 변수로만 등록합니다. Secret을 `app.js`나 HTML에 넣으면 안 됩니다.
 
 ## 상태 점검
 
@@ -52,6 +56,7 @@ https://samwon.site/api/ready
   "environment": "production",
   "storage": "tidb",
   "files": "cloudflare-r2",
+  "directions": "naver",
   "issues": []
 }
 ```

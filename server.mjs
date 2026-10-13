@@ -20,6 +20,8 @@ const logPath = join(root, "server-debug.log");
 const maxBodyBytes = Number(process.env.MAX_BODY_BYTES || 120 * 1024 * 1024);
 const maxPhotoBytes = Number(process.env.MAX_PHOTO_BYTES || 12 * 1024 * 1024);
 const databaseUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.TIDB_DATABASE_URL || "";
+const naverDirectionsClientId = process.env.NAVER_DIRECTIONS_CLIENT_ID || process.env.NAVER_MAP_CLIENT_ID || "";
+const naverDirectionsClientSecret = process.env.NAVER_DIRECTIONS_CLIENT_SECRET || process.env.NAVER_MAP_CLIENT_SECRET || "";
 const isProduction = process.env.NODE_ENV === "production" || Boolean(process.env.RAILWAY_ENVIRONMENT);
 const sessionCookieName = "rpm_session";
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 30;
@@ -101,6 +103,21 @@ async function handleApi(request, response, url) {
   }
 
   currentUser = await getCurrentUser(request);
+
+  if (request.method === "POST" && url.pathname === "/api/routes/preview") {
+    if (!currentUser && databaseUrl) {
+      sendJson(response, 401, { error: "login_required" });
+      return;
+    }
+    const body = await readJsonBody(request);
+    const result = await findNaverCandidateRoute(body);
+    if (!result.ok) {
+      sendJson(response, result.status, { error: result.error, message: result.message || result.error });
+      return;
+    }
+    sendJson(response, 200, result.route);
+    return;
+  }
 
   if (request.method === "GET" && url.pathname === "/api/auth/me") {
     sendJson(response, 200, { user: publicUser(currentUser) });
@@ -740,7 +757,17 @@ function sanitizePlannedRoutes(routes) {
     id: String(route?.id || `planned-${index + 1}`).slice(0, 100),
     name: String(route?.name || `후보 ${index + 1}`).trim().slice(0, 120),
     memo: String(route?.memo || "").slice(0, 2000),
-    source: route?.source === "image" ? "image" : "naver-manual",
+    source: ["image", "naver-manual", "naver-directions"].includes(route?.source)
+      ? route.source
+      : "naver-manual",
+    routeOption: sanitizeRouteOption(route?.routeOption),
+    routeSummary: {
+      distance: sanitizeNonNegativeNumber(route?.routeSummary?.distance),
+      duration: sanitizeNonNegativeNumber(route?.routeSummary?.duration),
+      tollFare: sanitizeNonNegativeNumber(route?.routeSummary?.tollFare),
+      provider: String(route?.routeSummary?.provider || "").slice(0, 40),
+      searchedAt: route?.routeSummary?.searchedAt || null,
+    },
     status: ["draft", "surveying", "review", "approved"].includes(route?.status)
       ? route.status
       : "draft",
@@ -755,10 +782,103 @@ function sanitizePlannedRoutes(routes) {
     createdAt: route?.createdAt || Date.now(),
     updatedAt: route?.updatedAt || route?.createdAt || Date.now(),
     points: (Array.isArray(route?.points) ? route.points : [])
-      .slice(0, 10000)
+      .slice(0, 50000)
       .map((point) => ({ lat: Number(point?.lat), lng: Number(point?.lng) }))
       .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
+    stops: sanitizeRouteStops(route?.stops),
   })).filter((route) => route.points.length >= 2);
+}
+
+function sanitizeRouteOption(value) {
+  return ["traoptimal", "trafast", "tracomfort", "traavoidtoll", "traavoidcaronly"].includes(value)
+    ? value
+    : "traoptimal";
+}
+
+function sanitizeNonNegativeNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function sanitizeRouteStops(stops) {
+  return (Array.isArray(stops) ? stops : [])
+    .slice(0, 17)
+    .map((stop, index) => ({
+      id: String(stop?.id || `stop-${index + 1}`).slice(0, 100),
+      kind: ["start", "waypoint", "goal"].includes(stop?.kind) ? stop.kind : "waypoint",
+      label: String(stop?.label || "").trim().slice(0, 120),
+      lat: Number(stop?.lat),
+      lng: Number(stop?.lng),
+    }))
+    .filter((stop) => isKoreanRouteCoordinate(stop.lat, stop.lng));
+}
+
+async function findNaverCandidateRoute(body) {
+  if (!naverDirectionsClientId || !naverDirectionsClientSecret) {
+    return { ok: false, status: 503, error: "directions_not_configured" };
+  }
+  const stops = sanitizeRouteStops(body?.stops);
+  const start = stops.find((stop) => stop.kind === "start");
+  const goal = stops.find((stop) => stop.kind === "goal");
+  const waypoints = stops.filter((stop) => stop.kind === "waypoint");
+  if (!start || !goal || waypoints.length > 15) {
+    return { ok: false, status: 400, error: "invalid_route_stops" };
+  }
+  const option = sanitizeRouteOption(body?.option);
+  const apiType = waypoints.length > 5 ? "map-direction-15/v1" : "map-direction/v1";
+  const url = new URL(`https://naveropenapi.apigw.ntruss.com/${apiType}/driving`);
+  url.searchParams.set("start", `${start.lng},${start.lat}`);
+  url.searchParams.set("goal", `${goal.lng},${goal.lat}`);
+  if (waypoints.length) {
+    url.searchParams.set("waypoints", waypoints.map((stop) => `${stop.lng},${stop.lat}`).join("|"));
+  }
+  url.searchParams.set("option", option);
+  url.searchParams.set("cartype", "5");
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "x-ncp-apigw-api-key-id": naverDirectionsClientId,
+        "x-ncp-apigw-api-key": naverDirectionsClientSecret,
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) {
+      log(`NAVER_DIRECTIONS_ERROR status=${response.status}`);
+      return { ok: false, status: response.status === 429 ? 429 : 502, error: "directions_request_failed" };
+    }
+    const payload = await response.json();
+    if (Number(payload?.code) !== 0) {
+      return { ok: false, status: 422, error: "route_not_found", message: String(payload?.message || "route_not_found") };
+    }
+    const candidate = payload?.route?.[option]?.[0] || Object.values(payload?.route || {}).flat()?.[0];
+    const points = (Array.isArray(candidate?.path) ? candidate.path : [])
+      .slice(0, 50000)
+      .map((point) => ({ lng: Number(point?.[0]), lat: Number(point?.[1]) }))
+      .filter((point) => isKoreanRouteCoordinate(point.lat, point.lng));
+    if (points.length < 2) {
+      return { ok: false, status: 422, error: "route_not_found" };
+    }
+    return {
+      ok: true,
+      route: {
+        provider: "naver",
+        option,
+        points,
+        summary: {
+          distance: sanitizeNonNegativeNumber(candidate?.summary?.distance),
+          duration: sanitizeNonNegativeNumber(candidate?.summary?.duration),
+          tollFare: sanitizeNonNegativeNumber(candidate?.summary?.tollFare),
+        },
+      },
+    };
+  } catch (error) {
+    log(`NAVER_DIRECTIONS_ERROR ${error?.message || "request_failed"}`);
+    return { ok: false, status: 502, error: "directions_request_failed" };
+  }
+}
+
+function isKoreanRouteCoordinate(lat, lng) {
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= 32 && lat <= 40 && lng >= 123 && lng <= 133;
 }
 
 function sanitizePositiveNumber(value) {
@@ -2327,6 +2447,7 @@ function getHealthStatus() {
     environment: isProduction ? "production" : "development",
     storage: databaseUrl ? "tidb" : "local-json",
     files: isR2Configured() ? "cloudflare-r2" : "embedded-json",
+    directions: naverDirectionsClientId && naverDirectionsClientSecret ? "naver" : "not-configured",
     issues,
     limits: {
       projectBodyBytes: maxBodyBytes,
