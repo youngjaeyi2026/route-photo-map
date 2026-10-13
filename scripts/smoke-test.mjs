@@ -73,13 +73,14 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261013-naver-direct-init/);
+  assert.match(pageHtml, /20261013-naver-explicit-size/);
   const appScriptResponse = await fetch(`${baseUrl}/app.js`);
   const appScript = await appScriptResponse.text();
   assert.equal(appScriptResponse.status, 200);
   assert.match(appScript, /draggable: true/);
   assert.match(appScript, /function syncLeafletOverlayFromNaver/);
   assert.match(appScript, /"bounds_changed", scheduleLeafletOverlaySync/);
+  assert.match(appScript, /function waitForNaverMapFirstPaint/);
   assert.match(appScript, /function scheduleNaverLayoutRefresh/);
   assert.match(appScript, /function syncNaverMapSize/);
   assert.match(appScript, /activeNaverBaseMap\.setSize/);
@@ -355,7 +356,6 @@ try {
   assert.match(appSource, /async function activateNaverMap\(naverMaps\)[\s\S]+?new naverMaps\.Map/);
   assert.match(appSource, /function waitForAnimationFrame\(\)/);
   assert.match(appSource, /async function waitForVisibleMapContainer\(element, timeoutMs = 3000\)/);
-  assert.doesNotMatch(appSource, /waitForNaverMapFirstPaint/);
   assert.match(appSource, /const canActivateMapProvider = Boolean\(state\.user \|\| initialShareToken\)/);
   assert.match(appSource, /naverMapBase\.childElementCount === 0/);
   assert.match(appSource, /map\.on\("move zoom", scheduleNaverBaseMapSync\)/);
