@@ -269,7 +269,7 @@ L.control.zoom({ position: "bottomleft" }).addTo(map);
 const osmTileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
   attribution: "&copy; OpenStreetMap",
-});
+}).addTo(map);
 
 const routeLine = L.polyline([], {
   color: ROUTE_COMPLETED_COLOR,
@@ -3160,7 +3160,13 @@ function activateWorkspaceAfterLogin() {
   workspaceActivated = true;
   showLocationReadiness();
   captureInitialPosition();
-  window.requestAnimationFrame(() => map.invalidateSize());
+  window.requestAnimationFrame(() => {
+    map.invalidateSize(false);
+    window.requestAnimationFrame(() => {
+      map.invalidateSize(false);
+      scheduleNaverLayoutRefresh();
+    });
+  });
 }
 
 function toggleAuthPanel() {
@@ -4147,7 +4153,6 @@ async function activateNaverMap(naverMaps) {
     throw new Error("naver_map_container_missing");
   }
   els.naverMapBase.hidden = false;
-  document.body.classList.add("is-naver-map");
   await waitForVisibleMapContainer(els.naverMapBase);
   const center = map.getCenter();
   if (!activeNaverBaseMap) {
@@ -4169,10 +4174,12 @@ async function activateNaverMap(naverMaps) {
     });
   }
   activeMapProvider = "naver";
+  syncNaverBaseMap(true);
+  await waitForNaverMapFirstPaint(naverMaps);
+  document.body.classList.add("is-naver-map");
   bindNaverInteractionEvents(naverMaps);
   setLeafletInteractionEnabled(false);
-  syncNaverBaseMap(true);
-  await new Promise((resolve) => window.setTimeout(resolve, 300));
+  await waitForAnimationFrame();
   syncNaverBaseMap(true);
   if (els.naverMapBase.childElementCount === 0) {
     activeMapProvider = "osm";
@@ -4185,6 +4192,7 @@ async function activateNaverMap(naverMaps) {
     map.removeLayer(osmTileLayer);
   }
   map.invalidateSize(false);
+  scheduleNaverLayoutRefresh();
 }
 
 function waitForAnimationFrame() {
@@ -4201,6 +4209,39 @@ async function waitForVisibleMapContainer(element, timeoutMs = 3000) {
     await waitForAnimationFrame();
   }
   throw new Error("naver_map_container_not_visible");
+}
+
+function waitForNaverMapFirstPaint(naverMaps, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let idleListener = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      if (idleListener) {
+        naverMaps.Event.removeListener(idleListener);
+      }
+      resolve();
+    };
+    const timeoutId = window.setTimeout(finish, timeoutMs);
+    idleListener = naverMaps.Event.addListener(activeNaverBaseMap, "idle", finish);
+    naverMaps.Event.trigger(activeNaverBaseMap, "resize");
+    activeNaverBaseMap.refresh?.(true);
+  });
+}
+
+function scheduleNaverLayoutRefresh() {
+  [0, 120, 500, 1200].forEach((delay) => {
+    window.setTimeout(() => {
+      if (activeMapProvider !== "naver" || !activeNaverBaseMap || !window.naver?.maps) {
+        return;
+      }
+      window.naver.maps.Event.trigger(activeNaverBaseMap, "resize");
+      activeNaverBaseMap.refresh?.(true);
+      syncNaverBaseMap();
+    }, delay);
+  });
 }
 
 function scheduleNaverBaseMapSync() {

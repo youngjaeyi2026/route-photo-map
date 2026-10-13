@@ -73,13 +73,15 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261013-naver-native-pan/);
+  assert.match(pageHtml, /20261013-naver-first-paint/);
   const appScriptResponse = await fetch(`${baseUrl}/app.js`);
   const appScript = await appScriptResponse.text();
   assert.equal(appScriptResponse.status, 200);
   assert.match(appScript, /draggable: true/);
   assert.match(appScript, /function syncLeafletOverlayFromNaver/);
   assert.match(appScript, /"bounds_changed", scheduleLeafletOverlaySync/);
+  assert.match(appScript, /function waitForNaverMapFirstPaint/);
+  assert.match(appScript, /function scheduleNaverLayoutRefresh/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -347,7 +349,7 @@ try {
   assert.match(appSource, /const MAP_PROVIDER_POLICY_VERSION = 1/);
   assert.match(appSource, /state\.mapProvider = hasCurrentMapPolicy && saved\.mapProvider === "osm" \? "osm" : "naver"/);
   assert.match(appSource, /OpenStreetMap을 임시로 표시합니다\. 잠시 후 다시 시도합니다/);
-  assert.doesNotMatch(appSource, /const osmTileLayer = L\.tileLayer\([\s\S]{0,220}?\)\.addTo\(map\)/);
+  assert.match(appSource, /const osmTileLayer = L\.tileLayer\([\s\S]{0,220}?\)\.addTo\(map\)/);
   assert.match(appSource, /async function activateNaverMap\(naverMaps\)[\s\S]+?new naverMaps\.Map/);
   assert.match(appSource, /function waitForAnimationFrame\(\)/);
   assert.match(appSource, /async function waitForVisibleMapContainer\(element, timeoutMs = 3000\)/);
