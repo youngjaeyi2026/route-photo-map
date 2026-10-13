@@ -23,7 +23,7 @@ const WEB_TRACKING_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const LIVE_SHARED_SESSION_MAX_AGE_MS = 10 * 60 * 1000;
 const PRE_SURVEY_FEATURE_ENABLED = false;
 const CANDIDATE_ROUTE_FEATURE_ENABLED = true;
-const MAX_PLANNED_ROUTE_WAYPOINTS = 30;
+const MAX_PLANNED_ROUTE_WAYPOINTS = 15;
 const REPRESENTATIVE_COLORS = [
   { name: "빨강", value: "#c34236" },
   { name: "주황", value: "#d96c1f" },

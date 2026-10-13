@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20261013-route-planner-v1" />
+    <link rel="stylesheet" href="/styles.css?v=20261013-route-planner-v2" />
   </head>
   <body>
     <script>
@@ -110,7 +110,7 @@
             <button id="plannedRouteToggleBtn" class="section-toggle" type="button">펼치기</button>
           </div>
           <div id="plannedRouteControls" class="planned-route-controls" hidden>
-            <p class="hint">1차 기본검토 · 출발지·경유지(최대 30개)·도착지를 지정해 일반 자동차 기준의 후보노선을 만들고 비교합니다.</p>
+            <p class="hint">1차 기본검토 · 출발지·경유지(최대 15개)·도착지를 지정해 일반 자동차 기준의 후보노선을 만들고 비교합니다.</p>
             <p class="planned-route-notice">이 노선은 제한차량의 통과 가능성이나 운행허가를 판정하지 않는 사전검토용입니다.</p>
             <div class="planned-route-form">
               <input id="plannedRouteName" type="text" maxlength="120" placeholder="후보노선명 (예: 후보 A · 국도21호선)" />
@@ -424,6 +424,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20261013-route-planner-v1"></script>
+    <script src="/app.js?v=20261013-route-planner-v2"></script>
   </body>
 </html>

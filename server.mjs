@@ -46,7 +46,7 @@ const shareExpiryOptions = new Map([
   ["none", null],
 ]);
 const minPasswordLength = 4;
-const maxRouteWaypoints = 30;
+const maxRouteWaypoints = 15;
 const maxNaverWaypointsPerRequest = 15;
 
 mkdirSync(dataDir, { recursive: true });
