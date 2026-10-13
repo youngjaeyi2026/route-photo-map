@@ -411,7 +411,11 @@ map.on("dragstart zoomstart", () => {
 });
 
 map.on("moveend zoomend", (event) => {
-  renderPhotoMapMarkers(getVisiblePhotos());
+  // Panning does not change marker clustering. Let the map engine move the
+  // existing markers and rebuild them only when the zoom level changes.
+  if (event.type === "zoomend") {
+    renderPhotoMapMarkers(getVisiblePhotos());
+  }
   const nextConstructionNamesExpanded = map.getZoom() >= CONSTRUCTION_NAME_ZOOM;
   if (
     event.type === "zoomend" ||
@@ -4208,8 +4212,14 @@ function syncNaverBaseMap(resize = false) {
     return;
   }
   const center = map.getCenter();
-  activeNaverBaseMap.setCenter(new window.naver.maps.LatLng(center.lat, center.lng));
-  activeNaverBaseMap.setZoom(map.getZoom());
+  const nextCenter = new window.naver.maps.LatLng(center.lat, center.lng);
+  const nextZoom = map.getZoom();
+  if (typeof activeNaverBaseMap.setOptions === "function") {
+    activeNaverBaseMap.setOptions({ center: nextCenter, zoom: nextZoom });
+  } else {
+    activeNaverBaseMap.setCenter(nextCenter);
+    activeNaverBaseMap.setZoom(nextZoom);
+  }
   if (resize) {
     window.naver.maps.Event.trigger(activeNaverBaseMap, "resize");
   }
