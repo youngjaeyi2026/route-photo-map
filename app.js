@@ -337,6 +337,8 @@ let pendingMapProvider = "";
 let naverMapRetryAfter = 0;
 let naverMapRetryTimerId = null;
 let naverMapSyncFrame = null;
+let lastNaverSyncCenter = null;
+let lastNaverSyncZoom = null;
 let naverNativeRenderFrame = null;
 let naverNativeOverlays = [];
 let activeConstructionDetailPin = null;
@@ -4134,6 +4136,8 @@ function activateOpenStreetMap() {
   }
   document.body.classList.remove("is-naver-map");
   clearNaverNativeOverlays();
+  lastNaverSyncCenter = null;
+  lastNaverSyncZoom = null;
   activeMapProvider = "osm";
   map.invalidateSize(false);
 }
@@ -4214,12 +4218,21 @@ function syncNaverBaseMap(resize = false) {
   const center = map.getCenter();
   const nextCenter = new window.naver.maps.LatLng(center.lat, center.lng);
   const nextZoom = map.getZoom();
-  if (typeof activeNaverBaseMap.setOptions === "function") {
+  const zoomChanged = lastNaverSyncZoom !== nextZoom;
+  const centerChanged = !lastNaverSyncCenter
+    || Math.abs(lastNaverSyncCenter.lat - center.lat) > 1e-9
+    || Math.abs(lastNaverSyncCenter.lng - center.lng) > 1e-9;
+
+  if (zoomChanged && typeof activeNaverBaseMap.setOptions === "function") {
     activeNaverBaseMap.setOptions({ center: nextCenter, zoom: nextZoom });
-  } else {
-    activeNaverBaseMap.setCenter(nextCenter);
+  } else if (zoomChanged) {
     activeNaverBaseMap.setZoom(nextZoom);
+    activeNaverBaseMap.setCenter(nextCenter);
+  } else if (centerChanged) {
+    activeNaverBaseMap.setCenter(nextCenter);
   }
+  lastNaverSyncCenter = { lat: center.lat, lng: center.lng };
+  lastNaverSyncZoom = nextZoom;
   if (resize) {
     window.naver.maps.Event.trigger(activeNaverBaseMap, "resize");
   }
