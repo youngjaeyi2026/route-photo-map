@@ -263,6 +263,8 @@ const els = {
 const map = L.map("map", {
   zoomControl: false,
 }).setView([37.5665, 126.978], 15);
+const defaultMapInertia = map.options.inertia;
+const defaultWheelDebounceTime = map.options.wheelDebounceTime;
 
 L.control.zoom({ position: "bottomleft" }).addTo(map);
 
@@ -336,7 +338,7 @@ let activeMapProvider = "";
 let pendingMapProvider = "";
 let naverMapRetryAfter = 0;
 let naverMapRetryTimerId = null;
-let naverMapSyncFrame = null;
+let naverMapSyncQueued = false;
 let lastNaverSyncCenter = null;
 let lastNaverSyncZoom = null;
 let naverNativeRenderFrame = null;
@@ -4138,6 +4140,8 @@ function activateOpenStreetMap() {
   clearNaverNativeOverlays();
   lastNaverSyncCenter = null;
   lastNaverSyncZoom = null;
+  map.options.inertia = defaultMapInertia;
+  map.options.wheelDebounceTime = defaultWheelDebounceTime;
   activeMapProvider = "osm";
   map.invalidateSize(false);
 }
@@ -4148,6 +4152,8 @@ async function activateNaverMap(naverMaps) {
   }
   els.naverMapBase.hidden = false;
   document.body.classList.add("is-naver-map");
+  map.options.inertia = false;
+  map.options.wheelDebounceTime = 16;
   await waitForVisibleMapContainer(els.naverMapBase);
   const center = map.getCenter();
   if (!activeNaverBaseMap) {
@@ -4202,11 +4208,12 @@ async function waitForVisibleMapContainer(element, timeoutMs = 3000) {
 }
 
 function scheduleNaverBaseMapSync() {
-  if (activeMapProvider !== "naver" || !activeNaverBaseMap || naverMapSyncFrame !== null) {
+  if (activeMapProvider !== "naver" || !activeNaverBaseMap || naverMapSyncQueued) {
     return;
   }
-  naverMapSyncFrame = window.requestAnimationFrame(() => {
-    naverMapSyncFrame = null;
+  naverMapSyncQueued = true;
+  window.queueMicrotask(() => {
+    naverMapSyncQueued = false;
     syncNaverBaseMap();
   });
 }
