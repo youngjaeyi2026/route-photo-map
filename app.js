@@ -337,6 +337,8 @@ let pendingMapProvider = "";
 let naverMapRetryAfter = 0;
 let naverMapRetryTimerId = null;
 let naverMapSyncFrame = null;
+let naverNativeRenderFrame = null;
+let naverNativeOverlays = [];
 let activeConstructionDetailPin = null;
 let naverExternalWindow = null;
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
@@ -900,6 +902,7 @@ function startRouteFollowWatcher() {
       };
       state.selectedPosition = point;
       currentMarker.setLatLng([point.lat, point.lng]);
+      scheduleNaverNativeOverlayRender();
       updateRouteFollowing(point);
       followLatestPoint(point);
       persist();
@@ -1026,6 +1029,7 @@ function renderRouteProgress(point = getLatestPosition()) {
   if (state.pointEditMode) {
     renderPointEditing();
   }
+  scheduleNaverNativeOverlayRender();
 }
 
 function updateRouteFollowing(point) {
@@ -4125,6 +4129,7 @@ function activateOpenStreetMap() {
     els.naverMapBase.hidden = true;
   }
   document.body.classList.remove("is-naver-map");
+  clearNaverNativeOverlays();
   activeMapProvider = "osm";
   map.invalidateSize(false);
 }
@@ -4169,6 +4174,7 @@ async function activateNaverMap(naverMaps) {
     map.removeLayer(osmTileLayer);
   }
   map.invalidateSize(false);
+  scheduleNaverNativeOverlayRender();
 }
 
 function waitForAnimationFrame() {
@@ -4207,6 +4213,197 @@ function syncNaverBaseMap(resize = false) {
   if (resize) {
     window.naver.maps.Event.trigger(activeNaverBaseMap, "resize");
   }
+}
+
+function scheduleNaverNativeOverlayRender() {
+  if (activeMapProvider !== "naver" || !activeNaverBaseMap || naverNativeRenderFrame !== null) {
+    return;
+  }
+  naverNativeRenderFrame = window.requestAnimationFrame(() => {
+    naverNativeRenderFrame = null;
+    renderNaverNativeOverlays();
+  });
+}
+
+function clearNaverNativeOverlays() {
+  naverNativeOverlays.forEach((overlay) => overlay?.setMap?.(null));
+  naverNativeOverlays = [];
+}
+
+function addNaverNativeOverlay(overlay) {
+  if (overlay) naverNativeOverlays.push(overlay);
+  return overlay;
+}
+
+function renderNaverNativeOverlays() {
+  clearNaverNativeOverlays();
+  const naverMaps = window.naver?.maps;
+  if (activeMapProvider !== "naver" || !activeNaverBaseMap || !naverMaps) return;
+
+  renderNaverNativeRoute(naverMaps);
+  renderNaverNativeCurrentPosition(naverMaps);
+  renderNaverNativePhotos(naverMaps);
+  renderNaverNativeMilestones(naverMaps);
+  renderNaverNativeProjectOverlays(naverMaps);
+  renderNaverNativeEditPoints(naverMaps);
+}
+
+function createNaverLatLngPath(points, naverMaps) {
+  return (Array.isArray(points) ? points : [])
+    .filter((point) => Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)))
+    .map((point) => new naverMaps.LatLng(Number(point.lat), Number(point.lng)));
+}
+
+function createNaverNativePolyline(points, options, naverMaps) {
+  const path = createNaverLatLngPath(points, naverMaps);
+  if (path.length < 2) return null;
+  return addNaverNativeOverlay(new naverMaps.Polyline({
+    map: activeNaverBaseMap,
+    path,
+    clickable: false,
+    strokeColor: options.color,
+    strokeOpacity: options.opacity ?? 0.88,
+    strokeWeight: options.weight ?? 6,
+    strokeLineCap: "round",
+    strokeLineJoin: "round",
+    zIndex: options.zIndex ?? 20,
+  }));
+}
+
+function renderNaverNativeRoute(naverMaps) {
+  const points = getRoutePathPoints(state.points);
+  if (!state.destinationFollow || points.length < 2) {
+    createNaverNativePolyline(points, { color: ROUTE_COMPLETED_COLOR, weight: 6, zIndex: 20 }, naverMaps);
+  } else {
+    const splitIndex = Math.min(Math.max(0, state.followProgressIndex), points.length - 1);
+    createNaverNativePolyline(points.slice(0, splitIndex + 1), { color: ROUTE_COMPLETED_COLOR, weight: 6, zIndex: 20 }, naverMaps);
+    createNaverNativePolyline(points.slice(splitIndex), { color: ROUTE_REMAINING_COLOR, weight: 6, opacity: 0.9, zIndex: 19 }, naverMaps);
+  }
+
+  const activePlan = state.planningMode
+    ? state.plannedRouteDraft
+    : state.plannedRoutes.find((route) => route.id === state.activePlannedRouteId);
+  if (activePlan?.points?.length > 1) {
+    createNaverNativePolyline(activePlan.points, { color: "#d96c1f", weight: 5, opacity: 0.9, zIndex: 18 }, naverMaps);
+  }
+}
+
+function createNaverNativeMarker(position, html, size, anchor, title, naverMaps, zIndex = 100) {
+  if (!hasPhotoPosition(position)) return null;
+  const width = Math.max(1, Number(size?.[0] ?? size?.x) || 34);
+  const height = Math.max(1, Number(size?.[1] ?? size?.y) || 38);
+  const anchorX = Number(anchor?.[0] ?? anchor?.x);
+  const anchorY = Number(anchor?.[1] ?? anchor?.y);
+  return addNaverNativeOverlay(new naverMaps.Marker({
+    map: activeNaverBaseMap,
+    position: new naverMaps.LatLng(Number(position.lat), Number(position.lng)),
+    title: String(title || ""),
+    clickable: false,
+    zIndex,
+    icon: {
+      content: `<span class="naver-native-marker">${html}</span>`,
+      size: new naverMaps.Size(width, height),
+      anchor: new naverMaps.Point(
+        Number.isFinite(anchorX) ? anchorX : width / 2,
+        Number.isFinite(anchorY) ? anchorY : height,
+      ),
+    },
+  }));
+}
+
+function renderNaverNativeCurrentPosition(naverMaps) {
+  const latest = getLatestPosition() || state.initialPosition || currentMarker.getLatLng();
+  createNaverNativeMarker(
+    latest,
+    '<span class="naver-current-position" aria-hidden="true"></span>',
+    [22, 22],
+    [11, 11],
+    "현재 위치",
+    naverMaps,
+    500,
+  );
+}
+
+function renderNaverNativePhotos(naverMaps) {
+  if (!state.photoPinsVisible || state.photoFilter === "hidden") return;
+  const photos = getVisiblePhotos().filter(hasPhotoPosition);
+  clusterPhotosForMap(photos).forEach((cluster) => {
+    const firstPhoto = cluster.photos[0];
+    const isCluster = cluster.photos.length > 1;
+    const html = isCluster
+      ? `<span class="photo-cluster-marker"><img src="${firstPhoto.src}" alt="" /><span>${cluster.photos.length}</span></span>`
+      : `<span class="photo-single-marker"><img src="${firstPhoto.src}" alt="" /></span>`;
+    createNaverNativeMarker(
+      cluster,
+      html,
+      [42, 42],
+      getSeparatedMarkerAnchor("photo", 42, 42, cluster),
+      isCluster ? `사진 ${cluster.photos.length}장` : getPhotoDisplayName(firstPhoto),
+      naverMaps,
+      220,
+    );
+  });
+}
+
+function getLeafletDivIconDisplay(icon) {
+  const options = icon?.options || {};
+  const className = String(options.className || "").trim();
+  return {
+    html: className ? `<span class="${escapeHtml(className)}">${options.html || ""}</span>` : (options.html || ""),
+    size: [Number(options.iconSize?.x ?? options.iconSize?.[0]) || 34, Number(options.iconSize?.y ?? options.iconSize?.[1]) || 38],
+    anchor: [Number(options.iconAnchor?.x ?? options.iconAnchor?.[0]) || 17, Number(options.iconAnchor?.y ?? options.iconAnchor?.[1]) || 38],
+  };
+}
+
+function renderNaverNativeMilestones(naverMaps) {
+  if (!state.constructionPinsVisible) return;
+  const pins = getVisibleMapInfoPins(state.milestones.filter(isMapInfoPin).sort(compareMapInfoPinsForList));
+  pins.forEach((pin) => {
+    const icon = pin.type === "memo" ? createMemoMarkerIcon(pin) : createConstructionMarkerIcon(pin);
+    const display = getLeafletDivIconDisplay(icon);
+    createNaverNativeMarker(pin, display.html, display.size, display.anchor, pin.name || getMapPinLabel(pin), naverMaps, 240);
+  });
+}
+
+function renderNaverNativeProjectOverlays(naverMaps) {
+  state.overlayProjects.forEach((project) => {
+    if (project.visible === false) return;
+    if (project.routeVisible !== false) {
+      createNaverNativePolyline(project.points, { color: project.color, weight: 5, opacity: 0.82, zIndex: 16 }, naverMaps);
+    }
+    if (project.photosVisible !== false && state.photoPinsVisible) {
+      const photos = (project.photos || []).filter(hasPhotoPosition);
+      clusterPhotosForMap(photos).forEach((cluster) => {
+        const firstPhoto = cluster.photos[0];
+        const isCluster = cluster.photos.length > 1;
+        const countMarkup = isCluster ? `<span>${cluster.photos.length}</span>` : "";
+        const html = `<span class="${isCluster ? "photo-cluster-marker" : "photo-single-marker"} overlay-photo-marker" style="--overlay-photo-color:${project.color}"><img src="${firstPhoto.src}" alt="" />${countMarkup}</span>`;
+        createNaverNativeMarker(cluster, html, [42, 42], getSeparatedMarkerAnchor("photo", 42, 42, cluster), project.name, naverMaps, 210);
+      });
+    }
+    if (project.constructionVisible !== false && state.constructionPinsVisible) {
+      (project.milestones || []).filter(isMapInfoPin).forEach((pin) => {
+        const icon = pin.type === "memo" ? createMemoMarkerIcon(pin) : createConstructionMarkerIcon(pin);
+        const display = getLeafletDivIconDisplay(icon);
+        createNaverNativeMarker(pin, display.html, display.size, display.anchor, `${project.name} · ${pin.name || getMapPinLabel(pin)}`, naverMaps, 230);
+      });
+    }
+  });
+}
+
+function renderNaverNativeEditPoints(naverMaps) {
+  if (!state.pointEditMode || state.destinationFollow || state.shareView) return;
+  getEditablePointIndexes().forEach((index) => {
+    const point = state.points[index];
+    const classes = [
+      "route-point-marker",
+      state.selectedPointIndex === index ? "is-selected" : "",
+      state.segmentStartIndex === index ? "is-segment-start" : "",
+      state.segmentEndIndex === index ? "is-segment-end" : "",
+      point.skipInRoute === true ? "is-skipped" : "",
+    ].filter(Boolean).join(" ");
+    createNaverNativeMarker(point, `<span class="${classes}">${index + 1}</span>`, [28, 28], [14, 14], `위치점 ${index + 1}`, naverMaps, 300);
+  });
 }
 
 map.on("move zoom", scheduleNaverBaseMapSync);
@@ -5641,6 +5838,7 @@ function renderPanelVisibility() {
 
 function renderPointEditing() {
   pointLayer.clearLayers();
+  scheduleNaverNativeOverlayRender();
   if (state.shareView) {
     state.pointEditMode = false;
     state.pointEditPanelOpen = false;
@@ -6329,6 +6527,7 @@ function renderPhotos() {
 function renderPhotoMapMarkers(photos = getVisiblePhotos()) {
   hidePhotoTray();
   photoLayer.clearLayers();
+  scheduleNaverNativeOverlayRender();
   if (!state.photoPinsVisible || state.photoFilter === "hidden") {
     hidePhotoTray();
     return;
@@ -6663,6 +6862,7 @@ function getMapCenterPosition() {
 
 function renderMilestones() {
   milestoneLayer.clearLayers();
+  scheduleNaverNativeOverlayRender();
   if (!els.milestoneList) {
     return;
   }
@@ -6957,6 +7157,7 @@ function stopRouteFollowing(message = "답사 따라가기를 종료했습니다
 }
 
 function renderRouteLines() {
+  scheduleNaverNativeOverlayRender();
   const points = getRoutePathPoints(state.points);
   if (!state.destinationFollow || points.length < 2) {
     routeLine.setLatLngs(points.map((point) => [point.lat, point.lng]));
@@ -7507,6 +7708,7 @@ function normalizeOverlayProject(project, fallbackIndex = 0) {
 
 function renderProjectOverlays() {
   projectOverlayLayer.clearLayers();
+  scheduleNaverNativeOverlayRender();
   if (!els.overlayProjectList) {
     return;
   }
