@@ -46,6 +46,8 @@ const shareExpiryOptions = new Map([
   ["none", null],
 ]);
 const minPasswordLength = 4;
+const maxRouteWaypoints = 30;
+const maxNaverWaypointsPerRequest = 15;
 
 mkdirSync(dataDir, { recursive: true });
 
@@ -782,7 +784,7 @@ function sanitizePlannedRoutes(routes) {
     createdAt: route?.createdAt || Date.now(),
     updatedAt: route?.updatedAt || route?.createdAt || Date.now(),
     points: (Array.isArray(route?.points) ? route.points : [])
-      .slice(0, 50000)
+      .slice(0, 100000)
       .map((point) => ({ lat: Number(point?.lat), lng: Number(point?.lng) }))
       .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
     stops: sanitizeRouteStops(route?.stops),
@@ -802,7 +804,7 @@ function sanitizeNonNegativeNumber(value) {
 
 function sanitizeRouteStops(stops) {
   return (Array.isArray(stops) ? stops : [])
-    .slice(0, 17)
+    .slice(0, maxRouteWaypoints + 2)
     .map((stop, index) => ({
       id: String(stop?.id || `stop-${index + 1}`).slice(0, 100),
       kind: ["start", "waypoint", "goal"].includes(stop?.kind) ? stop.kind : "waypoint",
@@ -821,10 +823,60 @@ async function findNaverCandidateRoute(body) {
   const start = stops.find((stop) => stop.kind === "start");
   const goal = stops.find((stop) => stop.kind === "goal");
   const waypoints = stops.filter((stop) => stop.kind === "waypoint");
-  if (!start || !goal || waypoints.length > 15) {
+  if (!start || !goal || waypoints.length > maxRouteWaypoints) {
     return { ok: false, status: 400, error: "invalid_route_stops" };
   }
   const option = sanitizeRouteOption(body?.option);
+  try {
+    const orderedStops = [start, ...waypoints, goal];
+    const chunks = splitRouteStopsForNaver(orderedStops);
+    const combined = { points: [], distance: 0, duration: 0, tollFare: 0 };
+    for (const chunk of chunks) {
+      const segment = await requestNaverDirectionsSegment(chunk, option);
+      if (!segment.ok) return segment;
+      combined.points.push(...(combined.points.length ? segment.points.slice(1) : segment.points));
+      combined.distance += Number(segment.summary.distance) || 0;
+      combined.duration += Number(segment.summary.duration) || 0;
+      combined.tollFare += Number(segment.summary.tollFare) || 0;
+    }
+    return {
+      ok: true,
+      route: {
+        provider: "naver",
+        option,
+        points: combined.points,
+        summary: {
+          distance: combined.distance,
+          duration: combined.duration,
+          tollFare: combined.tollFare,
+          segmentCount: chunks.length,
+        },
+      },
+    };
+  } catch (error) {
+    log(`NAVER_DIRECTIONS_ERROR ${error?.message || "request_failed"}`);
+    return { ok: false, status: 502, error: "directions_request_failed" };
+  }
+}
+
+function splitRouteStopsForNaver(stops) {
+  const chunks = [];
+  let startIndex = 0;
+  while (startIndex < stops.length - 1) {
+    const endIndex = Math.min(
+      stops.length - 1,
+      startIndex + maxNaverWaypointsPerRequest + 1,
+    );
+    chunks.push(stops.slice(startIndex, endIndex + 1));
+    startIndex = endIndex;
+  }
+  return chunks;
+}
+
+async function requestNaverDirectionsSegment(stops, option) {
+  const start = stops[0];
+  const goal = stops.at(-1);
+  const waypoints = stops.slice(1, -1);
   const apiType = waypoints.length > 5 ? "map-direction-15/v1" : "map-direction/v1";
   const url = new URL(`https://naveropenapi.apigw.ntruss.com/${apiType}/driving`);
   url.searchParams.set("start", `${start.lng},${start.lat}`);
@@ -834,47 +886,38 @@ async function findNaverCandidateRoute(body) {
   }
   url.searchParams.set("option", option);
   url.searchParams.set("cartype", "5");
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "x-ncp-apigw-api-key-id": naverDirectionsClientId,
-        "x-ncp-apigw-api-key": naverDirectionsClientSecret,
-      },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!response.ok) {
-      log(`NAVER_DIRECTIONS_ERROR status=${response.status}`);
-      return { ok: false, status: response.status === 429 ? 429 : 502, error: "directions_request_failed" };
-    }
-    const payload = await response.json();
-    if (Number(payload?.code) !== 0) {
-      return { ok: false, status: 422, error: "route_not_found", message: String(payload?.message || "route_not_found") };
-    }
-    const candidate = payload?.route?.[option]?.[0] || Object.values(payload?.route || {}).flat()?.[0];
-    const points = (Array.isArray(candidate?.path) ? candidate.path : [])
-      .slice(0, 50000)
-      .map((point) => ({ lng: Number(point?.[0]), lat: Number(point?.[1]) }))
-      .filter((point) => isKoreanRouteCoordinate(point.lat, point.lng));
-    if (points.length < 2) {
-      return { ok: false, status: 422, error: "route_not_found" };
-    }
-    return {
-      ok: true,
-      route: {
-        provider: "naver",
-        option,
-        points,
-        summary: {
-          distance: sanitizeNonNegativeNumber(candidate?.summary?.distance),
-          duration: sanitizeNonNegativeNumber(candidate?.summary?.duration),
-          tollFare: sanitizeNonNegativeNumber(candidate?.summary?.tollFare),
-        },
-      },
-    };
-  } catch (error) {
-    log(`NAVER_DIRECTIONS_ERROR ${error?.message || "request_failed"}`);
-    return { ok: false, status: 502, error: "directions_request_failed" };
+  const response = await fetch(url, {
+    headers: {
+      "x-ncp-apigw-api-key-id": naverDirectionsClientId,
+      "x-ncp-apigw-api-key": naverDirectionsClientSecret,
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) {
+    log(`NAVER_DIRECTIONS_ERROR status=${response.status}`);
+    return { ok: false, status: response.status === 429 ? 429 : 502, error: "directions_request_failed" };
   }
+  const payload = await response.json();
+  if (Number(payload?.code) !== 0) {
+    return { ok: false, status: 422, error: "route_not_found", message: String(payload?.message || "route_not_found") };
+  }
+  const candidate = payload?.route?.[option]?.[0] || Object.values(payload?.route || {}).flat()?.[0];
+  const points = (Array.isArray(candidate?.path) ? candidate.path : [])
+    .slice(0, 50000)
+    .map((point) => ({ lng: Number(point?.[0]), lat: Number(point?.[1]) }))
+    .filter((point) => isKoreanRouteCoordinate(point.lat, point.lng));
+  if (points.length < 2) {
+    return { ok: false, status: 422, error: "route_not_found" };
+  }
+  return {
+    ok: true,
+    points,
+    summary: {
+      distance: sanitizeNonNegativeNumber(candidate?.summary?.distance),
+      duration: sanitizeNonNegativeNumber(candidate?.summary?.duration),
+      tollFare: sanitizeNonNegativeNumber(candidate?.summary?.tollFare),
+    },
+  };
 }
 
 function isKoreanRouteCoordinate(lat, lng) {

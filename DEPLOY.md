@@ -33,6 +33,8 @@ DB_CONNECTION_LIMIT=4
 
 `NAVER_DIRECTIONS_CLIENT_ID`와 `NAVER_DIRECTIONS_CLIENT_SECRET`은 1차 후보노선의 자동검색에 사용합니다. 네이버클라우드 Maps 애플리케이션에서 Directions 5와 Directions 15를 활성화하고 발급값을 Railway 서버 환경 변수로만 등록합니다. Secret을 `app.js`나 HTML에 넣으면 안 됩니다.
 
+앱은 경유지를 최대 30개까지 받습니다. 네이버 Directions의 요청당 경유지 제한을 넘는 경우 서버가 최대 15개 단위로 나누어 조회하고 결과를 하나의 후보노선으로 합칩니다.
+
 ## 상태 점검
 
 프로세스 생존 여부:

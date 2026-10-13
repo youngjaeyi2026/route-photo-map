@@ -118,6 +118,7 @@ try {
   assert.match(pageHtml, /id="plannedRouteWaypointBtn"/);
   assert.match(pageHtml, /id="plannedRouteGoalPointBtn"/);
   assert.match(pageHtml, /id="plannedRouteSearchBtn"/);
+  assert.match(pageHtml, /경유지\(최대 30개\)/);
   assert.match(pageHtml, /제한차량의 통과 가능성이나 운행허가를 판정하지 않는 사전검토용/);
   assert.match(pageHtml, /id="addObstaclePhotoBtn"/);
   assert.match(pageHtml, /id="obstaclePhotoInput"[^>]+multiple/);
@@ -360,6 +361,7 @@ try {
   assert.match(appSource, /NAVER_MAP_CLIENT_ID = "pie7hw0qho"/);
   assert.match(appSource, /function loadNaverMapsApi\(\)/);
   assert.match(appSource, /async function searchPlannedRoute\(\)/);
+  assert.match(appSource, /const MAX_PLANNED_ROUTE_WAYPOINTS = 30/);
   assert.match(appSource, /function movePlannedRouteWaypoint\(stopId, direction\)/);
   assert.match(appSource, /function waitForNaverMapsApi\(timeoutMs = 12000\)[\s\S]+?window\.setTimeout\(checkApi, 50\)/);
   assert.match(appSource, /function openNaverMapLocation\(position, name = "선택 위치"\)[\s\S]+?naver-map\.html/);

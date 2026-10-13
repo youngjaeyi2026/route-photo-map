@@ -23,6 +23,7 @@ const WEB_TRACKING_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const LIVE_SHARED_SESSION_MAX_AGE_MS = 10 * 60 * 1000;
 const PRE_SURVEY_FEATURE_ENABLED = false;
 const CANDIDATE_ROUTE_FEATURE_ENABLED = true;
+const MAX_PLANNED_ROUTE_WAYPOINTS = 30;
 const REPRESENTATIVE_COLORS = [
   { name: "빨강", value: "#c34236" },
   { name: "주황", value: "#d96c1f" },
@@ -5687,7 +5688,7 @@ function normalizeNonNegativeNumber(value) {
 
 function normalizePlannedRouteStops(stops, points = []) {
   const normalized = (Array.isArray(stops) ? stops : [])
-    .slice(0, 17)
+    .slice(0, MAX_PLANNED_ROUTE_WAYPOINTS + 2)
     .map((stop, index) => ({
       id: String(stop?.id || `stop-${index + 1}`),
       kind: ["start", "waypoint", "goal"].includes(stop?.kind) ? stop.kind : "waypoint",
@@ -5843,8 +5844,12 @@ function addPlannedRouteStop(latlng, kind) {
   const existing = state.plannedRouteSelectionStopId
     ? draft.stops.find((stop) => stop.id === state.plannedRouteSelectionStopId)
     : draft.stops.find((stop) => stop.kind === kind && kind !== "waypoint");
-  if (!existing && kind === "waypoint" && draft.stops.filter((stop) => stop.kind === "waypoint").length >= 15) {
-    setStatus("경유지는 최대 15개까지 지정할 수 있습니다.", "warning");
+  if (
+    !existing
+    && kind === "waypoint"
+    && draft.stops.filter((stop) => stop.kind === "waypoint").length >= MAX_PLANNED_ROUTE_WAYPOINTS
+  ) {
+    setStatus(`경유지는 최대 ${MAX_PLANNED_ROUTE_WAYPOINTS}개까지 지정할 수 있습니다.`, "warning");
     return;
   }
   const nextStop = {
