@@ -337,10 +337,6 @@ let pendingMapProvider = "";
 let naverMapRetryAfter = 0;
 let naverMapRetryTimerId = null;
 let naverMapSyncFrame = null;
-let leafletOverlaySyncFrame = null;
-let naverInteractionEventsBound = false;
-let syncingLeafletFromNaver = false;
-let naverProgrammaticMoveUntil = 0;
 let activeConstructionDetailPin = null;
 let naverExternalWindow = null;
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
@@ -364,48 +360,41 @@ if (!initialShareToken) {
 refreshServerHealth();
 refreshAuth();
 
-function handlePrimaryMapClick(latlng) {
+map.on("click", (event) => {
   if (state.mapAlignmentMode) {
     if (state.mapReferenceDraft?.alignmentMode === "corners") {
       setMapReferenceStatus("지도 위 네 모서리 또는 가운데 ＋ 표시를 드래그해 위치를 맞춰 주세요.");
       return;
     }
     if (state.pendingMapReferenceImagePoint) {
-      addMapReferenceControlPair(latlng);
+      addMapReferenceControlPair(event.latlng);
     } else {
       setMapReferenceStatus("먼저 왼쪽의 업로드 지도에서 같은 지점을 선택하세요.");
     }
     return;
   }
   if (state.planningMode) {
-    addPlannedRoutePoint(latlng);
+    addPlannedRoutePoint(event.latlng);
     return;
   }
   if (state.pointEditMode) {
     if (state.pointAddMode) {
-      state.pointAddMode = addManualRoutePoint(latlng);
+      state.pointAddMode = addManualRoutePoint(event.latlng);
       renderPointEditing();
       return;
     }
-    selectNearestRoutePoint(latlng);
+    selectNearestRoutePoint(event.latlng);
     return;
   }
   state.selectedPosition = {
-    lat: latlng.lat,
-    lng: latlng.lng,
+    lat: event.latlng.lat,
+    lng: event.latlng.lng,
     timestamp: Date.now(),
   };
   setStatus("사진을 추가하면 방금 선택한 지도 위치에 기록됩니다.");
-}
-
-map.on("click", (event) => {
-  if (activeMapProvider === "naver") {
-    return;
-  }
-  handlePrimaryMapClick(event.latlng);
 });
 
-function handleManualMapInteractionStart() {
+map.on("dragstart zoomstart", () => {
   if (programmaticMapMove || (!state.tracking && !state.destinationFollow) || !state.autoFollow) {
     return;
   }
@@ -417,20 +406,13 @@ function handleManualMapInteractionStart() {
   persist();
   renderTrackingState();
   setStatus("지도를 직접 움직여 자동 따라가기를 잠시 껐습니다. 현재 위치 버튼이나 기록 시작을 누르면 다시 켜집니다.");
-}
-
-map.on("dragstart zoomstart", () => {
-  if (activeMapProvider === "naver") {
-    return;
-  }
-  handleManualMapInteractionStart();
 });
 
-function handleMapViewportSettled(eventType = "moveend") {
+map.on("moveend zoomend", (event) => {
   renderPhotoMapMarkers(getVisiblePhotos());
   const nextConstructionNamesExpanded = map.getZoom() >= CONSTRUCTION_NAME_ZOOM;
   if (
-    eventType === "zoomend" ||
+    event.type === "zoomend" ||
     state.constructionFilter === "map" ||
     nextConstructionNamesExpanded !== constructionNamesExpanded
   ) {
@@ -441,13 +423,6 @@ function handleMapViewportSettled(eventType = "moveend") {
   if (state.pointEditMode) {
     renderPointEditing();
   }
-}
-
-map.on("moveend zoomend", (event) => {
-  if (activeMapProvider === "naver" && syncingLeafletFromNaver) {
-    return;
-  }
-  handleMapViewportSettled(event.type);
 });
 
 els.trackBtn.addEventListener("click", () => {
@@ -4138,7 +4113,6 @@ function activateOpenStreetMap() {
   }
   document.body.classList.remove("is-naver-map");
   activeMapProvider = "osm";
-  setLeafletInteractionEnabled(true);
   map.invalidateSize(false);
 }
 
@@ -4155,13 +4129,13 @@ async function activateNaverMap(naverMaps) {
       center: new naverMaps.LatLng(center.lat, center.lng),
       zoom: map.getZoom(),
       mapTypeId: naverMaps.MapTypeId.NORMAL,
-      draggable: true,
-      pinchZoom: true,
-      scrollWheel: true,
-      keyboardShortcuts: true,
-      disableDoubleClickZoom: false,
-      disableDoubleTapZoom: false,
-      disableKineticPan: false,
+      draggable: false,
+      pinchZoom: false,
+      scrollWheel: false,
+      keyboardShortcuts: false,
+      disableDoubleClickZoom: true,
+      disableDoubleTapZoom: true,
+      disableKineticPan: true,
       zoomControl: false,
       mapDataControl: true,
       scaleControl: true,
@@ -4169,15 +4143,12 @@ async function activateNaverMap(naverMaps) {
     });
   }
   activeMapProvider = "naver";
-  bindNaverInteractionEvents(naverMaps);
-  setLeafletInteractionEnabled(false);
   syncNaverBaseMap(true);
   await new Promise((resolve) => window.setTimeout(resolve, 300));
   syncNaverBaseMap(true);
   if (els.naverMapBase.childElementCount === 0) {
     activeMapProvider = "osm";
     activeNaverBaseMap = null;
-    naverInteractionEventsBound = false;
     els.naverMapBase.innerHTML = "";
     throw new Error("naver_map_render_failed");
   }
@@ -4204,12 +4175,7 @@ async function waitForVisibleMapContainer(element, timeoutMs = 3000) {
 }
 
 function scheduleNaverBaseMapSync() {
-  if (
-    activeMapProvider !== "naver" ||
-    !activeNaverBaseMap ||
-    syncingLeafletFromNaver ||
-    naverMapSyncFrame !== null
-  ) {
+  if (activeMapProvider !== "naver" || !activeNaverBaseMap || naverMapSyncFrame !== null) {
     return;
   }
   naverMapSyncFrame = window.requestAnimationFrame(() => {
@@ -4223,91 +4189,11 @@ function syncNaverBaseMap(resize = false) {
     return;
   }
   const center = map.getCenter();
-  naverProgrammaticMoveUntil = performance.now() + 180;
   activeNaverBaseMap.setCenter(new window.naver.maps.LatLng(center.lat, center.lng));
   activeNaverBaseMap.setZoom(map.getZoom());
   if (resize) {
     window.naver.maps.Event.trigger(activeNaverBaseMap, "resize");
   }
-}
-
-function setLeafletInteractionEnabled(enabled) {
-  const handlers = [map.dragging, map.touchZoom, map.doubleClickZoom, map.scrollWheelZoom, map.boxZoom, map.keyboard];
-  handlers.forEach((handler) => {
-    if (!handler) return;
-    if (enabled) handler.enable();
-    else handler.disable();
-  });
-}
-
-function bindNaverInteractionEvents(naverMaps) {
-  if (!activeNaverBaseMap || naverInteractionEventsBound) {
-    return;
-  }
-  naverInteractionEventsBound = true;
-  naverMaps.Event.addListener(activeNaverBaseMap, "click", (event) => {
-    if (activeMapProvider !== "naver" || !event?.coord) return;
-    handlePrimaryMapClick({ lat: event.coord.lat(), lng: event.coord.lng() });
-  });
-  naverMaps.Event.addListener(activeNaverBaseMap, "dragstart", () => {
-    if (activeMapProvider === "naver" && performance.now() >= naverProgrammaticMoveUntil) {
-      handleManualMapInteractionStart();
-    }
-  });
-  naverMaps.Event.addListener(activeNaverBaseMap, "zoom_changed", () => {
-    if (activeMapProvider === "naver" && performance.now() >= naverProgrammaticMoveUntil) {
-      handleManualMapInteractionStart();
-    }
-  });
-  naverMaps.Event.addListener(activeNaverBaseMap, "bounds_changed", scheduleLeafletOverlaySync);
-  naverMaps.Event.addListener(activeNaverBaseMap, "idle", () => {
-    if (activeMapProvider !== "naver") return;
-    syncLeafletOverlayFromNaver(true);
-    handleMapViewportSettled("zoomend");
-  });
-}
-
-function scheduleLeafletOverlaySync() {
-  if (
-    activeMapProvider !== "naver" ||
-    !activeNaverBaseMap ||
-    performance.now() < naverProgrammaticMoveUntil ||
-    leafletOverlaySyncFrame !== null
-  ) {
-    return;
-  }
-  leafletOverlaySyncFrame = window.requestAnimationFrame(() => {
-    leafletOverlaySyncFrame = null;
-    syncLeafletOverlayFromNaver();
-  });
-}
-
-function syncLeafletOverlayFromNaver(force = false) {
-  if (activeMapProvider !== "naver" || !activeNaverBaseMap) {
-    return;
-  }
-  if (!force && performance.now() < naverProgrammaticMoveUntil) {
-    return;
-  }
-  const center = activeNaverBaseMap.getCenter();
-  const zoom = activeNaverBaseMap.getZoom();
-  if (!center || !Number.isFinite(zoom)) {
-    return;
-  }
-  const lat = center.lat();
-  const lng = center.lng();
-  const leafletCenter = map.getCenter();
-  if (
-    !force &&
-    Math.abs(leafletCenter.lat - lat) < 0.0000001 &&
-    Math.abs(leafletCenter.lng - lng) < 0.0000001 &&
-    map.getZoom() === zoom
-  ) {
-    return;
-  }
-  syncingLeafletFromNaver = true;
-  map.setView([lat, lng], zoom, { animate: false, reset: true });
-  syncingLeafletFromNaver = false;
 }
 
 map.on("move zoom", scheduleNaverBaseMapSync);
