@@ -4230,11 +4230,11 @@ function syncNaverBaseMap(resize = false) {
     || Math.abs(lastNaverSyncCenter.lat - center.lat) > 1e-9
     || Math.abs(lastNaverSyncCenter.lng - center.lng) > 1e-9;
 
-  if (zoomChanged && typeof activeNaverBaseMap.setOptions === "function") {
-    activeNaverBaseMap.setOptions({ center: nextCenter, zoom: nextZoom });
+  if (zoomChanged && typeof activeNaverBaseMap.morph === "function") {
+    activeNaverBaseMap.morph(nextCenter, nextZoom);
   } else if (zoomChanged) {
-    activeNaverBaseMap.setZoom(nextZoom);
     activeNaverBaseMap.setCenter(nextCenter);
+    activeNaverBaseMap.setZoom(nextZoom, true);
   } else if (centerChanged) {
     activeNaverBaseMap.setCenter(nextCenter);
   }
