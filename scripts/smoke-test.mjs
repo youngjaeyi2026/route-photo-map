@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261013-naver-smooth-zoom/);
+  assert.match(pageHtml, /20261013-candidate-routes/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -91,8 +91,14 @@ try {
   assert.doesNotMatch(pageHtml, /id="naverPanoramaModal"|id="naverPanoramaViewer"|id="naverComparisonPhoto"/);
   assert.match(pageHtml, /<option value="positioned">네이버 지도 가능<\/option>/);
   assert.match(pageHtml, /id="renameProjectBtn"/);
-  assert.doesNotMatch(pageHtml, /id="followRouteBtn"/);
-  assert.doesNotMatch(pageHtml, /id="plannedRouteSection"/);
+  assert.match(pageHtml, /id="followRouteBtn"/);
+  assert.match(pageHtml, /id="plannedRouteSection"/);
+  assert.match(pageHtml, /id="plannedRouteToggleBtn"/);
+  assert.match(pageHtml, /id="plannedRouteControls"[^>]+hidden/);
+  assert.match(pageHtml, /id="plannedRouteStatusSelect"/);
+  assert.match(pageHtml, /id="plannedRouteLength"/);
+  assert.match(pageHtml, /id="addObstaclePhotoBtn"/);
+  assert.match(pageHtml, /id="obstaclePhotoInput"[^>]+multiple/);
   assert.doesNotMatch(pageHtml, /지도 이미지\/PDF 업로드/);
   assert.match(pageHtml, /id="syncStatusPanel"/);
   assert.match(pageHtml, /id="retrySyncBtn"[^>]*hidden/);
@@ -418,7 +424,7 @@ try {
   assert.match(css, /\.field-action-group\s*\{[^}]*padding-top:\s*16px/s);
   assert.match(css, /@media \(min-width:\s*861px\)[\s\S]+?\.app-shell\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*height:\s*auto;/s);
   assert.match(css, /#followRouteBtn\s*\{[^}]*min-height:\s*42px/s);
-  assert.match(css, /#addConstructionPinBtn,\s*#addMapMemoBtn\s*\{[^}]*min-height:\s*42px/s);
+  assert.match(css, /#addConstructionPinBtn,\s*#addMapMemoBtn,\s*#addObstaclePhotoBtn\s*\{[^}]*min-height:\s*42px/s);
   assert.match(css, /#constructionVisibilityBtn\s*\{[^}]*grid-column:\s*2;[^}]*min-height:\s*42px/s);
   assert.match(css, /\.my-project-actions\s*\{[^}]*grid-template-columns:\s*auto\s*auto\s*auto/s);
   assert.match(css, /\.my-project-item button\s*\{[^}]*height:\s*30px;[^}]*padding:\s*0\s*8px/s);
@@ -441,7 +447,7 @@ try {
   assert.match(css, /\.my-project-item strong\s*\{[^}]*-webkit-line-clamp:\s*2/s);
   assert.match(
     css,
-    /#followRouteBtn,[\s\S]+?#addConstructionPinBtn,[\s\S]+?#addMapMemoBtn,[\s\S]+?#constructionVisibilityBtn\s*\{[^}]*min-height:\s*30px/s,
+    /#followRouteBtn,[\s\S]+?#addConstructionPinBtn,[\s\S]+?#addMapMemoBtn,[\s\S]+?#addObstaclePhotoBtn,[\s\S]+?#constructionVisibilityBtn\s*\{[^}]*min-height:\s*30px/s,
   );
   assert.match(css, /\.point-edit-row button,[\s\S]+?font-size:\s*12px;[\s\S]+?font-weight:\s*800/s);
   assert.doesNotMatch(css, /\.point-edit-row button,[\s\S]{0,220}?font-size:\s*10px/);
@@ -524,6 +530,8 @@ try {
       timestamp: 3,
       memo: "사진 메모",
       tags: "안전,점검",
+      candidateRouteId: "planned-1",
+      obstacleType: "높이",
     },
   ];
   const plannedRoutes = [
@@ -532,6 +540,14 @@ try {
       name: "사전 답사 A",
       memo: "현장 확인용",
       visible: true,
+      status: "review",
+      vehicleSpec: {
+        length: 38.9,
+        width: 4.5,
+        height: 5.6,
+        totalWeight: 147.5,
+        axleWeight: 4.1,
+      },
       points: routePoints,
     },
   ];
@@ -721,6 +737,8 @@ try {
   assert.deepEqual(shared.project.lastState.photos, []);
   assert.deepEqual(shared.project.lastState.milestones, []);
   assert.equal(shared.project.lastState.plannedRoutes[0].name, "사전 답사 A");
+  assert.equal(shared.project.lastState.plannedRoutes[0].status, "review");
+  assert.equal(shared.project.lastState.plannedRoutes[0].vehicleSpec.totalWeight, 147.5);
   assert.equal(shared.project.lastState.activePlannedRouteId, "planned-1");
   assert.equal(shared.project.lastState.mapReferences[0].name, "A구간 계획도");
   assert.equal(shared.project.lastState.mapReferences[0].alignmentMode, "corners");
@@ -743,6 +761,8 @@ try {
   assert.equal(detailedShared.share.includeConstruction, true);
   assert.equal(detailedShared.project.sessions[0].photos.length, 1);
   assert.equal(detailedShared.project.sessions[0].photos[0].id, "private-photo");
+  assert.equal(detailedShared.project.sessions[0].photos[0].candidateRouteId, "planned-1");
+  assert.equal(detailedShared.project.sessions[0].photos[0].obstacleType, "높이");
   assert.equal(detailedShared.project.lastState.milestones.length, 1);
   assert.equal(detailedShared.project.lastState.milestones[0].displayCode, "D1");
   assert.equal(detailedShared.project.lastState.milestones[0].color, "#315f9e");

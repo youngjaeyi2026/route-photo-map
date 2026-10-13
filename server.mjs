@@ -738,9 +738,19 @@ function sanitizePlannedRoutes(routes) {
   }
   return routes.slice(0, 20).map((route, index) => ({
     id: String(route?.id || `planned-${index + 1}`).slice(0, 100),
-    name: String(route?.name || `사전 답사 ${index + 1}`).trim().slice(0, 120),
+    name: String(route?.name || `후보 ${index + 1}`).trim().slice(0, 120),
     memo: String(route?.memo || "").slice(0, 2000),
     source: route?.source === "image" ? "image" : "naver-manual",
+    status: ["draft", "surveying", "review", "approved"].includes(route?.status)
+      ? route.status
+      : "draft",
+    vehicleSpec: {
+      length: sanitizePositiveNumber(route?.vehicleSpec?.length),
+      width: sanitizePositiveNumber(route?.vehicleSpec?.width),
+      height: sanitizePositiveNumber(route?.vehicleSpec?.height),
+      totalWeight: sanitizePositiveNumber(route?.vehicleSpec?.totalWeight),
+      axleWeight: sanitizePositiveNumber(route?.vehicleSpec?.axleWeight),
+    },
     visible: route?.visible !== false,
     createdAt: route?.createdAt || Date.now(),
     updatedAt: route?.updatedAt || route?.createdAt || Date.now(),
@@ -749,6 +759,11 @@ function sanitizePlannedRoutes(routes) {
       .map((point) => ({ lat: Number(point?.lat), lng: Number(point?.lng) }))
       .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
   })).filter((route) => route.points.length >= 2);
+}
+
+function sanitizePositiveNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
 }
 
 function sanitizeMapReferences(references) {
@@ -1230,6 +1245,8 @@ function sanitizeSharedPhotos(photos) {
       locationSource: photo.locationSource || "map",
       memo: String(photo.memo || ""),
       tags: String(photo.tags || ""),
+      candidateRouteId: String(photo.candidateRouteId || "").slice(0, 100),
+      obstacleType: String(photo.obstacleType || "").slice(0, 80),
       timestamp: photo.timestamp || null,
     }))
     .filter(

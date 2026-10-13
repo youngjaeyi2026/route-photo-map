@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20261013-naver-smooth-zoom" />
+    <link rel="stylesheet" href="/styles.css?v=20261013-candidate-routes" />
   </head>
   <body>
     <script>
@@ -104,6 +104,48 @@
           </div>
         </section>
 
+        <section id="plannedRouteSection" class="panel-section planned-route-section">
+          <div class="section-title">
+            <h2>후보노선</h2>
+            <button id="plannedRouteToggleBtn" class="section-toggle" type="button">펼치기</button>
+          </div>
+          <div id="plannedRouteControls" class="planned-route-controls" hidden>
+            <p class="hint">현장검토 전 계획선을 만들고 답사 결과와 비교합니다.</p>
+            <div class="planned-route-form">
+              <input id="plannedRouteName" type="text" maxlength="120" placeholder="후보노선명 (예: 후보 A · 국도21호선)" />
+              <div class="planned-route-spec-grid">
+                <label>
+                  <span>상태</span>
+                  <select id="plannedRouteStatusSelect">
+                    <option value="draft">미검토</option>
+                    <option value="surveying">답사 중</option>
+                    <option value="review">수정 필요</option>
+                    <option value="approved">통과 가능</option>
+                  </select>
+                </label>
+                <label><span>길이(m)</span><input id="plannedRouteLength" type="number" min="0" step="0.1" inputmode="decimal" placeholder="38.9" /></label>
+                <label><span>너비(m)</span><input id="plannedRouteWidth" type="number" min="0" step="0.1" inputmode="decimal" placeholder="4.5" /></label>
+                <label><span>높이(m)</span><input id="plannedRouteHeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="5.6" /></label>
+                <label><span>총중량(t)</span><input id="plannedRouteWeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="147.5" /></label>
+                <label><span>축중(t)</span><input id="plannedRouteAxleWeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="4.1" /></label>
+              </div>
+              <textarea id="plannedRouteMemo" rows="2" maxlength="2000" placeholder="출발지·도착지, 주요 경유축과 검토사항"></textarea>
+              <div class="planned-route-actions">
+                <button id="plannedRouteStartBtn" class="primary-action" type="button">후보노선 만들기</button>
+                <button id="plannedRouteUndoBtn" type="button" disabled>마지막 점 취소</button>
+                <button id="plannedRouteSaveBtn" type="button" disabled>후보노선 저장</button>
+                <button id="plannedRouteCancelBtn" type="button" disabled>편집 취소</button>
+              </div>
+            </div>
+            <p id="plannedRouteStatus" class="status-text">만들기를 누른 뒤 출발지부터 도착지까지 지도 위 도로를 순서대로 선택하세요.</p>
+            <div class="candidate-follow-block">
+              <button id="followRouteBtn" type="button">후보노선 따라가기</button>
+              <p id="routeFollowStatus" class="route-follow-status">저장된 후보노선을 기준으로 답사를 시작할 수 있습니다.</p>
+            </div>
+            <div id="plannedRouteList" class="planned-route-list"></div>
+          </div>
+        </section>
+
         <section id="recordSection" class="panel-section record-section">
           <div class="section-title">
             <h2 id="recordTitle">기록</h2>
@@ -135,6 +177,7 @@
               <div class="field-action-grid">
                 <button id="addConstructionPinBtn" type="button">공사구역 추가</button>
                 <button id="addMapMemoBtn" type="button">현장 메모 등록</button>
+                <button id="addObstaclePhotoBtn" type="button">장애물 사진</button>
                 <button
                   id="constructionVisibilityBtn"
                   type="button"
@@ -143,6 +186,7 @@
                 >
                   공사구역 숨기기
                 </button>
+                <input id="obstaclePhotoInput" type="file" accept="image/*" multiple />
               </div>
               <div id="shareInfoControls" class="share-info-controls" hidden>
                 <button id="sharePhotoToggleBtn" type="button" aria-pressed="true" hidden>사진 숨기기</button>
@@ -341,6 +385,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20261013-naver-smooth-zoom"></script>
+    <script src="/app.js?v=20261013-candidate-routes"></script>
   </body>
 </html>

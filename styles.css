@@ -522,7 +522,8 @@ label[for="autoPhotoInput"] {
 }
 
 #addConstructionPinBtn,
-#addMapMemoBtn {
+#addMapMemoBtn,
+#addObstaclePhotoBtn {
   min-height: 42px;
   border: 1px solid #cbdceb;
   border-radius: 8px;
@@ -610,7 +611,8 @@ label[for="autoPhotoInput"] {
 }
 
 #photoInput,
-#autoPhotoInput {
+#autoPhotoInput,
+#obstaclePhotoInput {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1427,6 +1429,15 @@ body.is-follow-mode .control-panel {
   gap: 10px;
 }
 
+.planned-route-controls {
+  display: grid;
+  gap: 10px;
+}
+
+.planned-route-controls[hidden] {
+  display: none;
+}
+
 .planned-route-form {
   display: grid;
   gap: 8px;
@@ -1640,7 +1651,8 @@ body.is-map-point-selection #map .leaflet-interactive {
 }
 
 .planned-route-form input,
-.planned-route-form textarea {
+.planned-route-form textarea,
+.planned-route-form select {
   box-sizing: border-box;
   width: 100%;
   border: 1px solid var(--line);
@@ -1653,6 +1665,28 @@ body.is-map-point-selection #map .leaflet-interactive {
 
 .planned-route-form textarea {
   resize: vertical;
+}
+
+.planned-route-spec-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.planned-route-spec-grid label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.candidate-follow-block {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
 }
 
 .planned-route-actions {
@@ -1717,7 +1751,7 @@ body.is-map-point-selection #map .leaflet-interactive {
 
 .planned-route-item__actions {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
   gap: 6px;
 }
 
@@ -1733,6 +1767,21 @@ body.is-map-point-selection #map .leaflet-interactive {
 }
 
 .planned-route-point-icon span {
+  display: grid;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  color: #ffffff;
+  background: #ee7b22;
+  box-shadow: 0 2px 6px rgba(25, 42, 35, 0.35);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.planned-route-native-point {
   display: grid;
   box-sizing: border-box;
   width: 28px;
@@ -3193,8 +3242,13 @@ body.is-map-point-selection #map .leaflet-interactive {
   #followRouteBtn,
   #addConstructionPinBtn,
   #addMapMemoBtn,
+  #addObstaclePhotoBtn,
   #constructionVisibilityBtn {
     min-height: 30px;
+  }
+
+  .planned-route-spec-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .utility-row {

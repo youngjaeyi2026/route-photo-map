@@ -22,6 +22,7 @@ const WEB_TRACKING_SYNC_DISTANCE_METERS = 500;
 const WEB_TRACKING_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const LIVE_SHARED_SESSION_MAX_AGE_MS = 10 * 60 * 1000;
 const PRE_SURVEY_FEATURE_ENABLED = false;
+const CANDIDATE_ROUTE_FEATURE_ENABLED = true;
 const REPRESENTATIVE_COLORS = [
   { name: "빨강", value: "#c34236" },
   { name: "주황", value: "#d96c1f" },
@@ -227,6 +228,8 @@ const els = {
   routeFollowStatus: document.querySelector("#routeFollowStatus"),
   addConstructionPinBtn: document.querySelector("#addConstructionPinBtn"),
   addMapMemoBtn: document.querySelector("#addMapMemoBtn"),
+  addObstaclePhotoBtn: document.querySelector("#addObstaclePhotoBtn"),
+  obstaclePhotoInput: document.querySelector("#obstaclePhotoInput"),
   milestoneList: document.querySelector("#milestoneList"),
   overlayProjectCode: document.querySelector("#overlayProjectCode"),
   addOverlayProjectBtn: document.querySelector("#addOverlayProjectBtn"),
@@ -237,8 +240,16 @@ const els = {
   colorPickerCancelBtn: document.querySelector("#colorPickerCancelBtn"),
   colorPickerConfirmBtn: document.querySelector("#colorPickerConfirmBtn"),
   plannedRouteSection: document.querySelector("#plannedRouteSection"),
+  plannedRouteToggleBtn: document.querySelector("#plannedRouteToggleBtn"),
+  plannedRouteControls: document.querySelector("#plannedRouteControls"),
   plannedRouteName: document.querySelector("#plannedRouteName"),
   plannedRouteMemo: document.querySelector("#plannedRouteMemo"),
+  plannedRouteStatusSelect: document.querySelector("#plannedRouteStatusSelect"),
+  plannedRouteLength: document.querySelector("#plannedRouteLength"),
+  plannedRouteWidth: document.querySelector("#plannedRouteWidth"),
+  plannedRouteHeight: document.querySelector("#plannedRouteHeight"),
+  plannedRouteWeight: document.querySelector("#plannedRouteWeight"),
+  plannedRouteAxleWeight: document.querySelector("#plannedRouteAxleWeight"),
   plannedRouteStartBtn: document.querySelector("#plannedRouteStartBtn"),
   plannedRouteUndoBtn: document.querySelector("#plannedRouteUndoBtn"),
   plannedRouteSaveBtn: document.querySelector("#plannedRouteSaveBtn"),
@@ -347,6 +358,7 @@ let activeConstructionDetailPin = null;
 let naverExternalWindow = null;
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
 let colorPickerConfirmHandler = null;
+let pendingObstaclePhotoOptions = null;
 let authEls = {};
 let shareEls = {};
 let authResolved = Boolean(initialShareToken);
@@ -608,6 +620,12 @@ document.addEventListener("click", (event) => {
   }
 });
 els.followRouteBtn?.addEventListener("click", toggleRouteFollow);
+els.plannedRouteToggleBtn?.addEventListener("click", () => {
+  const willOpen = Boolean(els.plannedRouteControls?.hidden);
+  if (els.plannedRouteControls) els.plannedRouteControls.hidden = !willOpen;
+  els.plannedRouteToggleBtn.textContent = willOpen ? "숨기기" : "펼치기";
+  if (willOpen) window.requestAnimationFrame(() => map.invalidateSize());
+});
 els.followExitBtn?.addEventListener("click", () => stopRouteFollowing("답사 모드를 종료했습니다."));
 els.followPhotoToggleBtn?.addEventListener("click", togglePhotoPinVisibility);
 els.followConstructionToggleBtn?.addEventListener("click", toggleConstructionVisibility);
@@ -616,6 +634,16 @@ els.shareConstructionToggleBtn?.addEventListener("click", toggleConstructionVisi
 els.constructionVisibilityBtn?.addEventListener("click", toggleConstructionVisibility);
 els.addConstructionPinBtn?.addEventListener("click", () => addMapPin("construction"));
 els.addMapMemoBtn?.addEventListener("click", addMapMemo);
+els.addObstaclePhotoBtn?.addEventListener("click", beginObstaclePhotoCapture);
+els.obstaclePhotoInput?.addEventListener("change", async (event) => {
+  const options = pendingObstaclePhotoOptions;
+  pendingObstaclePhotoOptions = null;
+  if (!options) {
+    event.target.value = "";
+    return;
+  }
+  await handlePhotoInput(event, options);
+});
 els.addOverlayProjectBtn?.addEventListener("click", () => addOverlayProject());
 els.plannedRouteStartBtn?.addEventListener("click", startPlannedRouteEditing);
 els.plannedRouteUndoBtn?.addEventListener("click", undoPlannedRoutePoint);
@@ -699,13 +727,6 @@ function startTracking() {
     return;
   }
 
-  if (state.destinationFollow) {
-    state.destinationFollow = false;
-    state.followProgressIndex = 0;
-    state.routeOffTrack = false;
-    state.routeDeviationSamples = 0;
-    state.routeRecoverySamples = 0;
-  }
   state.tracking = true;
   stopRouteFollowWatcher();
   state.paused = false;
@@ -1044,10 +1065,11 @@ function updateRouteFollowing(point) {
   if (!state.destinationFollow) {
     return false;
   }
-  const routePoints = getRoutePathPoints(state.points);
+  const routePoints = getRouteFollowPoints();
+  const routeLabel = hasCandidateRouteForFollow() ? "후보노선" : "기록된 경로";
   const nearest = findNearestRoutePosition(point, routePoints);
   if (!nearest) {
-    stopRouteFollowing("기록된 동선을 확인할 수 없어 답사 따라가기를 종료했습니다.");
+    stopRouteFollowing(`${routeLabel}를 확인할 수 없어 답사 따라가기를 종료했습니다.`);
     return false;
   }
 
@@ -1061,12 +1083,12 @@ function updateRouteFollowing(point) {
 
   if (!state.routeOffTrack && state.routeDeviationSamples >= 2) {
     state.routeOffTrack = true;
-    speakRouteGuidance("기록된 경로에서 벗어났습니다.");
-    setStatus(`경로 이탈 · 기록된 동선에서 약 ${Math.round(nearest.distanceMeters)}m 떨어져 있습니다.`, "warning");
+    speakRouteGuidance(`${routeLabel}에서 벗어났습니다.`);
+    setStatus(`경로 이탈 · ${routeLabel}에서 약 ${Math.round(nearest.distanceMeters)}m 떨어져 있습니다.`, "warning");
   } else if (state.routeOffTrack && state.routeRecoverySamples >= 2) {
     state.routeOffTrack = false;
-    speakRouteGuidance("기록된 경로로 복귀했습니다.");
-    setStatus("기록된 경로로 복귀했습니다.", "success");
+    speakRouteGuidance(`${routeLabel}로 복귀했습니다.`);
+    setStatus(`${routeLabel}로 복귀했습니다.`, "success");
   }
 
   renderRouteLines();
@@ -1210,7 +1232,10 @@ async function handlePhotoInput(event, options = {}) {
         lat: position?.lat ?? null,
         lng: position?.lng ?? null,
         locationSource: locationResult.source,
-        tags: usesAutomaticPlacement ? "추가 답사" : "",
+        memo: String(options.memo || ""),
+        tags: String(options.tags || (usesAutomaticPlacement ? "추가 답사" : "")),
+        candidateRouteId: options.candidateRouteId || null,
+        obstacleType: options.obstacleType || "",
         timestamp: locationResult.capturedAt || Date.now() + index,
       };
       photo.localPhotoCached = await cacheLocalPhoto(photo);
@@ -1253,6 +1278,41 @@ async function handlePhotoInput(event, options = {}) {
     void syncProjectState("add-photo");
   }
   return true;
+}
+
+function beginObstaclePhotoCapture() {
+  if (!els.obstaclePhotoInput) return;
+  const activeRoute = getActivePlannedRoute();
+  if (!activeRoute) {
+    setStatus("장애물 사진을 연결할 후보노선을 먼저 만들거나 기준 지정해 주세요.", "warning");
+    return;
+  }
+  const categoryInput = window.prompt(
+    "장애물 종류를 입력하세요.\n높이 / 폭 / 교량 / 회전반경 / 경사 / 신호등·표지판 / 전선 / 노면 / 기타",
+    "높이",
+  );
+  if (categoryInput === null) return;
+  const category = categoryInput.trim() || "기타";
+  const memoInput = window.prompt("실측값과 검토 메모를 입력하세요.", "");
+  if (memoInput === null) return;
+  const livePosition = state.destinationFollow
+    ? state.selectedPosition
+    : state.tracking
+      ? getLatestPosition()
+      : null;
+  const position = livePosition && Number.isFinite(Number(livePosition.lat)) && Number.isFinite(Number(livePosition.lng))
+    ? { lat: Number(livePosition.lat), lng: Number(livePosition.lng) }
+    : getMapCenterPosition();
+  pendingObstaclePhotoOptions = {
+    position,
+    source: livePosition ? "current-location" : "map-center",
+    label: livePosition ? "현재 위치" : "지도 화면 중앙",
+    tags: `장애물,${category}`,
+    memo: memoInput.trim(),
+    obstacleType: category,
+    candidateRouteId: activeRoute.id,
+  };
+  els.obstaclePhotoInput.click();
 }
 
 async function getAutomaticPhotoPosition(file) {
@@ -4294,6 +4354,7 @@ function createNaverNativePolyline(points, options, naverMaps) {
     strokeColor: options.color,
     strokeOpacity: options.opacity ?? 0.88,
     strokeWeight: options.weight ?? 6,
+    strokeStyle: options.style || "solid",
     strokeLineCap: "round",
     strokeLineJoin: "round",
     zIndex: options.zIndex ?? 20,
@@ -4302,7 +4363,8 @@ function createNaverNativePolyline(points, options, naverMaps) {
 
 function renderNaverNativeRoute(naverMaps) {
   const points = getRoutePathPoints(state.points);
-  if (!state.destinationFollow || points.length < 2) {
+  const followsCandidate = Boolean(getActivePlannedRoute()?.points?.length >= 2);
+  if (!state.destinationFollow || followsCandidate || points.length < 2) {
     createNaverNativePolyline(points, { color: ROUTE_COMPLETED_COLOR, weight: 6, zIndex: 20 }, naverMaps);
   } else {
     const splitIndex = Math.min(Math.max(0, state.followProgressIndex), points.length - 1);
@@ -4314,7 +4376,33 @@ function renderNaverNativeRoute(naverMaps) {
     ? state.plannedRouteDraft
     : state.plannedRoutes.find((route) => route.id === state.activePlannedRouteId);
   if (activePlan?.points?.length > 1) {
-    createNaverNativePolyline(activePlan.points, { color: "#d96c1f", weight: 5, opacity: 0.9, zIndex: 18 }, naverMaps);
+    createNaverNativePolyline(
+      activePlan.points,
+      { color: "#d96c1f", weight: 5, opacity: 0.94, style: "shortdash", zIndex: 22 },
+      naverMaps,
+    );
+  }
+  if (activePlan?.points?.length) {
+    const markerPoints = state.planningMode
+      ? activePlan.points
+      : [activePlan.points[0], activePlan.points.at(-1)];
+    markerPoints.forEach((point, index) => {
+      const sourceIndex = state.planningMode
+        ? index
+        : index === 0 ? 0 : activePlan.points.length - 1;
+      const label = sourceIndex === 0
+        ? "S"
+        : sourceIndex === activePlan.points.length - 1 ? "E" : sourceIndex + 1;
+      createNaverNativeMarker(
+        point,
+        `<span class="planned-route-native-point">${label}</span>`,
+        [28, 28],
+        [14, 14],
+        `후보노선 ${label}`,
+        naverMaps,
+        530,
+      );
+    });
   }
 }
 
@@ -5516,9 +5604,17 @@ function normalizePlannedRoutes(routes) {
   return routes
     .map((route, index) => ({
       id: String(route?.id || `planned-${index + 1}`),
-      name: String(route?.name || `사전 답사 ${index + 1}`).trim(),
+      name: String(route?.name || `후보 ${String.fromCharCode(65 + index)}`).trim(),
       memo: String(route?.memo || ""),
       source: route?.source === "image" ? "image" : "naver-manual",
+      status: ["draft", "surveying", "review", "approved"].includes(route?.status) ? route.status : "draft",
+      vehicleSpec: {
+        length: normalizePositiveNumber(route?.vehicleSpec?.length),
+        width: normalizePositiveNumber(route?.vehicleSpec?.width),
+        height: normalizePositiveNumber(route?.vehicleSpec?.height),
+        totalWeight: normalizePositiveNumber(route?.vehicleSpec?.totalWeight),
+        axleWeight: normalizePositiveNumber(route?.vehicleSpec?.axleWeight),
+      },
       visible: route?.visible !== false,
       createdAt: route?.createdAt || Date.now(),
       updatedAt: route?.updatedAt || route?.createdAt || Date.now(),
@@ -5529,18 +5625,60 @@ function normalizePlannedRoutes(routes) {
     .filter((route) => route.points.length >= 2);
 }
 
+function normalizePositiveNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function getActivePlannedRoute() {
+  return state.plannedRoutes.find((route) => route.id === state.activePlannedRouteId)
+    || state.plannedRoutes[0]
+    || null;
+}
+
+function getCandidateStatusLabel(status) {
+  return {
+    draft: "미검토",
+    surveying: "답사 중",
+    review: "수정 필요",
+    approved: "통과 가능",
+  }[status] || "미검토";
+}
+
+function writePlannedRouteForm(route = null) {
+  if (!els.plannedRouteName) return;
+  els.plannedRouteName.value = route?.name || "";
+  els.plannedRouteMemo.value = route?.memo || "";
+  els.plannedRouteStatusSelect.value = route?.status || "draft";
+  els.plannedRouteLength.value = route?.vehicleSpec?.length || "";
+  els.plannedRouteWidth.value = route?.vehicleSpec?.width || "";
+  els.plannedRouteHeight.value = route?.vehicleSpec?.height || "";
+  els.plannedRouteWeight.value = route?.vehicleSpec?.totalWeight || "";
+  els.plannedRouteAxleWeight.value = route?.vehicleSpec?.axleWeight || "";
+}
+
+function readPlannedRouteVehicleSpec() {
+  return {
+    length: normalizePositiveNumber(els.plannedRouteLength?.value),
+    width: normalizePositiveNumber(els.plannedRouteWidth?.value),
+    height: normalizePositiveNumber(els.plannedRouteHeight?.value),
+    totalWeight: normalizePositiveNumber(els.plannedRouteWeight?.value),
+    axleWeight: normalizePositiveNumber(els.plannedRouteAxleWeight?.value),
+  };
+}
+
 async function startPlannedRouteEditing(routeId = null) {
   if (state.shareView) {
-    setStatus("공유 화면에서는 사전 답사를 수정할 수 없습니다.", "warning");
+    setStatus("공유 화면에서는 후보노선을 수정할 수 없습니다.", "warning");
     return;
   }
   if (!state.projectCode) {
-    setProjectStatus("사전 답사를 저장할 프로젝트를 먼저 만들거나 불러와 주세요.");
+    setProjectStatus("후보노선을 저장할 프로젝트를 먼저 만들거나 불러와 주세요.");
     els.projectName?.focus();
     return;
   }
   if (state.tracking || state.destinationFollow || state.pointEditMode || state.mapAlignmentMode) {
-    setStatus("기록·따라가기·위치 편집을 마친 뒤 사전 답사를 만들어 주세요.", "warning");
+    setStatus("기록·따라가기·위치 편집을 마친 뒤 후보노선을 만들어 주세요.", "warning");
     return;
   }
   const existing = state.plannedRoutes.find((route) => route.id === routeId);
@@ -5549,22 +5687,29 @@ async function startPlannedRouteEditing(routeId = null) {
     ? structuredClone(existing)
     : {
         id: crypto.randomUUID(),
-        name: `${state.projectName || "프로젝트"} 사전 답사`,
+        name: `후보 ${String.fromCharCode(65 + Math.min(25, state.plannedRoutes.length))}`,
         memo: "",
         source: "naver-manual",
+        status: "draft",
+        vehicleSpec: {
+          length: null,
+          width: null,
+          height: null,
+          totalWeight: null,
+          axleWeight: null,
+        },
         visible: true,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         points: [],
       };
-  els.plannedRouteName.value = state.plannedRouteDraft.name;
-  els.plannedRouteMemo.value = state.plannedRouteDraft.memo;
+  writePlannedRouteForm(state.plannedRouteDraft);
   await applyMapProvider("naver");
   renderPlannedRoutes();
   if (existing?.points?.length) {
     fitPlannedRoute(existing.points);
   }
-  setStatus("네이버지도 위 도로를 출발지부터 도착지 순서로 선택하세요.", "active");
+  setStatus("네이버지도에서 출발지부터 도착지까지 도로의 굴곡과 교차로를 순서대로 선택하세요.", "active");
 }
 
 function addPlannedRoutePoint(latlng) {
@@ -5574,7 +5719,7 @@ function addPlannedRoutePoint(latlng) {
   state.plannedRouteDraft.points.push({ lat: latlng.lat, lng: latlng.lng });
   state.plannedRouteDraft.updatedAt = Date.now();
   renderPlannedRoutes();
-  setStatus(`사전 답사 위치점 ${state.plannedRouteDraft.points.length}개를 지정했습니다.`, "active");
+  setStatus(`후보노선 위치점 ${state.plannedRouteDraft.points.length}개를 지정했습니다.`, "active");
 }
 
 function undoPlannedRoutePoint() {
@@ -5589,20 +5734,21 @@ function undoPlannedRoutePoint() {
 function cancelPlannedRouteEditing() {
   state.planningMode = false;
   state.plannedRouteDraft = null;
-  if (els.plannedRouteName) els.plannedRouteName.value = "";
-  if (els.plannedRouteMemo) els.plannedRouteMemo.value = "";
+  writePlannedRouteForm();
   renderPlannedRoutes();
-  setStatus("사전 답사 편집을 취소했습니다.", "warning");
+  setStatus("후보노선 편집을 취소했습니다.", "warning");
 }
 
 async function savePlannedRoute() {
   const draft = state.plannedRouteDraft;
   if (!state.planningMode || !draft || draft.points.length < 2) {
-    setStatus("사전 답사는 위치점을 2개 이상 지정해야 저장할 수 있습니다.", "warning");
+    setStatus("후보노선은 출발지와 도착지를 포함해 위치점을 2개 이상 지정해야 저장할 수 있습니다.", "warning");
     return;
   }
-  draft.name = els.plannedRouteName.value.trim() || `${state.projectName || "프로젝트"} 사전 답사`;
+  draft.name = els.plannedRouteName.value.trim() || `후보 ${String.fromCharCode(65 + Math.min(25, state.plannedRoutes.length))}`;
   draft.memo = els.plannedRouteMemo.value.trim();
+  draft.status = els.plannedRouteStatusSelect.value;
+  draft.vehicleSpec = readPlannedRouteVehicleSpec();
   draft.updatedAt = Date.now();
   const existingIndex = state.plannedRoutes.findIndex((route) => route.id === draft.id);
   if (existingIndex >= 0) {
@@ -5613,16 +5759,15 @@ async function savePlannedRoute() {
   state.activePlannedRouteId = draft.id;
   state.planningMode = false;
   state.plannedRouteDraft = null;
-  els.plannedRouteName.value = "";
-  els.plannedRouteMemo.value = "";
+  writePlannedRouteForm();
   persist();
   saveProjectRecoveryBackup("planned-route");
   renderPlannedRoutes();
   const serverSaved = await syncProjectState("planned-route");
   setStatus(
     serverSaved
-      ? "사전 답사를 프로젝트에 저장했습니다. 프로젝트 공유에도 함께 표시됩니다."
-      : "사전 답사를 이 기기에 보관했습니다. 서버 연결 후 다시 동기화해 주세요.",
+      ? "후보노선을 프로젝트에 저장했습니다. PC와 모바일에서 함께 확인할 수 있습니다."
+      : "후보노선을 이 기기에 보관했습니다. 서버 연결 후 다시 동기화해 주세요.",
     serverSaved ? "success" : "warning",
   );
 }
@@ -5646,7 +5791,7 @@ function togglePlannedRouteVisibility(routeId) {
 
 function deletePlannedRoute(routeId) {
   const route = state.plannedRoutes.find((item) => item.id === routeId);
-  if (!route || !window.confirm(`'${route.name}' 사전 답사를 삭제할까요?`)) {
+  if (!route || !window.confirm(`'${route.name}' 후보노선을 삭제할까요?`)) {
     return;
   }
   state.plannedRoutes = state.plannedRoutes.filter((item) => item.id !== routeId);
@@ -5669,7 +5814,8 @@ function fitPlannedRoute(points) {
 function renderPlannedRoutes() {
   updateMapPointSelectionCursor();
   plannedRouteLayer.clearLayers();
-  if (!PRE_SURVEY_FEATURE_ENABLED) return;
+  scheduleNaverNativeOverlayRender();
+  if (!CANDIDATE_ROUTE_FEATURE_ENABLED) return;
   const routesToDraw = state.plannedRoutes.filter((route) => route.visible !== false);
   routesToDraw.forEach((route) => {
     L.polyline(route.points.map((point) => [point.lat, point.lng]), {
@@ -5699,7 +5845,7 @@ function renderPlannedRoutes() {
         draggable: true,
         icon: L.divIcon({
           className: "planned-route-point-icon",
-          html: `<span>${index + 1}</span>`,
+          html: `<span>${index === 0 ? "S" : index === draft.points.length - 1 ? "E" : index + 1}</span>`,
           iconSize: [28, 28],
           iconAnchor: [14, 14],
         }),
@@ -5726,13 +5872,21 @@ function renderPlannedRoutes() {
     const meta = document.createElement("span");
     const distance = route.points.reduce((total, point, index, points) =>
       index ? total + getDistanceMeters(points[index - 1], point) : total, 0);
-    meta.textContent = `${route.points.length}점 · ${formatDistance(distance)}${route.memo ? ` · ${route.memo}` : ""}`;
+    const spec = route.vehicleSpec || {};
+    const specParts = [
+      spec.length ? `L ${spec.length}m` : "",
+      spec.width ? `W ${spec.width}m` : "",
+      spec.height ? `H ${spec.height}m` : "",
+      spec.totalWeight ? `${spec.totalWeight}t` : "",
+    ].filter(Boolean);
+    meta.textContent = `${getCandidateStatusLabel(route.status)} · ${route.points.length}점 · ${formatDistance(distance)}${specParts.length ? ` · ${specParts.join(" / ")}` : ""}${route.memo ? ` · ${route.memo}` : ""}`;
     info.append(title, meta);
     const actions = document.createElement("div");
     actions.className = "planned-route-item__actions";
     const actionItems = [
       [route.visible === false ? "보기" : "숨기기", () => togglePlannedRouteVisibility(route.id), false],
       [route.id === state.activePlannedRouteId ? "기준" : "기준 지정", () => setActivePlannedRoute(route.id), route.id === state.activePlannedRouteId],
+      ["지도 보기", () => fitPlannedRoute(route.points), false],
       ["수정", () => startPlannedRouteEditing(route.id), false],
       ["삭제", () => deletePlannedRoute(route.id), false],
     ];
@@ -5751,21 +5905,24 @@ function renderPlannedRoutes() {
   if (state.plannedRoutes.length === 0 && !state.planningMode) {
     const empty = document.createElement("p");
     empty.className = "status-text";
-    empty.textContent = "저장된 사전 답사가 없습니다.";
+    empty.textContent = "저장된 후보노선이 없습니다.";
     els.plannedRouteList.append(empty);
   }
-  els.plannedRouteStartBtn.textContent = state.planningMode ? "지도에서 위치 선택 중" : "사전 답사 만들기";
+  els.plannedRouteStartBtn.textContent = state.planningMode ? "지도에서 위치 선택 중" : "후보노선 만들기";
   els.plannedRouteStartBtn.disabled = state.planningMode || state.mapAlignmentMode || state.mapColorExtractionMode || Boolean(state.shareView);
   els.plannedRouteUndoBtn.disabled = !state.planningMode || !draft?.points.length;
   els.plannedRouteSaveBtn.disabled = !state.planningMode || (draft?.points.length || 0) < 2;
   els.plannedRouteCancelBtn.disabled = !state.planningMode;
   els.plannedRouteName.disabled = !state.planningMode;
   els.plannedRouteMemo.disabled = !state.planningMode;
+  els.plannedRouteStatusSelect.disabled = !state.planningMode;
+  [els.plannedRouteLength, els.plannedRouteWidth, els.plannedRouteHeight, els.plannedRouteWeight, els.plannedRouteAxleWeight]
+    .forEach((input) => { input.disabled = !state.planningMode; });
   els.plannedRouteStatus.textContent = state.planningMode
-    ? `지도 클릭으로 경로를 지정하는 중입니다 · ${draft?.points.length || 0}점`
+    ? `지도 클릭으로 후보노선을 지정하는 중입니다 · ${draft?.points.length || 0}점 · 점을 드래그해 위치를 보정할 수 있습니다.`
     : state.activePlannedRouteId
-      ? "주황색 점선은 현장 기록과 구분되는 사전 답사 기준선입니다."
-      : "만들기를 누른 뒤 지도 위 도로를 이동 순서대로 선택하세요.";
+      ? "주황색 점선은 현장 기록과 구분되는 현장검토 전 후보노선입니다."
+      : "만들기를 누른 뒤 지도 위 도로를 출발지부터 도착지 순서로 선택하세요.";
 }
 
 function render() {
@@ -7022,13 +7179,9 @@ async function toggleRouteFollow() {
     stopRouteFollowing("답사 따라가기를 종료했습니다.");
     return;
   }
-  if (state.tracking) {
-    setStatus("이동 기록을 완료한 뒤 답사 따라가기를 시작해 주세요.", "warning");
-    return;
-  }
-  const routePoints = getRoutePathPoints(state.points);
+  const routePoints = getRouteFollowPoints();
   if (routePoints.length < 2) {
-    setStatus("답사할 기록 동선을 먼저 불러와 주세요.", "warning");
+    setStatus("답사할 후보노선을 만들거나 기존 기록동선을 불러와 주세요.", "warning");
     return;
   }
   if (!canUsePreciseLocation() || !navigator.geolocation) {
@@ -7042,6 +7195,11 @@ async function toggleRouteFollow() {
   state.routeOffTrack = false;
   state.routeDeviationSamples = 0;
   state.routeRecoverySamples = 0;
+  const activeRoute = getActivePlannedRoute();
+  if (activeRoute && activeRoute.status === "draft") {
+    activeRoute.status = "surveying";
+    activeRoute.updatedAt = Date.now();
+  }
   persist();
   render();
   const position = await locateCurrentPosition({ status: false });
@@ -7050,8 +7208,12 @@ async function toggleRouteFollow() {
     return;
   }
   updateRouteFollowing(position);
-  startRouteFollowWatcher();
-  setStatus("답사 따라가기를 시작했습니다. 현재 위치를 따라가며 경로 이탈을 음성으로 안내합니다.", "active");
+  if (!state.tracking) {
+    startRouteFollowWatcher();
+  }
+  renderPlannedRoutes();
+  void syncProjectState("candidate-route-surveying");
+  setStatus("후보노선 따라가기를 시작했습니다. 실제 이동기록을 동시에 저장할 수 있습니다.", "active");
 }
 
 function toggleConstructionVisibility() {
@@ -7189,7 +7351,8 @@ function stopRouteFollowing(message = "답사 따라가기를 종료했습니다
 function renderRouteLines() {
   scheduleNaverNativeOverlayRender();
   const points = getRoutePathPoints(state.points);
-  if (!state.destinationFollow || points.length < 2) {
+  const followsCandidate = Boolean(getActivePlannedRoute()?.points?.length >= 2);
+  if (!state.destinationFollow || followsCandidate || points.length < 2) {
     routeLine.setLatLngs(points.map((point) => [point.lat, point.lng]));
     routeRemainingLine.setLatLngs([]);
     return;
@@ -7205,17 +7368,18 @@ function renderRouteFollowStatus(point = getLatestPosition(), nearest = null) {
   if (!els.routeFollowStatus || !els.followRouteBtn) {
     return;
   }
-  const routePoints = getRoutePathPoints(state.points);
+  const routePoints = getRouteFollowPoints();
+  const routeLabel = hasCandidateRouteForFollow() ? "후보노선" : "기록 동선";
   els.followRouteBtn.textContent = state.destinationFollow ? "따라가기 종료" : "답사 따라가기";
   els.followRouteBtn.classList.toggle("is-active", state.destinationFollow);
   els.followRouteBtn.disabled = state.shareView ? routePoints.length < 2 : false;
   if (routePoints.length < 2) {
-    els.routeFollowStatus.textContent = "기록된 동선을 불러오면 답사 따라가기를 시작할 수 있습니다.";
+    els.routeFollowStatus.textContent = "후보노선을 기준 지정하거나 기존 기록동선을 불러오면 답사를 시작할 수 있습니다.";
     els.routeFollowStatus.classList.remove("is-off-route");
     return;
   }
   if (!state.destinationFollow) {
-    els.routeFollowStatus.textContent = `답사 대기 · 기록 동선 ${routePoints.length}점`;
+    els.routeFollowStatus.textContent = `답사 대기 · ${routeLabel} ${routePoints.length}점`;
     els.routeFollowStatus.classList.remove("is-off-route");
     return;
   }
@@ -8889,6 +9053,18 @@ function getTotalDistance() {
 
 function getRoutePathPoints(points = []) {
   return points.filter((point) => point && point.skipInRoute !== true);
+}
+
+function getRouteFollowPoints() {
+  const candidateRoute = getActivePlannedRoute();
+  if (candidateRoute?.points?.length >= 2) {
+    return getRoutePathPoints(candidateRoute.points);
+  }
+  return getRoutePathPoints(state.points);
+}
+
+function hasCandidateRouteForFollow() {
+  return Boolean(getActivePlannedRoute()?.points?.length >= 2);
 }
 
 function formatDistance(meters) {
