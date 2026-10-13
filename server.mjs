@@ -895,7 +895,13 @@ async function requestNaverDirectionsSegment(stops, option) {
   });
   if (!response.ok) {
     log(`NAVER_DIRECTIONS_ERROR status=${response.status}`);
-    return { ok: false, status: response.status === 429 ? 429 : 502, error: "directions_request_failed" };
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, status: 502, error: "directions_auth_failed" };
+    }
+    if (response.status === 429) {
+      return { ok: false, status: 429, error: "directions_rate_limited" };
+    }
+    return { ok: false, status: 502, error: "directions_request_failed" };
   }
   const payload = await response.json();
   if (Number(payload?.code) !== 0) {

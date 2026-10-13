@@ -109,6 +109,7 @@ const state = {
   plannedRouteSelection: "",
   plannedRouteSelectionStopId: "",
   plannedRouteSearching: false,
+  plannedRouteFeedback: null,
   mapReferences: [],
   activeMapReferenceId: null,
   mapReferenceDraft: null,
@@ -5807,6 +5808,7 @@ async function startPlannedRouteEditing(routeId = null) {
   state.plannedRouteMode = existing?.source === "naver-manual" ? "manual" : "auto";
   state.plannedRouteSelection = state.plannedRouteMode === "auto" ? "start" : "manual";
   state.plannedRouteSearching = false;
+  state.plannedRouteFeedback = null;
   writePlannedRouteForm(state.plannedRouteDraft);
   await applyMapProvider("naver");
   renderPlannedRoutes();
@@ -5871,6 +5873,7 @@ function addPlannedRouteStop(latlng, kind) {
   draft.points = [];
   draft.routeSummary = { distance: null, duration: null, tollFare: null, provider: "", searchedAt: null };
   draft.updatedAt = Date.now();
+  state.plannedRouteFeedback = null;
   state.plannedRouteSelection = kind === "start" ? "goal" : kind;
   state.plannedRouteSelectionStopId = "";
   renderPlannedRoutes();
@@ -5910,6 +5913,7 @@ function setPlannedRouteSelection(kind, stopId = "") {
   if (!state.planningMode || state.plannedRouteMode !== "auto") return;
   state.plannedRouteSelection = kind;
   state.plannedRouteSelectionStopId = stopId;
+  state.plannedRouteFeedback = null;
   renderPlannedRoutes();
   setStatus(`${kind === "start" ? "출발지" : kind === "goal" ? "도착지" : "추가할 경유지"}를 지도에서 선택하세요.`, "active");
 }
@@ -5923,6 +5927,10 @@ async function searchPlannedRoute() {
     return;
   }
   state.plannedRouteSearching = true;
+  state.plannedRouteFeedback = {
+    message: "네이버 지도에서 후보노선을 계산하는 중입니다. 잠시 기다려 주세요.",
+    type: "active",
+  };
   renderPlannedRoutes();
   setStatus("일반 자동차 기준 후보노선을 검색하는 중입니다.", "active");
   try {
@@ -5946,14 +5954,23 @@ async function searchPlannedRoute() {
     };
     draft.updatedAt = Date.now();
     fitPlannedRoute(draft.points);
-    setStatus(`후보노선을 계산했습니다 · ${formatDistance(draft.routeSummary.distance || 0)} · ${formatRouteDuration(draft.routeSummary.duration)}`, "success");
+    const successMessage = `후보노선을 계산했습니다 · ${formatDistance(draft.routeSummary.distance || 0)} · ${formatRouteDuration(draft.routeSummary.duration)}`;
+    state.plannedRouteFeedback = { message: successMessage, type: "success" };
+    setStatus(successMessage, "success");
   } catch (error) {
     const code = error?.payload?.error;
     const message = code === "directions_not_configured"
       ? "자동 경로 API 설정이 필요합니다. 설정 전에는 전체 수동 그리기로 후보노선을 작성할 수 있습니다."
+      : code === "directions_auth_failed"
+        ? "네이버 Directions 인증에 실패했습니다. Railway의 Client ID·Secret과 네이버클라우드의 Directions 5·15 사용 설정을 확인해 주세요."
+        : code === "directions_rate_limited"
+          ? "네이버 Directions 요청 한도에 도달했습니다. 잠시 후 다시 검색해 주세요."
+          : code === "login_required"
+            ? "로그인 상태가 만료되었습니다. 다시 로그인한 뒤 후보노선을 검색해 주세요."
       : code === "route_not_found"
         ? "선택한 출발지·경유지·도착지를 연결하는 자동차 경로를 찾지 못했습니다. 위치를 도로 가까이 다시 지정해 주세요."
         : "후보노선 검색에 실패했습니다. 연결 상태와 선택 위치를 확인한 뒤 다시 시도해 주세요.";
+    state.plannedRouteFeedback = { message, type: "error" };
     setStatus(message, "warning");
   } finally {
     state.plannedRouteSearching = false;
@@ -5993,6 +6010,7 @@ function cancelPlannedRouteEditing() {
   state.plannedRouteSelection = "";
   state.plannedRouteSelectionStopId = "";
   state.plannedRouteSearching = false;
+  state.plannedRouteFeedback = null;
   writePlannedRouteForm();
   renderPlannedRoutes();
   setStatus("후보노선 편집을 취소했습니다.", "warning");
@@ -6022,6 +6040,7 @@ async function savePlannedRoute() {
   state.plannedRouteSelection = "";
   state.plannedRouteSelectionStopId = "";
   state.plannedRouteSearching = false;
+  state.plannedRouteFeedback = null;
   writePlannedRouteForm();
   persist();
   saveProjectRecoveryBackup("planned-route");
@@ -6326,13 +6345,16 @@ function renderPlannedRoutes() {
     els.plannedRouteSearchBtn.textContent = state.plannedRouteSearching ? "검색 중…" : draft?.points?.length ? "노선 다시 검색" : "후보노선 검색";
   }
   renderPlannedRouteStopList(state.plannedRouteMode === "auto" ? draft : null);
-  els.plannedRouteStatus.textContent = state.planningMode
+  const plannedRouteStatusMessage = state.plannedRouteFeedback?.message || (state.planningMode
     ? state.plannedRouteMode === "auto"
       ? `${state.plannedRouteSelection === "start" ? "출발지" : state.plannedRouteSelection === "goal" ? "도착지" : "경유지"} 선택 중 · 위치표시를 드래그하거나 경유지 순서를 바꾼 뒤 노선을 다시 검색할 수 있습니다.`
       : `전체 수동 그리기 중 · ${draft?.points.length || 0}점 · 점을 드래그해 위치를 보정할 수 있습니다.`
     : state.activePlannedRouteId
       ? "주황색 점선은 제한차량 허가판정이 아닌 사전검토용 후보노선입니다."
-      : "새 후보노선을 누르고 출발지·경유지·도착지를 지정하세요.";
+      : "새 후보노선을 누르고 출발지·경유지·도착지를 지정하세요.");
+  els.plannedRouteStatus.textContent = plannedRouteStatusMessage;
+  els.plannedRouteStatus.classList.remove("status-info", "status-active", "status-success", "status-warning", "status-error");
+  els.plannedRouteStatus.classList.add(`status-${state.plannedRouteFeedback?.type || "info"}`);
 }
 
 function render() {

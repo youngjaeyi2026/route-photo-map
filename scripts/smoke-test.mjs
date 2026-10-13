@@ -90,7 +90,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261013-route-planner-v3/);
+  assert.match(pageHtml, /20261013-route-planner-v4/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -363,6 +363,9 @@ try {
   assert.match(appSource, /async function searchPlannedRoute\(\)/);
   assert.match(appSource, /plannedRouteToggleBtn\?\.addEventListener\("click", async \(\) =>[\s\S]+?await startPlannedRouteEditing\(\)/);
   assert.match(appSource, /const MAX_PLANNED_ROUTE_WAYPOINTS = 15/);
+  assert.match(appSource, /네이버 지도에서 후보노선을 계산하는 중입니다/);
+  assert.match(appSource, /directions_auth_failed/);
+  assert.match(appSource, /plannedRouteFeedback/);
   assert.match(appSource, /function movePlannedRouteWaypoint\(stopId, direction\)/);
   assert.match(appSource, /function waitForNaverMapsApi\(timeoutMs = 12000\)[\s\S]+?window\.setTimeout\(checkApi, 50\)/);
   assert.match(appSource, /function openNaverMapLocation\(position, name = "선택 위치"\)[\s\S]+?naver-map\.html/);
