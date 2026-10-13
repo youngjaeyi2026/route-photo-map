@@ -1246,7 +1246,7 @@ async function handlePhotoInput(event, options = {}) {
 async function getAutomaticPhotoPosition(file) {
   const metadata = await withTimeout(getExifPhotoMetadata(file), 5000, null);
   const capturedAt = metadata?.capturedAt || (Number(file.lastModified) > 0 ? file.lastModified : null);
-  if (metadata?.position) {
+  if (metadata?.position && isPhotoPositionNearRoute(metadata.position)) {
     return {
       position: { ...metadata.position, timestamp: capturedAt || Date.now() },
       capturedAt,
@@ -1271,6 +1271,16 @@ async function getAutomaticPhotoPosition(file) {
     source: "review-required",
     label: "사진 GPS 또는 동선",
   };
+}
+
+function isPhotoPositionNearRoute(position) {
+  const lat = Number(position?.lat);
+  const lng = Number(position?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  if (Math.abs(lat) < 0.001 && Math.abs(lng) < 0.001) return false;
+  const route = state.points.filter((point) => Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)));
+  if (route.length === 0) return false;
+  return route.some((point) => getDistanceMeters(point, { lat, lng }) <= 10_000);
 }
 
 function findRoutePointByCaptureTime(capturedAt) {

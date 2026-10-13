@@ -388,6 +388,8 @@ try {
   assert.match(appSource, /const usesAutomaticPlacement = options\.automatic === true/);
   assert.match(appSource, /const usesMapCenter = !usesAutomaticPlacement && !options\.position && !state\.tracking/);
   assert.match(appSource, /function findRoutePointByCaptureTime\(capturedAt\)/);
+  assert.match(appSource, /function isPhotoPositionNearRoute\(position\)/);
+  assert.match(appSource, /getDistanceMeters\(point, \{ lat, lng \}\) <= 10_000/);
   assert.match(appSource, /source: "route-time"/);
   assert.match(appSource, /GPS 배치/);
   assert.match(indexSource, /id="autoPhotoInput"[^>]+multiple/);
