@@ -74,6 +74,22 @@ body.is-naver-map #map .leaflet-tile-pane {
   display: none;
 }
 
+body.is-naver-map #map .leaflet-overlay-pane,
+body.is-naver-map #map .leaflet-marker-pane,
+body.is-naver-map #map .leaflet-shadow-pane,
+body.is-naver-map #map .leaflet-tooltip-pane,
+body.is-naver-map #map .leaflet-popup-pane {
+  transition: opacity 80ms linear;
+}
+
+body.is-naver-map.is-naver-zooming #map .leaflet-overlay-pane,
+body.is-naver-map.is-naver-zooming #map .leaflet-marker-pane,
+body.is-naver-map.is-naver-zooming #map .leaflet-shadow-pane,
+body.is-naver-map.is-naver-zooming #map .leaflet-tooltip-pane,
+body.is-naver-map.is-naver-zooming #map .leaflet-popup-pane {
+  opacity: 0;
+}
+
 .mini-map {
   overflow: auto;
   background:

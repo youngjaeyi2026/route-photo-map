@@ -337,6 +337,7 @@ let pendingMapProvider = "";
 let naverMapRetryAfter = 0;
 let naverMapRetryTimerId = null;
 let naverMapSyncFrame = null;
+let naverZoomOverlayTimerId = null;
 let activeConstructionDetailPin = null;
 let naverExternalWindow = null;
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
@@ -4125,6 +4126,11 @@ function activateOpenStreetMap() {
     els.naverMapBase.hidden = true;
   }
   document.body.classList.remove("is-naver-map");
+  document.body.classList.remove("is-naver-zooming");
+  if (naverZoomOverlayTimerId !== null) {
+    window.clearTimeout(naverZoomOverlayTimerId);
+    naverZoomOverlayTimerId = null;
+  }
   activeMapProvider = "osm";
   map.invalidateSize(false);
 }
@@ -4202,14 +4208,44 @@ function syncNaverBaseMap(resize = false) {
     return;
   }
   const center = map.getCenter();
-  activeNaverBaseMap.setCenter(new window.naver.maps.LatLng(center.lat, center.lng));
-  activeNaverBaseMap.setZoom(map.getZoom());
+  const nextCenter = new window.naver.maps.LatLng(center.lat, center.lng);
+  const nextZoom = map.getZoom();
+  if (typeof activeNaverBaseMap.setOptions === "function") {
+    activeNaverBaseMap.setOptions({ center: nextCenter, zoom: nextZoom });
+  } else {
+    activeNaverBaseMap.setCenter(nextCenter);
+    activeNaverBaseMap.setZoom(nextZoom);
+  }
   if (resize) {
     window.naver.maps.Event.trigger(activeNaverBaseMap, "resize");
   }
 }
 
+function beginNaverZoomOverlayTransition() {
+  if (activeMapProvider !== "naver") return;
+  if (naverZoomOverlayTimerId !== null) {
+    window.clearTimeout(naverZoomOverlayTimerId);
+    naverZoomOverlayTimerId = null;
+  }
+  document.body.classList.add("is-naver-zooming");
+}
+
+function finishNaverZoomOverlayTransition() {
+  if (activeMapProvider !== "naver") return;
+  syncNaverBaseMap();
+  if (naverZoomOverlayTimerId !== null) {
+    window.clearTimeout(naverZoomOverlayTimerId);
+  }
+  naverZoomOverlayTimerId = window.setTimeout(() => {
+    naverZoomOverlayTimerId = null;
+    syncNaverBaseMap();
+    document.body.classList.remove("is-naver-zooming");
+  }, 180);
+}
+
 map.on("move zoom", scheduleNaverBaseMapSync);
+map.on("zoomstart", beginNaverZoomOverlayTransition);
+map.on("zoomend", finishNaverZoomOverlayTransition);
 map.on("move zoom resize", scheduleMapReferenceRender);
 map.on("resize", () => syncNaverBaseMap(true));
 
