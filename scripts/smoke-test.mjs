@@ -73,7 +73,13 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261013-naver-default/);
+  assert.match(pageHtml, /20261013-naver-native-pan/);
+  const appScriptResponse = await fetch(`${baseUrl}/app.js`);
+  const appScript = await appScriptResponse.text();
+  assert.equal(appScriptResponse.status, 200);
+  assert.match(appScript, /draggable: true/);
+  assert.match(appScript, /function syncLeafletOverlayFromNaver/);
+  assert.match(appScript, /"bounds_changed", scheduleLeafletOverlaySync/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
