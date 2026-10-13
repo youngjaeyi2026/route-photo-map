@@ -90,7 +90,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261013-route-planner-v2/);
+  assert.match(pageHtml, /20261013-route-planner-v3/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -361,6 +361,7 @@ try {
   assert.match(appSource, /NAVER_MAP_CLIENT_ID = "pie7hw0qho"/);
   assert.match(appSource, /function loadNaverMapsApi\(\)/);
   assert.match(appSource, /async function searchPlannedRoute\(\)/);
+  assert.match(appSource, /plannedRouteToggleBtn\?\.addEventListener\("click", async \(\) =>[\s\S]+?await startPlannedRouteEditing\(\)/);
   assert.match(appSource, /const MAX_PLANNED_ROUTE_WAYPOINTS = 15/);
   assert.match(appSource, /function movePlannedRouteWaypoint\(stopId, direction\)/);
   assert.match(appSource, /function waitForNaverMapsApi\(timeoutMs = 12000\)[\s\S]+?window\.setTimeout\(checkApi, 50\)/);

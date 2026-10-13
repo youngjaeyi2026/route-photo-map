@@ -634,11 +634,16 @@ document.addEventListener("click", (event) => {
   }
 });
 els.followRouteBtn?.addEventListener("click", toggleRouteFollow);
-els.plannedRouteToggleBtn?.addEventListener("click", () => {
+els.plannedRouteToggleBtn?.addEventListener("click", async () => {
   const willOpen = Boolean(els.plannedRouteControls?.hidden);
   if (els.plannedRouteControls) els.plannedRouteControls.hidden = !willOpen;
   els.plannedRouteToggleBtn.textContent = willOpen ? "숨기기" : "펼치기";
-  if (willOpen) window.requestAnimationFrame(() => map.invalidateSize());
+  if (willOpen) {
+    window.requestAnimationFrame(() => map.invalidateSize());
+    if (!state.planningMode && state.projectCode && !state.shareView) {
+      await startPlannedRouteEditing();
+    }
+  }
 });
 els.followExitBtn?.addEventListener("click", () => stopRouteFollowing("답사 모드를 종료했습니다."));
 els.followPhotoToggleBtn?.addEventListener("click", togglePhotoPinVisibility);
