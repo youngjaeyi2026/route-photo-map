@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261013-naver-default/);
+  assert.match(pageHtml, /20261013-naver-layer-fix/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
