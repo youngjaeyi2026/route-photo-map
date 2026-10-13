@@ -341,6 +341,7 @@ let leafletOverlaySyncFrame = null;
 let naverInteractionEventsBound = false;
 let syncingLeafletFromNaver = false;
 let naverProgrammaticMoveUntil = 0;
+let naverMapResizeObserver = null;
 let activeConstructionDetailPin = null;
 let naverExternalWindow = null;
 let colorPickerSelection = DEFAULT_CONSTRUCTION_COLOR;
@@ -4155,10 +4156,12 @@ async function activateNaverMap(naverMaps) {
   els.naverMapBase.hidden = false;
   await waitForVisibleMapContainer(els.naverMapBase);
   const center = map.getCenter();
+  const initialSize = getNaverMapContainerSize();
   if (!activeNaverBaseMap) {
     activeNaverBaseMap = new naverMaps.Map(els.naverMapBase, {
       center: new naverMaps.LatLng(center.lat, center.lng),
       zoom: map.getZoom(),
+      size: new naverMaps.Size(initialSize.width, initialSize.height),
       mapTypeId: naverMaps.MapTypeId.NORMAL,
       draggable: true,
       pinchZoom: true,
@@ -4178,6 +4181,7 @@ async function activateNaverMap(naverMaps) {
   await waitForNaverMapFirstPaint(naverMaps);
   document.body.classList.add("is-naver-map");
   bindNaverInteractionEvents(naverMaps);
+  observeNaverMapSize();
   setLeafletInteractionEnabled(false);
   await waitForAnimationFrame();
   syncNaverBaseMap(true);
@@ -4237,11 +4241,42 @@ function scheduleNaverLayoutRefresh() {
       if (activeMapProvider !== "naver" || !activeNaverBaseMap || !window.naver?.maps) {
         return;
       }
+      syncNaverMapSize();
       window.naver.maps.Event.trigger(activeNaverBaseMap, "resize");
       activeNaverBaseMap.refresh?.(true);
       syncNaverBaseMap();
     }, delay);
   });
+}
+
+function getNaverMapContainerSize() {
+  const bounds = els.naverMapBase?.getBoundingClientRect();
+  return {
+    width: Math.max(1, Math.round(bounds?.width || els.naverMapBase?.clientWidth || 1)),
+    height: Math.max(1, Math.round(bounds?.height || els.naverMapBase?.clientHeight || 1)),
+  };
+}
+
+function syncNaverMapSize() {
+  if (!activeNaverBaseMap || !window.naver?.maps?.Size) {
+    return;
+  }
+  const { width, height } = getNaverMapContainerSize();
+  activeNaverBaseMap.setSize(new window.naver.maps.Size(width, height));
+}
+
+function observeNaverMapSize() {
+  if (naverMapResizeObserver || !window.ResizeObserver || !els.naverMapBase) {
+    return;
+  }
+  naverMapResizeObserver = new ResizeObserver(() => {
+    if (activeMapProvider !== "naver") return;
+    window.requestAnimationFrame(() => {
+      syncNaverMapSize();
+      syncNaverBaseMap(true);
+    });
+  });
+  naverMapResizeObserver.observe(els.naverMapBase);
 }
 
 function scheduleNaverBaseMapSync() {

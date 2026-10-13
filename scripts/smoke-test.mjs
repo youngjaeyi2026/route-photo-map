@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261013-naver-auto-retry/);
+  assert.match(pageHtml, /20261013-naver-explicit-size/);
   const appScriptResponse = await fetch(`${baseUrl}/app.js`);
   const appScript = await appScriptResponse.text();
   assert.equal(appScriptResponse.status, 200);
@@ -82,6 +82,8 @@ try {
   assert.match(appScript, /"bounds_changed", scheduleLeafletOverlaySync/);
   assert.match(appScript, /function waitForNaverMapFirstPaint/);
   assert.match(appScript, /function scheduleNaverLayoutRefresh/);
+  assert.match(appScript, /function syncNaverMapSize/);
+  assert.match(appScript, /activeNaverBaseMap\.setSize/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
