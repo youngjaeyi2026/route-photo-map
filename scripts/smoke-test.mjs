@@ -73,7 +73,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261013-naver-layer-fix/);
+  assert.match(pageHtml, /20261013-map-start-fix/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -215,6 +215,7 @@ try {
   assert.match(appSource, /function drawMapReferenceTriangle/);
   assert.match(appSource, /function refreshSharedProject/);
   assert.equal(appResponse.status, 200);
+  assert.match(appSource, /void applyMapProvider\(desiredMapProvider, \{ quiet: true \}\);/);
   const affineSolverSource = appSource.match(/function solveLeastSquares3\(rows, values\) \{[\s\S]+?\n\}/)?.[0];
   assert.ok(affineSolverSource);
   const solveAffine = Function(`${affineSolverSource}; return solveLeastSquares3;`)();

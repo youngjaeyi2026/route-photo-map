@@ -3135,7 +3135,20 @@ function activateWorkspaceAfterLogin() {
   workspaceActivated = true;
   showLocationReadiness();
   captureInitialPosition();
-  window.requestAnimationFrame(() => map.invalidateSize());
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      map.invalidateSize(false);
+      const desiredMapProvider = state.mapProvider === "naver" ? "naver" : "osm";
+      void applyMapProvider(desiredMapProvider, { quiet: true });
+    });
+  });
+  window.setTimeout(() => {
+    map.invalidateSize(false);
+    if (map.hasLayer(osmTileLayer)) {
+      osmTileLayer.redraw();
+    }
+    syncNaverBaseMap(true);
+  }, 250);
 }
 
 function toggleAuthPanel() {
