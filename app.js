@@ -4421,7 +4421,7 @@ function renderNaverNativeRoute(naverMaps) {
   }
   if (activePlan?.points?.length || activePlan?.stops?.length) {
     const routeStops = orderPlannedRouteStops(activePlan.stops || []);
-    const markerPoints = routeStops.length >= 2
+    const markerPoints = routeStops.length > 0
       ? routeStops
       : state.planningMode
         ? activePlan.points
