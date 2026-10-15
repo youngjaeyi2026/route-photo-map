@@ -780,6 +780,7 @@ function sanitizePlannedRoutes(routes) {
       totalWeight: sanitizePositiveNumber(route?.vehicleSpec?.totalWeight),
       axleWeight: sanitizePositiveNumber(route?.vehicleSpec?.axleWeight),
     },
+    restrictionReview: sanitizeRestrictionReview(route?.restrictionReview),
     visible: route?.visible !== false,
     createdAt: route?.createdAt || Date.now(),
     updatedAt: route?.updatedAt || route?.createdAt || Date.now(),
@@ -795,6 +796,48 @@ function sanitizeRouteOption(value) {
   return ["traoptimal", "trafast", "tracomfort", "traavoidtoll", "traavoidcaronly"].includes(value)
     ? value
     : "traoptimal";
+}
+
+function sanitizeRestrictionReview(review) {
+  const facilities = (Array.isArray(review?.facilities) ? review.facilities : [])
+    .slice(0, 10000)
+    .map((facility, index) => ({
+      id: String(facility?.id || `restriction-${index + 1}`).slice(0, 100),
+      name: String(facility?.name || `제한시설 ${index + 1}`).trim().slice(0, 160),
+      type: String(facility?.type || "기타").trim().slice(0, 80),
+      lat: Number(facility?.lat),
+      lng: Number(facility?.lng),
+      maxLength: sanitizePositiveNumber(facility?.maxLength),
+      maxWidth: sanitizePositiveNumber(facility?.maxWidth),
+      maxHeight: sanitizePositiveNumber(facility?.maxHeight),
+      maxTotalWeight: sanitizePositiveNumber(facility?.maxTotalWeight),
+      maxAxleWeight: sanitizePositiveNumber(facility?.maxAxleWeight),
+      permitRequired: facility?.permitRequired === true,
+      source: String(facility?.source || "").slice(0, 240),
+      note: String(facility?.note || "").slice(0, 500),
+      updatedAt: String(facility?.updatedAt || "").slice(0, 80),
+    }))
+    .filter((facility) => Number.isFinite(facility.lat) && Number.isFinite(facility.lng));
+  const facilityIds = new Set(facilities.map((facility) => facility.id));
+  return {
+    dataName: String(review?.dataName || "").slice(0, 180),
+    corridorMeters: Math.min(5000, Math.max(10, Number(review?.corridorMeters) || 300)),
+    workflowStatus: ["data", "screening", "consultation", "permit", "complete"].includes(review?.workflowStatus)
+      ? review.workflowStatus
+      : "data",
+    memo: String(review?.memo || "").slice(0, 2000),
+    facilities,
+    results: (Array.isArray(review?.results) ? review.results : [])
+      .slice(0, facilities.length)
+      .map((result) => ({
+        facilityId: String(result?.facilityId || "").slice(0, 100),
+        distanceMeters: sanitizeNonNegativeNumber(result?.distanceMeters),
+        status: ["risk", "permit", "pass", "unknown"].includes(result?.status) ? result.status : "unknown",
+        issues: (Array.isArray(result?.issues) ? result.issues : []).slice(0, 10).map((issue) => String(issue).slice(0, 160)),
+      }))
+      .filter((result) => facilityIds.has(result.facilityId)),
+    reviewedAt: review?.reviewedAt || null,
+  };
 }
 
 function sanitizeNonNegativeNumber(value) {

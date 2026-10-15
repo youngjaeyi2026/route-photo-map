@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20261013-route-planner-v5" />
+    <link rel="stylesheet" href="/styles.css?v=20261015-restriction-review-v1" />
   </head>
   <body>
     <script>
@@ -166,20 +166,60 @@
         </section>
 
         <section class="panel-section route-review-phase-two">
-          <details>
+          <details id="restrictionReviewDetails">
             <summary>
               <span>2차 제한차량 조건검토</span>
-              <span class="badge">1차 확인 후 진행</span>
+              <span id="restrictionReviewBadge" class="badge">자료 준비</span>
             </summary>
             <div class="route-review-phase-two__body">
-              <p class="hint">차량제원·교량·도로 제한자료를 이용한 조건검색, 허가관리와 보고서는 1차 확인 후 이 구역에서 단계적으로 개발합니다.</p>
+              <p class="hint">저장한 후보노선과 차량제원을 교량·터널·도로 제한자료에 대조해 사전검토합니다.</p>
+              <label class="route-review-field">
+                <span>검토할 후보노선</span>
+                <select id="restrictionRouteSelect"></select>
+              </label>
               <div class="planned-route-spec-grid">
-                <label><span>길이(m)</span><input id="plannedRouteLength" type="number" min="0" step="0.1" inputmode="decimal" placeholder="38.9" /></label>
-                <label><span>너비(m)</span><input id="plannedRouteWidth" type="number" min="0" step="0.1" inputmode="decimal" placeholder="4.5" /></label>
-                <label><span>높이(m)</span><input id="plannedRouteHeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="5.6" /></label>
-                <label><span>총중량(t)</span><input id="plannedRouteWeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="147.5" /></label>
-                <label><span>축중(t)</span><input id="plannedRouteAxleWeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="4.1" /></label>
+                <label><span>길이(m)</span><input id="restrictionVehicleLength" type="number" min="0" step="0.1" inputmode="decimal" placeholder="38.9" /></label>
+                <label><span>너비(m)</span><input id="restrictionVehicleWidth" type="number" min="0" step="0.1" inputmode="decimal" placeholder="4.5" /></label>
+                <label><span>높이(m)</span><input id="restrictionVehicleHeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="5.6" /></label>
+                <label><span>총중량(t)</span><input id="restrictionVehicleTotalWeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="147.5" /></label>
+                <label><span>축중(t)</span><input id="restrictionVehicleAxleWeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="4.1" /></label>
               </div>
+              <div class="restriction-data-tools">
+                <input id="restrictionDataInput" type="file" accept=".csv,.json,text/csv,application/json" />
+                <label class="restriction-data-upload" for="restrictionDataInput">제한시설 자료 불러오기</label>
+                <button id="restrictionTemplateBtn" type="button">CSV 양식 받기</button>
+              </div>
+              <p id="restrictionDataStatus" class="status-text">CSV 또는 JSON으로 교량·터널·도로 제한자료를 불러오세요.</p>
+              <div class="restriction-review-options">
+                <label class="route-review-field">
+                  <span>노선 주변 검색범위(m)</span>
+                  <input id="restrictionCorridor" type="number" min="10" max="5000" step="10" value="300" inputmode="numeric" />
+                </label>
+                <label class="route-review-field">
+                  <span>검토 진행단계</span>
+                  <select id="restrictionWorkflowStatus">
+                    <option value="data">자료 검토 전</option>
+                    <option value="screening">사전 조건검토</option>
+                    <option value="consultation">관계기관 협의 필요</option>
+                    <option value="permit">허가 준비</option>
+                    <option value="complete">검토 완료</option>
+                  </select>
+                </label>
+              </div>
+              <textarea id="restrictionReviewMemo" rows="2" maxlength="2000" placeholder="허가 확인사항, 보강·우회 검토, 관계기관 협의사항"></textarea>
+              <div class="restriction-review-actions">
+                <button id="restrictionReviewRunBtn" class="primary-action" type="button">조건검토 실행</button>
+                <button id="restrictionReviewExportBtn" type="button">결과 CSV</button>
+                <button id="restrictionReviewClearBtn" type="button">자료 초기화</button>
+              </div>
+              <div id="restrictionReviewSummary" class="restriction-review-summary" hidden>
+                <div><strong id="restrictionNearbyCount">0</strong><span>노선 주변</span></div>
+                <div><strong id="restrictionRiskCount">0</strong><span>제한 초과</span></div>
+                <div><strong id="restrictionPermitCount">0</strong><span>허가 확인</span></div>
+                <div><strong id="restrictionUnknownCount">0</strong><span>자료 부족</span></div>
+              </div>
+              <p id="restrictionReviewStatus" class="status-text">저장된 후보노선과 제한시설 자료를 선택하면 조건검토를 실행할 수 있습니다.</p>
+              <div id="restrictionReviewList" class="restriction-review-list"></div>
               <p class="planned-route-notice">공개자료와 입력값을 이용한 향후 검토 결과는 실제 운행허가나 구조안전 판정을 의미하지 않으며, 제한조건은 수시로 변경될 수 있습니다.</p>
             </div>
           </details>
@@ -424,6 +464,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20261013-route-planner-v5"></script>
+    <script src="/app.js?v=20261015-restriction-review-v1"></script>
   </body>
 </html>
