@@ -96,6 +96,11 @@ const state = {
   segmentStartIndex: null,
   segmentEndIndex: null,
   undoRouteEdit: null,
+  segmentRerouteMode: false,
+  segmentRerouteWaypointMode: false,
+  segmentRerouteWaypoints: [],
+  segmentReroutePreview: null,
+  segmentRerouteSearching: false,
   selectedPosition: null,
   initialPosition: null,
   points: [],
@@ -213,6 +218,15 @@ const els = {
   segmentStartInput: document.querySelector("#segmentStartInput"),
   segmentEndInput: document.querySelector("#segmentEndInput"),
   pointEditHint: document.querySelector("#pointEditHint"),
+  segmentRerouteControls: document.querySelector("#segmentRerouteControls"),
+  segmentRerouteStartBtn: document.querySelector("#segmentRerouteStartBtn"),
+  segmentRerouteWaypointBtn: document.querySelector("#segmentRerouteWaypointBtn"),
+  segmentRerouteUndoWaypointBtn: document.querySelector("#segmentRerouteUndoWaypointBtn"),
+  segmentRerouteSearchBtn: document.querySelector("#segmentRerouteSearchBtn"),
+  segmentRerouteApplyBtn: document.querySelector("#segmentRerouteApplyBtn"),
+  segmentRerouteCancelBtn: document.querySelector("#segmentRerouteCancelBtn"),
+  segmentRerouteWaypointList: document.querySelector("#segmentRerouteWaypointList"),
+  segmentRerouteStatus: document.querySelector("#segmentRerouteStatus"),
   statusText: document.querySelector("#statusText"),
   trackingBadge: document.querySelector("#trackingBadge"),
   distanceValue: document.querySelector("#distanceValue"),
@@ -355,6 +369,7 @@ const milestoneLayer = L.layerGroup().addTo(map);
 const projectOverlayLayer = L.layerGroup().addTo(map);
 const pointLayer = L.layerGroup().addTo(map);
 const plannedRouteLayer = L.layerGroup().addTo(map);
+const segmentRerouteLayer = L.layerGroup().addTo(map);
 const mapReferenceControlLayer = L.layerGroup().addTo(map);
 let mapReferenceCanvas = null;
 let mapReferenceCanvasContext = null;
@@ -438,6 +453,10 @@ map.on("click", (event) => {
     return;
   }
   if (state.pointEditMode) {
+    if (state.segmentRerouteMode && state.segmentRerouteWaypointMode) {
+      addSegmentRerouteWaypoint(event.latlng);
+      return;
+    }
     if (state.pointAddMode) {
       state.pointAddMode = addManualRoutePoint(event.latlng);
       renderPointEditing();
@@ -760,6 +779,12 @@ els.segmentStartBtn?.addEventListener("click", setSegmentStart);
 els.segmentEndBtn?.addEventListener("click", setSegmentEnd);
 els.segmentDeleteBtn?.addEventListener("click", deleteSelectedSegment);
 els.undoRouteEditBtn?.addEventListener("click", undoRouteEdit);
+els.segmentRerouteStartBtn?.addEventListener("click", startSegmentReroute);
+els.segmentRerouteWaypointBtn?.addEventListener("click", toggleSegmentRerouteWaypointMode);
+els.segmentRerouteUndoWaypointBtn?.addEventListener("click", undoSegmentRerouteWaypoint);
+els.segmentRerouteSearchBtn?.addEventListener("click", searchSegmentReroute);
+els.segmentRerouteApplyBtn?.addEventListener("click", applySegmentReroute);
+els.segmentRerouteCancelBtn?.addEventListener("click", cancelSegmentReroute);
 els.segmentStartInput?.addEventListener("input", applySegmentNumberInputs);
 els.segmentEndInput?.addEventListener("input", applySegmentNumberInputs);
 els.segmentStartInput?.addEventListener("change", applySegmentNumberInputs);
@@ -2035,6 +2060,12 @@ function replaceSessionRecordFromCurrentState(sessionId) {
   return true;
 }
 
+function updatePrimarySessionFromCurrentState() {
+  const sessionId = state.primarySessionId || findCurrentRecordSession()?.id || null;
+  if (!sessionId) return false;
+  return replaceSessionRecordFromCurrentState(sessionId);
+}
+
 function updatePhotoCopies(photoId, updater) {
   const touchedSessions = new Set();
   const photoLists = [
@@ -2364,6 +2395,7 @@ async function renameCurrentProject() {
 }
 
 function resetForNewProject() {
+  resetSegmentRerouteState();
   state.points = [];
   state.photos = [];
   state.milestones = [];
@@ -2750,6 +2782,7 @@ async function retryPendingSaves() {
 
 function applyProject(project) {
   stopRouteFollowWatcher();
+  resetSegmentRerouteState();
   milestoneLayer.clearLayers();
   state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
   const liveSharedSession = state.shareView
@@ -3399,6 +3432,7 @@ function resetWorkspaceForSignedOut() {
     window.clearInterval(state.pollerId);
   }
   stopRouteFollowWatcher();
+  resetSegmentRerouteState();
   state.watcherId = null;
   state.pollerId = null;
   state.tracking = false;
@@ -4496,6 +4530,36 @@ function renderNaverNativeRoute(naverMaps) {
       );
     });
   }
+  if (
+    state.pointEditMode &&
+    state.segmentRerouteMode &&
+    state.segmentStartIndex !== null &&
+    state.segmentEndIndex !== null
+  ) {
+    const startIndex = Math.min(state.segmentStartIndex, state.segmentEndIndex);
+    const endIndex = Math.max(state.segmentStartIndex, state.segmentEndIndex);
+    createNaverNativePolyline(
+      state.points.slice(startIndex, endIndex + 1),
+      { color: "#d96c1f", weight: 7, opacity: 0.9, style: "shortdash", zIndex: 34 },
+      naverMaps,
+    );
+    createNaverNativePolyline(
+      state.segmentReroutePreview?.points || [],
+      { color: "#315f9e", weight: 7, opacity: 0.95, zIndex: 35 },
+      naverMaps,
+    );
+    state.segmentRerouteWaypoints.forEach((point, index) => {
+      createNaverNativeMarker(
+        point,
+        `<span class="planned-route-native-point">${index + 1}</span>`,
+        [28, 28],
+        [14, 14],
+        `구간 경유지 ${index + 1}`,
+        naverMaps,
+        540,
+      );
+    });
+  }
   getRestrictionReviewEntries().slice(0, 500).forEach(({ facility, result }) => {
     createNaverNativeMarker(
       facility,
@@ -5375,7 +5439,12 @@ function renderMapReferenceTools() {
 function updateMapPointSelectionCursor() {
   document.body.classList.toggle(
     "is-map-point-selection",
-    Boolean(state.mapAlignmentMode || state.planningMode || state.pointAddMode),
+    Boolean(
+      state.mapAlignmentMode ||
+      state.planningMode ||
+      state.pointAddMode ||
+      (state.segmentRerouteMode && state.segmentRerouteWaypointMode)
+    ),
   );
 }
 
@@ -5920,7 +5989,7 @@ function readPlannedRouteVehicleSpec() {
   };
 }
 
-async function startPlannedRouteEditing(routeId = null) {
+async function startPlannedRouteEditing(routeId = null, options = {}) {
   if (state.shareView) {
     setStatus("공유 화면에서는 후보노선을 수정할 수 없습니다.", "warning");
     return;
@@ -5934,14 +6003,17 @@ async function startPlannedRouteEditing(routeId = null) {
     setStatus("기록·따라가기·위치 편집을 마친 뒤 후보노선을 만들어 주세요.", "warning");
     return;
   }
-  const existing = state.plannedRoutes.find((route) => route.id === routeId);
-  if (isPlannedRouteConfirmed(existing)) {
+  const sourceRoute = state.plannedRoutes.find((route) => route.id === routeId);
+  const isRevision = options.revision === true;
+  const isClone = options.clone === true;
+  if (isPlannedRouteConfirmed(sourceRoute) && !isRevision && !isClone) {
     setStatus("확정된 노선은 후보노선에서 다시 수정하지 않습니다. 위치 편집에서 위치점을 보정해 주세요.", "warning");
     return;
   }
+  const existing = sourceRoute && !isClone ? sourceRoute : null;
   state.planningMode = true;
-  state.plannedRouteDraft = existing
-    ? structuredClone(existing)
+  state.plannedRouteDraft = sourceRoute
+    ? structuredClone(sourceRoute)
     : {
         id: crypto.randomUUID(),
         name: `후보 ${String.fromCharCode(65 + Math.min(25, state.plannedRoutes.length))}`,
@@ -5963,15 +6035,29 @@ async function startPlannedRouteEditing(routeId = null) {
         points: [],
         stops: [],
       };
-  state.plannedRouteMode = existing?.source === "naver-manual" ? "manual" : "auto";
+  if (isRevision || isClone) {
+    const base = sourceRoute;
+    state.plannedRouteDraft.id = crypto.randomUUID();
+    state.plannedRouteDraft.name = isClone ? `${base.name} · 새 후보` : `${base.name} · 수정본`;
+    state.plannedRouteDraft.status = isClone ? "draft" : "review";
+    state.plannedRouteDraft.visible = true;
+    state.plannedRouteDraft.confirmedAt = null;
+    state.plannedRouteDraft.confirmedProjectName = "";
+    state.plannedRouteDraft.confirmedPointCount = 0;
+    state.plannedRouteDraft.confirmationSessionId = "";
+    state.plannedRouteDraft.revisionOfRouteId = base.id;
+    state.plannedRouteDraft.revisionBaseSessionId = base.confirmationSessionId || state.primarySessionId || "";
+    state.plannedRouteDraft.revisionStartedAt = new Date().toISOString();
+  }
+  state.plannedRouteMode = sourceRoute?.source === "naver-manual" ? "manual" : "auto";
   state.plannedRouteSelection = state.plannedRouteMode === "auto" ? "start" : "manual";
   state.plannedRouteSearching = false;
   state.plannedRouteFeedback = null;
   writePlannedRouteForm(state.plannedRouteDraft);
   await applyMapProvider("naver");
   renderPlannedRoutes();
-  if (existing?.points?.length) {
-    fitPlannedRoute(existing.points);
+  if (sourceRoute?.points?.length) {
+    fitPlannedRoute(sourceRoute.points);
   }
   setStatus(
     state.plannedRouteMode === "auto"
@@ -5979,6 +6065,32 @@ async function startPlannedRouteEditing(routeId = null) {
       : "전체 수동 그리기 중입니다. 지도 위 도로를 출발지부터 순서대로 선택하세요.",
     "active",
   );
+}
+
+async function startConfirmedRouteRevision(routeId) {
+  const route = state.plannedRoutes.find((item) => item.id === routeId);
+  if (!isPlannedRouteConfirmed(route)) return;
+  const accepted = window.confirm(
+    `확정노선을 다시 수정할까요?\n\n프로젝트명: ${state.projectName || "프로젝트"}\n확정노선명: ${route.name}\n위치점: ${route.confirmedPointCount || route.points.length}개\n\n현재 확정 위치점은 기준동선으로 유지되고 이전 확정 기록도 보관됩니다. 수정본을 다시 확정할 때만 기준동선이 교체됩니다.`,
+  );
+  if (!accepted) return;
+  await startPlannedRouteEditing(routeId, { revision: true });
+  state.plannedRouteFeedback = {
+    message: "확정노선 수정본을 만들었습니다. 기존 경유지를 조정하거나 새 경유지를 추가한 뒤 다시 검색·저장·확정하세요.",
+    type: "active",
+  };
+  renderPlannedRoutes();
+}
+
+async function startPlannedRouteClone(routeId) {
+  const route = state.plannedRoutes.find((item) => item.id === routeId);
+  if (!route) return;
+  await startPlannedRouteEditing(routeId, { clone: true });
+  state.plannedRouteFeedback = {
+    message: "기존 노선을 새 후보로 복제했습니다. 원본 확정노선은 그대로 유지됩니다.",
+    type: "active",
+  };
+  renderPlannedRoutes();
 }
 
 function handlePlannedRouteMapClick(latlng) {
@@ -7284,7 +7396,8 @@ function renderPlannedRoutes() {
       [route.visible === false ? "보기" : "숨기기", () => togglePlannedRouteVisibility(route.id), false],
       [route.id === state.activePlannedRouteId ? "기준" : "기준 지정", () => setActivePlannedRoute(route.id), route.id === state.activePlannedRouteId],
       ["지도\n보기", () => fitPlannedRoute(route.points), false],
-      [routeConfirmed ? "확정됨" : "수정", () => startPlannedRouteEditing(route.id), routeConfirmed, routeConfirmed],
+      [routeConfirmed ? "확정노선\n수정" : "수정", () => routeConfirmed ? startConfirmedRouteRevision(route.id) : startPlannedRouteEditing(route.id), false],
+      ["새 후보\n복제", () => startPlannedRouteClone(route.id), false],
       ["삭제", () => deletePlannedRoute(route.id), false, routeConfirmed],
     ];
     actionItems.forEach(([label, handler, active, disabled]) => {
@@ -7437,6 +7550,7 @@ function togglePointEditPanel() {
 }
 
 function closePointEditPanel() {
+  resetSegmentRerouteState();
   state.pointEditPanelOpen = false;
   state.pointEditMode = false;
   state.pointAddMode = false;
@@ -7446,6 +7560,190 @@ function closePointEditPanel() {
   state.segmentEndIndex = null;
   persist();
   render();
+}
+
+function resetSegmentRerouteState() {
+  state.segmentRerouteMode = false;
+  state.segmentRerouteWaypointMode = false;
+  state.segmentRerouteWaypoints = [];
+  state.segmentReroutePreview = null;
+  state.segmentRerouteSearching = false;
+  segmentRerouteLayer.clearLayers();
+  updateMapPointSelectionCursor();
+}
+
+function startSegmentReroute() {
+  if (
+    !state.pointEditMode ||
+    state.segmentStartIndex === null ||
+    state.segmentEndIndex === null ||
+    state.segmentStartIndex === state.segmentEndIndex
+  ) {
+    setStatus("도로를 다시 검색할 시작 위치점과 종료 위치점을 먼저 선택해 주세요.", "warning");
+    return;
+  }
+  const startIndex = Math.min(state.segmentStartIndex, state.segmentEndIndex);
+  const endIndex = Math.max(state.segmentStartIndex, state.segmentEndIndex);
+  state.segmentStartIndex = startIndex;
+  state.segmentEndIndex = endIndex;
+  state.segmentRerouteMode = true;
+  state.segmentRerouteWaypointMode = true;
+  state.segmentRerouteWaypoints = [];
+  state.segmentReroutePreview = null;
+  state.pointAddMode = false;
+  renderPointEditing();
+  setStatus(`위치점 ${startIndex + 1}~${endIndex + 1} 구간 재검색을 시작했습니다. 지도에서 경유지를 순서대로 선택하세요.`, "active");
+}
+
+function toggleSegmentRerouteWaypointMode() {
+  if (!state.segmentRerouteMode || state.segmentRerouteSearching) return;
+  if (state.segmentRerouteWaypoints.length >= MAX_PLANNED_ROUTE_WAYPOINTS) {
+    setStatus(`경유지는 구간마다 최대 ${MAX_PLANNED_ROUTE_WAYPOINTS}개까지 지정할 수 있습니다.`, "warning");
+    return;
+  }
+  state.segmentRerouteWaypointMode = !state.segmentRerouteWaypointMode;
+  renderPointEditing();
+  setStatus(
+    state.segmentRerouteWaypointMode
+      ? "지도에서 새 구간이 지나갈 경유지를 순서대로 선택하세요."
+      : "경유지 선택을 잠시 멈췄습니다. 도로 경로 검색을 누르거나 다시 경유지를 추가하세요.",
+    "active",
+  );
+}
+
+function addSegmentRerouteWaypoint(latlng) {
+  if (!state.segmentRerouteMode || !state.segmentRerouteWaypointMode) return;
+  if (state.segmentRerouteWaypoints.length >= MAX_PLANNED_ROUTE_WAYPOINTS) {
+    state.segmentRerouteWaypointMode = false;
+    renderPointEditing();
+    setStatus(`경유지 ${MAX_PLANNED_ROUTE_WAYPOINTS}개를 모두 지정했습니다. 도로 경로 검색을 눌러 주세요.`, "warning");
+    return;
+  }
+  state.segmentRerouteWaypoints.push({
+    id: crypto.randomUUID(),
+    lat: Number(latlng.lat),
+    lng: Number(latlng.lng),
+    label: `새 경유지 ${state.segmentRerouteWaypoints.length + 1}`,
+  });
+  state.segmentReroutePreview = null;
+  if (state.segmentRerouteWaypoints.length >= MAX_PLANNED_ROUTE_WAYPOINTS) {
+    state.segmentRerouteWaypointMode = false;
+  }
+  renderPointEditing();
+  setStatus(`새 경유지 ${state.segmentRerouteWaypoints.length}개를 지정했습니다.`, "active");
+}
+
+function undoSegmentRerouteWaypoint() {
+  if (!state.segmentRerouteMode || !state.segmentRerouteWaypoints.length || state.segmentRerouteSearching) return;
+  state.segmentRerouteWaypoints.pop();
+  state.segmentReroutePreview = null;
+  renderPointEditing();
+  setStatus(`마지막 경유지를 취소했습니다. 현재 ${state.segmentRerouteWaypoints.length}개입니다.`, "active");
+}
+
+async function searchSegmentReroute() {
+  if (!state.segmentRerouteMode || state.segmentRerouteSearching) return;
+  const startIndex = Math.min(state.segmentStartIndex, state.segmentEndIndex);
+  const endIndex = Math.max(state.segmentStartIndex, state.segmentEndIndex);
+  const start = state.points[startIndex];
+  const goal = state.points[endIndex];
+  if (!start || !goal || startIndex === endIndex) {
+    setStatus("재검색할 구간의 시작점과 종료점을 다시 선택해 주세요.", "warning");
+    return;
+  }
+  state.segmentRerouteSearching = true;
+  state.segmentRerouteWaypointMode = false;
+  state.segmentReroutePreview = null;
+  renderPointEditing();
+  setSegmentRerouteStatus("선택구간의 도로 경로를 계산하는 중입니다.", "active");
+  try {
+    const activeRoute = getActivePlannedRoute();
+    const result = await requestJson("/api/routes/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        stops: [
+          { kind: "start", lat: start.lat, lng: start.lng },
+          ...state.segmentRerouteWaypoints.map((point) => ({ kind: "waypoint", lat: point.lat, lng: point.lng })),
+          { kind: "goal", lat: goal.lat, lng: goal.lng },
+        ],
+        option: normalizePlannedRouteOption(activeRoute?.routeOption || "tracomfort"),
+      }),
+    });
+    state.segmentReroutePreview = {
+      startIndex,
+      endIndex,
+      points: result.points,
+      summary: result.summary || {},
+      searchedAt: new Date().toISOString(),
+    };
+    const message = `새 구간 ${result.points.length}점을 찾았습니다 · ${formatDistance(result.summary?.distance || 0)} · ${formatRouteDuration(result.summary?.duration)}`;
+    setSegmentRerouteStatus(`${message} · 지도의 파란 경로를 확인한 뒤 변경 구간 적용을 누르세요.`, "success");
+    setStatus(message, "success");
+  } catch (error) {
+    const code = error?.payload?.error;
+    const message = code === "directions_auth_failed"
+      ? "네이버 Directions 인증에 실패했습니다. API 설정을 확인해 주세요."
+      : code === "route_not_found"
+        ? "선택한 시작점·경유지·종료점을 연결하는 도로 경로를 찾지 못했습니다. 경유지를 도로 가까이 다시 지정해 주세요."
+        : code === "directions_rate_limited"
+          ? "경로 검색 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요."
+          : "구간 도로 검색에 실패했습니다. 연결 상태와 선택 위치를 확인해 주세요.";
+    setSegmentRerouteStatus(message, "error");
+    setStatus(message, "warning");
+  } finally {
+    state.segmentRerouteSearching = false;
+    renderPointEditing();
+  }
+}
+
+function applySegmentReroute() {
+  const preview = state.segmentReroutePreview;
+  if (!state.segmentRerouteMode || !preview?.points?.length) return;
+  const replacedCount = preview.endIndex - preview.startIndex + 1;
+  const accepted = window.confirm(
+    `선택구간을 새 도로 경로로 교체할까요?\n\n기존 위치점: ${replacedCount}개\n새 위치점: ${preview.points.length}개\n경유지: ${state.segmentRerouteWaypoints.length}개\n\n변경 전 동선은 되돌리기에 보관됩니다. 사진과 공사구역 좌표는 유지됩니다.`,
+  );
+  if (!accepted) return;
+  rememberRouteEditUndo(`위치점 ${preview.startIndex + 1}-${preview.endIndex + 1} 구간 재검색`);
+  const oldStart = state.points[preview.startIndex];
+  const oldEnd = state.points[preview.endIndex];
+  const startTime = Number(oldStart?.timestamp) || Date.now();
+  const endTime = Math.max(startTime, Number(oldEnd?.timestamp) || startTime + preview.points.length - 1);
+  const replacement = preview.points.map((point, index, points) => ({
+    lat: Number(point.lat),
+    lng: Number(point.lng),
+    accuracy: 0,
+    timestamp: Math.round(interpolateTimestamp(startTime, endTime, points.length <= 1 ? 0 : index / (points.length - 1))),
+    source: "segment-reroute",
+    edited: true,
+    editedAt: Date.now(),
+  }));
+  state.points.splice(preview.startIndex, replacedCount, ...replacement);
+  state.selectedPosition = state.points.at(-1) || state.initialPosition || null;
+  state.selectedPointIndex = null;
+  state.lastRoutePointIndex = null;
+  state.segmentStartIndex = null;
+  state.segmentEndIndex = null;
+  updatePrimarySessionFromCurrentState();
+  resetSegmentRerouteState();
+  persist();
+  render();
+  void syncProjectState("segment-reroute");
+  setStatus(`선택구간을 새 위치점 ${replacement.length}개로 교체했습니다. 전체 노선을 확인한 뒤 필요하면 다른 구간도 재검색하세요.`, "success");
+}
+
+function cancelSegmentReroute() {
+  if (!state.segmentRerouteMode) return;
+  resetSegmentRerouteState();
+  renderPointEditing();
+  setStatus("구간 재검색을 취소했습니다. 확정 위치점은 변경하지 않았습니다.", "warning");
+}
+
+function setSegmentRerouteStatus(message, type = "info") {
+  if (!els.segmentRerouteStatus) return;
+  els.segmentRerouteStatus.textContent = message;
+  els.segmentRerouteStatus.classList.remove("status-info", "status-active", "status-success", "status-warning", "status-error");
+  els.segmentRerouteStatus.classList.add(`status-${type}`);
 }
 
 function renderPanelVisibility() {
@@ -7465,6 +7763,7 @@ function renderPanelVisibility() {
 
 function renderPointEditing() {
   pointLayer.clearLayers();
+  segmentRerouteLayer.clearLayers();
   scheduleNaverNativeOverlayRender();
   if (state.shareView) {
     state.pointEditMode = false;
@@ -7485,41 +7784,43 @@ function renderPointEditing() {
   }
 
   if (els.pointAddBtn) {
-    els.pointAddBtn.disabled = !state.pointEditMode;
+    els.pointAddBtn.disabled = !state.pointEditMode || state.segmentRerouteMode;
     els.pointAddBtn.textContent = state.pointAddMode ? "추가 위치 클릭" : "위치점 추가";
     els.pointAddBtn.classList.toggle("is-active", state.pointAddMode);
   }
   if (els.pointDeleteBtn) {
     els.pointDeleteBtn.disabled =
-      !state.pointEditMode || state.segmentStartIndex === null || state.segmentEndIndex !== null;
+      !state.pointEditMode || state.segmentRerouteMode || state.segmentStartIndex === null || state.segmentEndIndex !== null;
   }
   if (els.pointConnectBtn) {
     els.pointConnectBtn.disabled =
       !state.pointEditMode ||
+      state.segmentRerouteMode ||
       state.segmentStartIndex === null ||
       state.segmentEndIndex === null ||
       Math.abs(state.segmentStartIndex - state.segmentEndIndex) <= 1;
   }
   const hasSelectedPoint = state.pointEditMode && state.segmentStartIndex !== null;
   if (els.segmentStartBtn) {
-    els.segmentStartBtn.disabled = !hasSelectedPoint;
+    els.segmentStartBtn.disabled = !hasSelectedPoint || state.segmentRerouteMode;
     els.segmentStartBtn.textContent =
       state.segmentStartIndex === null ? "시작점 지정" : `시작 ${state.segmentStartIndex + 1}`;
   }
   if (els.segmentEndBtn) {
-    els.segmentEndBtn.disabled = !hasSelectedPoint;
+    els.segmentEndBtn.disabled = !hasSelectedPoint || state.segmentRerouteMode;
     els.segmentEndBtn.textContent =
       state.segmentEndIndex === null ? "끝점 지정" : `끝 ${state.segmentEndIndex + 1}`;
   }
   if (els.segmentDeleteBtn) {
     els.segmentDeleteBtn.disabled =
       !state.pointEditMode ||
+      state.segmentRerouteMode ||
       state.segmentStartIndex === null ||
       state.segmentEndIndex === null ||
       state.segmentStartIndex === state.segmentEndIndex;
   }
   if (els.undoRouteEditBtn) {
-    els.undoRouteEditBtn.disabled = !state.pointEditMode || !state.undoRouteEdit;
+    els.undoRouteEditBtn.disabled = !state.pointEditMode || state.segmentRerouteMode || !state.undoRouteEdit;
   }
   if (els.pointNumberRow) {
     els.pointNumberRow.hidden = !state.pointEditMode;
@@ -7527,15 +7828,18 @@ function renderPointEditing() {
   if (els.segmentStartInput && document.activeElement !== els.segmentStartInput) {
     els.segmentStartInput.value = state.segmentStartIndex === null ? "" : String(state.segmentStartIndex + 1);
     els.segmentStartInput.max = String(state.points.length);
+    els.segmentStartInput.disabled = state.segmentRerouteMode;
   }
   if (els.segmentEndInput && document.activeElement !== els.segmentEndInput) {
     els.segmentEndInput.value = state.segmentEndIndex === null ? "" : String(state.segmentEndIndex + 1);
     els.segmentEndInput.max = String(state.points.length);
+    els.segmentEndInput.disabled = state.segmentRerouteMode;
   }
   if (els.pointEditHint) {
     els.pointEditHint.hidden = !state.pointEditMode;
   }
   updatePointEditHint();
+  renderSegmentRerouteControls();
 
   if (!state.pointEditMode) {
     return;
@@ -7564,7 +7868,7 @@ function renderPointEditing() {
 
     const marker = L.marker([point.lat, point.lng], {
       icon,
-      draggable: true,
+      draggable: !state.segmentRerouteMode,
       keyboard: true,
       title: `위치점 ${index + 1}`,
     });
@@ -7572,7 +7876,7 @@ function renderPointEditing() {
       if (event.originalEvent) {
         L.DomEvent.stopPropagation(event.originalEvent);
       }
-      selectRoutePoint(index);
+      if (!state.segmentRerouteMode) selectRoutePoint(index);
     });
     marker.on("dragend", (event) => {
       updateRoutePoint(index, event.target.getLatLng());
@@ -7585,6 +7889,81 @@ function renderPointEditing() {
       `위치점 ${state.points.length}개 중 현재 화면 기준 ${visibleIndexes.length}개를 표시합니다. 확대하면 더 정밀하게 선택할 수 있습니다.`,
     );
   }
+  renderSegmentRerouteMap();
+}
+
+function renderSegmentRerouteControls() {
+  if (!els.segmentRerouteControls) return;
+  els.segmentRerouteControls.hidden = !state.pointEditMode;
+  if (!state.pointEditMode) return;
+  const hasRange = state.segmentStartIndex !== null
+    && state.segmentEndIndex !== null
+    && state.segmentStartIndex !== state.segmentEndIndex;
+  els.segmentRerouteStartBtn.disabled = !hasRange || state.segmentRerouteSearching;
+  els.segmentRerouteStartBtn.textContent = state.segmentRerouteMode ? "선택구간 다시 시작" : "구간 재검색";
+  els.segmentRerouteWaypointBtn.disabled = !state.segmentRerouteMode
+    || state.segmentRerouteSearching
+    || state.segmentRerouteWaypoints.length >= MAX_PLANNED_ROUTE_WAYPOINTS;
+  els.segmentRerouteWaypointBtn.textContent = state.segmentRerouteWaypointMode ? "경유지 선택 중" : "경유지 추가";
+  els.segmentRerouteWaypointBtn.classList.toggle("is-active", state.segmentRerouteWaypointMode);
+  els.segmentRerouteUndoWaypointBtn.disabled = !state.segmentRerouteMode
+    || !state.segmentRerouteWaypoints.length
+    || state.segmentRerouteSearching;
+  els.segmentRerouteSearchBtn.disabled = !state.segmentRerouteMode || !hasRange || state.segmentRerouteSearching;
+  els.segmentRerouteSearchBtn.textContent = state.segmentRerouteSearching ? "도로 검색 중…" : "도로 경로 검색";
+  els.segmentRerouteApplyBtn.disabled = !state.segmentReroutePreview?.points?.length || state.segmentRerouteSearching;
+  els.segmentRerouteCancelBtn.disabled = !state.segmentRerouteMode || state.segmentRerouteSearching;
+  if (els.segmentRerouteWaypointList) {
+    els.segmentRerouteWaypointList.textContent = state.segmentRerouteWaypoints.length
+      ? state.segmentRerouteWaypoints.map((point, index) => `${index + 1}. ${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`).join("  ·  ")
+      : "";
+  }
+  if (!state.segmentRerouteMode) {
+    setSegmentRerouteStatus(
+      hasRange
+        ? `위치점 ${Math.min(state.segmentStartIndex, state.segmentEndIndex) + 1}~${Math.max(state.segmentStartIndex, state.segmentEndIndex) + 1} 구간을 재검색할 수 있습니다.`
+        : "위치점 두 개를 선택하면 구간 재검색을 시작할 수 있습니다.",
+      "info",
+    );
+  }
+  updateMapPointSelectionCursor();
+}
+
+function renderSegmentRerouteMap() {
+  if (!state.pointEditMode || !state.segmentRerouteMode) return;
+  const startIndex = Math.min(state.segmentStartIndex, state.segmentEndIndex);
+  const endIndex = Math.max(state.segmentStartIndex, state.segmentEndIndex);
+  const originalPoints = state.points.slice(startIndex, endIndex + 1);
+  if (originalPoints.length > 1) {
+    L.polyline(originalPoints.map((point) => [point.lat, point.lng]), {
+      color: "#d96c1f",
+      weight: 7,
+      opacity: 0.9,
+      dashArray: "10 8",
+      lineCap: "round",
+      lineJoin: "round",
+    }).addTo(segmentRerouteLayer);
+  }
+  if (state.segmentReroutePreview?.points?.length > 1) {
+    L.polyline(state.segmentReroutePreview.points.map((point) => [point.lat, point.lng]), {
+      color: "#315f9e",
+      weight: 7,
+      opacity: 0.95,
+      lineCap: "round",
+      lineJoin: "round",
+    }).addTo(segmentRerouteLayer);
+  }
+  state.segmentRerouteWaypoints.forEach((point, index) => {
+    L.marker([point.lat, point.lng], {
+      interactive: false,
+      icon: L.divIcon({
+        className: "planned-route-point-icon",
+        html: `<span>${index + 1}</span>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      }),
+    }).addTo(segmentRerouteLayer);
+  });
 }
 
 function getEditablePointIndexes() {
@@ -7801,6 +8180,7 @@ function updateRoutePoint(index, latlng) {
     editedAt: Date.now(),
   };
   state.selectedPosition = state.points[index];
+  updatePrimarySessionFromCurrentState();
   persist();
   render();
   setStatus(`위치점 ${index + 1}을 이동했습니다.`);
@@ -7837,6 +8217,7 @@ function addManualRoutePoint(latlng) {
     state.lastRoutePointIndex = insertIndex;
   }
   state.selectedPosition = nextPoint;
+  updatePrimarySessionFromCurrentState();
   persist();
   render();
   const statusMessage = shouldKeepInsertRange
@@ -7899,6 +8280,7 @@ function connectSelectedRoutePoints() {
       editedAt: Date.now(),
     };
   }
+  updatePrimarySessionFromCurrentState();
   persist();
   render();
   setStatus(`위치점 ${start + 1}번과 ${end + 1}번을 바로 연결했습니다. 중간 ${skippedCount}개는 동선에서 제외했습니다.`);
@@ -7920,6 +8302,7 @@ function deleteSelectedPoint() {
   state.segmentStartIndex = null;
   state.segmentEndIndex = null;
   state.selectedPosition = state.points.at(-1) || state.initialPosition || null;
+  updatePrimarySessionFromCurrentState();
   persist();
   render();
   setStatus(`위치점 ${index + 1}을 삭제했습니다.`);
@@ -7948,6 +8331,7 @@ function deleteSelectedSegment() {
   state.segmentStartIndex = null;
   state.segmentEndIndex = null;
   state.selectedPosition = state.points.at(-1) || state.initialPosition || null;
+  updatePrimarySessionFromCurrentState();
   persist();
   render();
   setStatus(`위치점 ${deleteCount}개 구간을 삭제했습니다.`);
@@ -7974,6 +8358,7 @@ function undoRouteEdit() {
   state.segmentStartIndex = null;
   state.segmentEndIndex = null;
   state.undoRouteEdit = null;
+  updatePrimarySessionFromCurrentState();
   persist();
   render();
   setStatus(`${undo.label} 작업을 되돌렸습니다.`);

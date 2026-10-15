@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20261015-route-confirmation-v2" />
+    <link rel="stylesheet" href="/styles.css?v=20261015-route-revision-v3" />
   </head>
   <body>
     <script>
@@ -328,6 +328,22 @@
               <input id="segmentEndInput" type="number" min="1" inputmode="numeric" placeholder="끝 번호" aria-label="끝 위치점 번호" />
             </span>
           </div>
+          <div id="segmentRerouteControls" class="segment-reroute-controls" hidden>
+            <div class="segment-reroute-heading">
+              <strong>선택구간 도로 재검색</strong>
+              <span>시작점과 종료점 사이에 경유지를 최대 15개 지정합니다.</span>
+            </div>
+            <div class="segment-reroute-actions">
+              <button id="segmentRerouteStartBtn" type="button">구간 재검색</button>
+              <button id="segmentRerouteWaypointBtn" type="button" disabled>경유지 추가</button>
+              <button id="segmentRerouteUndoWaypointBtn" type="button" disabled>마지막 경유지 취소</button>
+              <button id="segmentRerouteSearchBtn" class="primary-action" type="button" disabled>도로 경로 검색</button>
+              <button id="segmentRerouteApplyBtn" type="button" disabled>변경 구간 적용</button>
+              <button id="segmentRerouteCancelBtn" type="button" disabled>재검색 취소</button>
+            </div>
+            <div id="segmentRerouteWaypointList" class="segment-reroute-waypoint-list"></div>
+            <p id="segmentRerouteStatus" class="status-text">위치점 두 개를 선택하면 구간 재검색을 시작할 수 있습니다.</p>
+          </div>
           <p id="pointEditHint" class="status-text point-edit-hint" hidden>
             위치점 추가는 선택한 점 뒤에 새 점을 넣습니다. 선택이 없으면 마지막에 추가됩니다.
           </p>
@@ -481,6 +497,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20261015-route-confirmation-v2"></script>
+    <script src="/app.js?v=20261015-route-revision-v3"></script>
   </body>
 </html>

@@ -90,7 +90,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261015-route-confirmation-v2/);
+  assert.match(pageHtml, /20261015-route-revision-v3/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -125,6 +125,10 @@ try {
   assert.match(pageHtml, /id="plannedRouteWaypointBtn"/);
   assert.match(pageHtml, /id="plannedRouteGoalPointBtn"/);
   assert.match(pageHtml, /id="plannedRouteSearchBtn"/);
+  assert.match(pageHtml, /id="segmentRerouteStartBtn"/);
+  assert.match(pageHtml, /id="segmentRerouteWaypointBtn"/);
+  assert.match(pageHtml, /id="segmentRerouteSearchBtn"/);
+  assert.match(pageHtml, /id="segmentRerouteApplyBtn"/);
   assert.match(pageHtml, /경유지\(최대 15개\)/);
   assert.match(
     pageHtml,
@@ -263,6 +267,9 @@ try {
   assert.match(appSource, /void applyMapProvider\(desiredMapProvider, \{ quiet: true \}\);/);
   assert.match(appSource, /function renderNaverNativeOverlays\(\)/);
   assert.match(appSource, /function confirmPlannedRoute\(route, updates = \{\}\)/);
+  assert.match(appSource, /function startConfirmedRouteRevision\(routeId\)/);
+  assert.match(appSource, /function searchSegmentReroute\(\)/);
+  assert.match(appSource, /function applySegmentReroute\(\)/);
   assert.match(appSource, /더 이상 사전노선 검토와 후보노선 수정을 진행할 수 없습니다/);
   assert.match(appSource, /reason: "planned-route-confirmed"/);
   assert.match(appSource, /state\.primarySessionId = session\.id/);
