@@ -805,8 +805,8 @@ function sanitizeRestrictionReview(review) {
       id: String(facility?.id || `restriction-${index + 1}`).slice(0, 100),
       name: String(facility?.name || `제한시설 ${index + 1}`).trim().slice(0, 160),
       type: String(facility?.type || "기타").trim().slice(0, 80),
-      lat: Number(facility?.lat),
-      lng: Number(facility?.lng),
+      lat: facility?.lat == null || facility?.lat === "" ? Number.NaN : Number(facility.lat),
+      lng: facility?.lng == null || facility?.lng === "" ? Number.NaN : Number(facility.lng),
       maxLength: sanitizePositiveNumber(facility?.maxLength),
       maxWidth: sanitizePositiveNumber(facility?.maxWidth),
       maxHeight: sanitizePositiveNumber(facility?.maxHeight),
@@ -814,19 +814,48 @@ function sanitizeRestrictionReview(review) {
       maxAxleWeight: sanitizePositiveNumber(facility?.maxAxleWeight),
       permitRequired: facility?.permitRequired === true,
       source: String(facility?.source || "").slice(0, 240),
+      address: String(facility?.address || "").slice(0, 300),
       note: String(facility?.note || "").slice(0, 500),
       updatedAt: String(facility?.updatedAt || "").slice(0, 80),
     }))
-    .filter((facility) => Number.isFinite(facility.lat) && Number.isFinite(facility.lng));
+    .filter((facility) => isKoreanRouteCoordinate(facility.lat, facility.lng));
+  const unresolvedFacilities = (Array.isArray(review?.unresolvedFacilities) ? review.unresolvedFacilities : [])
+    .slice(0, 10000)
+    .map((facility, index) => ({
+      id: String(facility?.id || `unresolved-${index + 1}`).slice(0, 100),
+      name: String(facility?.name || `좌표 미확인 시설 ${index + 1}`).trim().slice(0, 160),
+      type: String(facility?.type || "기타").trim().slice(0, 80),
+      lat: null,
+      lng: null,
+      maxLength: sanitizePositiveNumber(facility?.maxLength),
+      maxWidth: sanitizePositiveNumber(facility?.maxWidth),
+      maxHeight: sanitizePositiveNumber(facility?.maxHeight),
+      maxTotalWeight: sanitizePositiveNumber(facility?.maxTotalWeight),
+      maxAxleWeight: sanitizePositiveNumber(facility?.maxAxleWeight),
+      permitRequired: facility?.permitRequired === true,
+      source: String(facility?.source || "").slice(0, 240),
+      address: String(facility?.address || "").slice(0, 300),
+      note: String(facility?.note || "").slice(0, 500),
+      updatedAt: String(facility?.updatedAt || "").slice(0, 80),
+    }));
   const facilityIds = new Set(facilities.map((facility) => facility.id));
   return {
     dataName: String(review?.dataName || "").slice(0, 180),
+    importStats: {
+      totalRows: Math.max(0, Number(review?.importStats?.totalRows) || 0),
+      importedRows: Math.max(0, Number(review?.importStats?.importedRows) || 0),
+      duplicateRows: Math.max(0, Number(review?.importStats?.duplicateRows) || 0),
+      excludedRows: Math.max(0, Number(review?.importStats?.excludedRows) || 0),
+      missingLimitRows: Math.max(0, Number(review?.importStats?.missingLimitRows) || 0),
+      importedAt: review?.importStats?.importedAt || null,
+    },
     corridorMeters: Math.min(5000, Math.max(10, Number(review?.corridorMeters) || 300)),
     workflowStatus: ["data", "screening", "consultation", "permit", "complete"].includes(review?.workflowStatus)
       ? review.workflowStatus
       : "data",
     memo: String(review?.memo || "").slice(0, 2000),
     facilities,
+    unresolvedFacilities,
     results: (Array.isArray(review?.results) ? review.results : [])
       .slice(0, facilities.length)
       .map((result) => ({

@@ -90,7 +90,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261015-restriction-review-v2/);
+  assert.match(pageHtml, /20261015-restriction-import-v1/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -115,6 +115,10 @@ try {
   assert.match(pageHtml, /id="plannedRouteStatusSelect"/);
   assert.match(pageHtml, /id="restrictionVehicleLength"/);
   assert.match(pageHtml, /id="restrictionDataInput"/);
+  assert.match(pageHtml, /id="restrictionDataInput"[^>]+multiple/);
+  assert.match(pageHtml, /id="restrictionImportMode"/);
+  assert.match(pageHtml, /id="restrictionNormalizedExportBtn"/);
+  assert.match(pageHtml, /id="restrictionDataQuality"/);
   assert.match(pageHtml, /id="restrictionReviewRunBtn"/);
   assert.match(pageHtml, /id="restrictionReviewList"/);
   assert.match(pageHtml, /id="plannedRouteStartPointBtn"/);
@@ -369,6 +373,9 @@ try {
   assert.match(appSource, /async function searchPlannedRoute\(\)/);
   assert.match(appSource, /function normalizeRestrictionReview\(/);
   assert.match(appSource, /function parseRestrictionCsv\(/);
+  assert.match(appSource, /function readRestrictionFileText\(/);
+  assert.match(appSource, /function mergeRestrictionFacilities\(/);
+  assert.match(appSource, /function exportNormalizedRestrictionCsv\(/);
   assert.match(appSource, /function runRestrictionReview\(/);
   assert.match(appSource, /plannedRouteToggleBtn\?\.addEventListener\("click", async \(\) =>[\s\S]+?await startPlannedRouteEditing\(\)/);
   assert.match(appSource, /const MAX_PLANNED_ROUTE_WAYPOINTS = 15/);
@@ -605,6 +612,14 @@ try {
       },
       restrictionReview: {
         dataName: "교량제한.csv",
+        importStats: {
+          totalRows: 2,
+          importedRows: 1,
+          duplicateRows: 0,
+          excludedRows: 1,
+          missingLimitRows: 0,
+          importedAt: "2026-10-15T00:00:00.000Z",
+        },
         corridorMeters: 300,
         workflowStatus: "consultation",
         memo: "관계기관 확인 필요",
@@ -617,7 +632,22 @@ try {
           maxTotalWeight: 100,
           permitRequired: true,
           source: "시험자료",
+          address: "서울특별시 테스트로 1",
           updatedAt: "2026-10-15",
+        }, {
+          id: "invalid-coordinate-1",
+          name: "좌표누락 시설",
+          type: "기타",
+          lat: null,
+          lng: null,
+        }],
+        unresolvedFacilities: [{
+          id: "height-unknown-1",
+          name: "좌표미확인 지하차도",
+          type: "지하차도",
+          address: "전북특별자치도 좌표미확인로 2",
+          maxHeight: 4.5,
+          source: "주소자료.csv",
         }],
         results: [{
           facilityId: "bridge-1",
@@ -823,8 +853,12 @@ try {
   assert.equal(shared.project.lastState.plannedRoutes[0].routeSummary.distance, 12345);
   assert.equal(shared.project.lastState.plannedRoutes[0].stops[1].kind, "waypoint");
   assert.equal(shared.project.lastState.plannedRoutes[0].restrictionReview.facilities[0].name, "테스트교");
+  assert.equal(shared.project.lastState.plannedRoutes[0].restrictionReview.facilities.length, 1);
+  assert.equal(shared.project.lastState.plannedRoutes[0].restrictionReview.facilities[0].address, "서울특별시 테스트로 1");
+  assert.equal(shared.project.lastState.plannedRoutes[0].restrictionReview.unresolvedFacilities[0].maxHeight, 4.5);
   assert.equal(shared.project.lastState.plannedRoutes[0].restrictionReview.results[0].status, "risk");
   assert.equal(shared.project.lastState.plannedRoutes[0].restrictionReview.workflowStatus, "consultation");
+  assert.equal(shared.project.lastState.plannedRoutes[0].restrictionReview.importStats.excludedRows, 1);
   assert.equal(shared.project.lastState.activePlannedRouteId, "planned-1");
   assert.equal(shared.project.lastState.mapReferences[0].name, "A구간 계획도");
   assert.equal(shared.project.lastState.mapReferences[0].alignmentMode, "corners");

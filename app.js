@@ -278,6 +278,13 @@ const els = {
   restrictionDataInput: document.querySelector("#restrictionDataInput"),
   restrictionTemplateBtn: document.querySelector("#restrictionTemplateBtn"),
   restrictionDataStatus: document.querySelector("#restrictionDataStatus"),
+  restrictionImportMode: document.querySelector("#restrictionImportMode"),
+  restrictionNormalizedExportBtn: document.querySelector("#restrictionNormalizedExportBtn"),
+  restrictionDataQuality: document.querySelector("#restrictionDataQuality"),
+  restrictionImportedCount: document.querySelector("#restrictionImportedCount"),
+  restrictionDuplicateCount: document.querySelector("#restrictionDuplicateCount"),
+  restrictionExcludedCount: document.querySelector("#restrictionExcludedCount"),
+  restrictionMissingLimitCount: document.querySelector("#restrictionMissingLimitCount"),
   restrictionCorridor: document.querySelector("#restrictionCorridor"),
   restrictionWorkflowStatus: document.querySelector("#restrictionWorkflowStatus"),
   restrictionReviewMemo: document.querySelector("#restrictionReviewMemo"),
@@ -712,6 +719,7 @@ els.restrictionReviewDetails?.addEventListener("toggle", () => {
 els.restrictionRouteSelect?.addEventListener("change", () => selectRestrictionReviewRoute(els.restrictionRouteSelect.value));
 els.restrictionDataInput?.addEventListener("change", importRestrictionData);
 els.restrictionTemplateBtn?.addEventListener("click", downloadRestrictionTemplate);
+els.restrictionNormalizedExportBtn?.addEventListener("click", exportNormalizedRestrictionCsv);
 els.restrictionReviewRunBtn?.addEventListener("click", runRestrictionReview);
 els.restrictionReviewExportBtn?.addEventListener("click", exportRestrictionReviewCsv);
 els.restrictionReviewClearBtn?.addEventListener("click", clearRestrictionReviewData);
@@ -5784,6 +5792,9 @@ function normalizeRestrictionReview(review) {
     .slice(0, 10000)
     .map((facility, index) => normalizeRestrictionFacility(facility, index))
     .filter(Boolean);
+  const unresolvedFacilities = (Array.isArray(review?.unresolvedFacilities) ? review.unresolvedFacilities : [])
+    .slice(0, 10000)
+    .map((facility, index) => normalizeUnresolvedRestrictionFacility(facility, index));
   const facilityIds = new Set(facilities.map((facility) => facility.id));
   const results = (Array.isArray(review?.results) ? review.results : [])
     .slice(0, facilities.length)
@@ -5796,21 +5807,23 @@ function normalizeRestrictionReview(review) {
     .filter((result) => facilityIds.has(result.facilityId));
   return {
     dataName: String(review?.dataName || "").slice(0, 180),
+    importStats: normalizeRestrictionImportStats(review?.importStats),
     corridorMeters: Math.min(5000, Math.max(10, Number(review?.corridorMeters) || 300)),
     workflowStatus: ["data", "screening", "consultation", "permit", "complete"].includes(review?.workflowStatus)
       ? review.workflowStatus
       : "data",
     memo: String(review?.memo || "").slice(0, 2000),
     facilities,
+    unresolvedFacilities,
     results,
     reviewedAt: review?.reviewedAt || null,
   };
 }
 
 function normalizeRestrictionFacility(facility, index = 0) {
-  const lat = Number(facility?.lat);
-  const lng = Number(facility?.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const lat = facility?.lat == null || facility?.lat === "" ? Number.NaN : Number(facility.lat);
+  const lng = facility?.lng == null || facility?.lng === "" ? Number.NaN : Number(facility.lng);
+  if (!isKoreanRestrictionCoordinate(lat, lng)) return null;
   return {
     id: String(facility?.id || `restriction-${index + 1}`).slice(0, 100),
     name: String(facility?.name || `제한시설 ${index + 1}`).trim().slice(0, 160),
@@ -5824,8 +5837,44 @@ function normalizeRestrictionFacility(facility, index = 0) {
     maxAxleWeight: normalizePositiveNumber(facility?.maxAxleWeight),
     permitRequired: facility?.permitRequired === true,
     source: String(facility?.source || "").slice(0, 240),
+    address: String(facility?.address || "").slice(0, 300),
     note: String(facility?.note || "").slice(0, 500),
     updatedAt: String(facility?.updatedAt || "").slice(0, 80),
+  };
+}
+
+function isKoreanRestrictionCoordinate(lat, lng) {
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= 32 && lat <= 40 && lng >= 123 && lng <= 133;
+}
+
+function normalizeUnresolvedRestrictionFacility(facility, index = 0) {
+  return {
+    id: String(facility?.id || `unresolved-${index + 1}`).slice(0, 100),
+    name: String(facility?.name || `좌표 미확인 시설 ${index + 1}`).trim().slice(0, 160),
+    type: String(facility?.type || "기타").trim().slice(0, 80),
+    lat: null,
+    lng: null,
+    maxLength: normalizePositiveNumber(facility?.maxLength),
+    maxWidth: normalizePositiveNumber(facility?.maxWidth),
+    maxHeight: normalizePositiveNumber(facility?.maxHeight),
+    maxTotalWeight: normalizePositiveNumber(facility?.maxTotalWeight),
+    maxAxleWeight: normalizePositiveNumber(facility?.maxAxleWeight),
+    permitRequired: facility?.permitRequired === true,
+    source: String(facility?.source || "").slice(0, 240),
+    address: String(facility?.address || "").slice(0, 300),
+    note: String(facility?.note || "").slice(0, 500),
+    updatedAt: String(facility?.updatedAt || "").slice(0, 80),
+  };
+}
+
+function normalizeRestrictionImportStats(stats) {
+  return {
+    totalRows: Math.max(0, Number(stats?.totalRows) || 0),
+    importedRows: Math.max(0, Number(stats?.importedRows) || 0),
+    duplicateRows: Math.max(0, Number(stats?.duplicateRows) || 0),
+    excludedRows: Math.max(0, Number(stats?.excludedRows) || 0),
+    missingLimitRows: Math.max(0, Number(stats?.missingLimitRows) || 0),
+    importedAt: stats?.importedAt || null,
   };
 }
 
@@ -6316,37 +6365,101 @@ function loadRestrictionReviewForm(route) {
 }
 
 async function importRestrictionData(event) {
-  const file = event.target.files?.[0];
+  const files = Array.from(event.target.files || []);
   event.target.value = "";
-  if (!file) return;
+  if (!files.length) return;
   const route = getRestrictionReviewRoute();
   if (!route) {
     setRestrictionReviewStatus("먼저 1차 후보노선을 저장해 주세요.", "warning");
     return;
   }
   try {
-    const text = await file.text();
-    const extension = file.name.split(".").pop()?.toLowerCase();
-    const payload = extension === "json" ? JSON.parse(text) : parseRestrictionCsv(text);
-    const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.facilities) ? payload.facilities : [];
-    const facilities = rows
-      .map((row, index) => normalizeImportedRestrictionFacility(row, index))
-      .filter(Boolean);
-    if (!facilities.length) throw new Error("no_valid_facilities");
+    const importedRows = [];
+    for (const file of files) {
+      const text = await readRestrictionFileText(file);
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      const payload = extension === "json" || String(text).trimStart().startsWith("{") || String(text).trimStart().startsWith("[")
+        ? JSON.parse(String(text).replace(/^\uFEFF/, ""))
+        : parseRestrictionCsv(text);
+      extractRestrictionRows(payload).forEach((row) => importedRows.push({ row, fileName: file.name }));
+    }
+    if (!importedRows.length) throw new Error("no_rows");
+    const normalizedRows = importedRows.map(({ row, fileName }, index) => normalizeImportedRestrictionFacility(row, index, fileName));
+    const validFacilities = normalizedRows.map((entry) => entry.facility).filter(Boolean);
+    const unresolvedFacilities = normalizedRows.map((entry) => entry.unresolved).filter(Boolean);
+    const excludedRows = unresolvedFacilities.length;
+    if (!validFacilities.length && !unresolvedFacilities.length) throw new Error("no_valid_facilities");
     const review = ensureRestrictionReview(route);
-    review.dataName = file.name;
-    review.facilities = facilities;
+    const importMode = els.restrictionImportMode?.value === "replace" ? "replace" : "merge";
+    const merged = mergeRestrictionFacilities(importMode === "replace" ? [] : review.facilities, validFacilities);
+    review.unresolvedFacilities = mergeUnresolvedRestrictionFacilities(
+      importMode === "replace" ? [] : review.unresolvedFacilities,
+      unresolvedFacilities,
+      validFacilities,
+    );
+    review.dataName = files.map((file) => file.name).join(" + ").slice(0, 180);
+    review.facilities = merged.facilities.slice(0, 10000);
+    review.importStats = normalizeRestrictionImportStats({
+      totalRows: normalizedRows.length,
+      importedRows: validFacilities.length,
+      duplicateRows: merged.duplicateRows,
+      excludedRows,
+      missingLimitRows: [...validFacilities, ...unresolvedFacilities].filter((facility) => !hasRestrictionLimit(facility)).length,
+      importedAt: new Date().toISOString(),
+    });
     review.results = [];
     review.reviewedAt = null;
     route.updatedAt = Date.now();
     persist();
     renderPlannedRoutes();
-    setRestrictionReviewStatus(`${file.name} · 유효한 제한시설 ${facilities.length}건을 불러왔습니다.`, "success");
+    const messages = [
+      `${files.length}개 파일 · 전체 ${normalizedRows.length}행`,
+      `좌표 유효 ${validFacilities.length}건`,
+      merged.duplicateRows ? `중복 ${merged.duplicateRows}건 정리` : "",
+      excludedRows ? `좌표 없음 ${excludedRows}건 별도 보관` : "",
+    ].filter(Boolean);
+    setRestrictionReviewStatus(messages.join(" · "), excludedRows ? "warning" : "success");
     void syncProjectState("restriction-data-import");
   } catch (error) {
     console.warn("Restriction data import failed", error);
-    setRestrictionReviewStatus("자료를 읽지 못했습니다. CSV 양식 또는 facilities 배열이 있는 JSON인지 확인해 주세요.", "error");
+    setRestrictionReviewStatus(
+      error?.message === "no_valid_facilities"
+        ? "시설로 변환할 수 있는 행을 찾지 못했습니다. 원본 열 이름과 값을 확인해 주세요."
+        : "자료를 읽지 못했습니다. CSV·JSON 형식과 첫 행의 열 이름을 확인해 주세요.",
+      "error",
+    );
   }
+}
+
+async function readRestrictionFileText(file) {
+  const buffer = await file.arrayBuffer();
+  const utf8 = new TextDecoder("utf-8").decode(buffer);
+  if (!utf8.includes("�")) return utf8;
+  try {
+    const eucKr = new TextDecoder("euc-kr").decode(buffer);
+    const utf8Errors = (utf8.match(/�/g) || []).length;
+    const eucKrErrors = (eucKr.match(/�/g) || []).length;
+    return eucKrErrors < utf8Errors ? eucKr : utf8;
+  } catch {
+    return utf8;
+  }
+}
+
+function extractRestrictionRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  const candidates = [
+    payload?.facilities,
+    payload?.data,
+    payload?.items,
+    payload?.items?.item,
+    payload?.response?.body?.items,
+    payload?.response?.body?.items?.item,
+    payload?.response?.body?.data,
+  ];
+  const found = candidates.find(Array.isArray);
+  if (found) return found;
+  const single = candidates.find((value) => value && typeof value === "object");
+  return single ? [single] : [];
 }
 
 function parseRestrictionCsv(text) {
@@ -6355,6 +6468,7 @@ function parseRestrictionCsv(text) {
   let field = "";
   let quoted = false;
   const source = String(text || "").replace(/^\uFEFF/, "");
+  const delimiter = detectRestrictionDelimiter(source);
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index];
     if (char === '"') {
@@ -6364,7 +6478,7 @@ function parseRestrictionCsv(text) {
       } else {
         quoted = !quoted;
       }
-    } else if (char === "," && !quoted) {
+    } else if (char === delimiter && !quoted) {
       row.push(field.trim());
       field = "";
     } else if ((char === "\n" || char === "\r") && !quoted) {
@@ -6384,31 +6498,126 @@ function parseRestrictionCsv(text) {
   return rows.slice(1).map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])));
 }
 
+function detectRestrictionDelimiter(text) {
+  const header = String(text || "").split(/\r?\n/, 1)[0] || "";
+  const candidates = [",", "\t", ";"];
+  return candidates.sort((left, right) => header.split(right).length - header.split(left).length)[0];
+}
+
+function normalizeRestrictionColumnName(value) {
+  return String(value || "").trim().toLowerCase().replace(/[\s_()[\]{}./\\-]+/g, "");
+}
+
 function getRestrictionValue(row, aliases) {
+  const entries = Object.entries(row || {});
+  const normalizedEntries = new Map(entries.map(([key, value]) => [normalizeRestrictionColumnName(key), value]));
   for (const alias of aliases) {
     if (Object.prototype.hasOwnProperty.call(row || {}, alias) && String(row[alias] ?? "").trim() !== "") return row[alias];
+    const value = normalizedEntries.get(normalizeRestrictionColumnName(alias));
+    if (String(value ?? "").trim() !== "") return value;
   }
   return "";
 }
 
-function normalizeImportedRestrictionFacility(row, index) {
+function normalizeImportedRestrictionFacility(row, index, fileName = "") {
+  const rawId = getRestrictionValue(row, ["id", "ID", "관리번호", "시설ID", "시설물관리번호", "지형지물번호", "도로구간번호"]);
+  const type = getRestrictionValue(row, ["type", "시설유형", "시설물종류", "시설물구분명", "시설물종별", "종류", "구분"]) || "기타";
+  const address = getRestrictionValue(row, ["address", "주소", "지번주소", "도로명주소", "시설물위치", "설치지점", "위치"]);
+  const district = getRestrictionValue(row, ["행정읍면동", "시군명", "읍면동", "지역"]);
+  const name = getRestrictionValue(row, ["name", "시설명", "시설물명", "교량명", "터널명", "도로명", "주변시설"])
+    || [type, district || address].filter(Boolean).join(" · ")
+    || `제한시설 ${index + 1}`;
+  let lat = parseRestrictionNumber(getRestrictionValue(row, ["lat", "latitude", "위도", "Y", "y", "수량_위도", "Y좌표", "좌표Y", "좌표정보(Y)"]));
+  let lng = parseRestrictionNumber(getRestrictionValue(row, ["lng", "lon", "longitude", "경도", "X", "x", "수량_경도", "X좌표", "좌표X", "좌표정보(X)"]));
+  if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) > 90 && Math.abs(lng) <= 90) [lat, lng] = [lng, lat];
   const normalized = {
-    id: getRestrictionValue(row, ["id", "ID", "관리번호", "시설ID"]) || crypto.randomUUID(),
-    name: getRestrictionValue(row, ["name", "시설명", "교량명", "터널명", "도로명"]) || `제한시설 ${index + 1}`,
-    type: getRestrictionValue(row, ["type", "시설유형", "종류", "구분"]) || "기타",
-    lat: getRestrictionValue(row, ["lat", "latitude", "위도", "Y", "y"]),
-    lng: getRestrictionValue(row, ["lng", "lon", "longitude", "경도", "X", "x"]),
-    maxLength: getRestrictionValue(row, ["maxLength", "제한길이", "허용길이", "길이제한"]),
-    maxWidth: getRestrictionValue(row, ["maxWidth", "제한너비", "허용너비", "폭제한"]),
-    maxHeight: getRestrictionValue(row, ["maxHeight", "제한높이", "허용높이", "높이제한"]),
-    maxTotalWeight: getRestrictionValue(row, ["maxTotalWeight", "제한총중량", "허용총중량", "총중량제한"]),
-    maxAxleWeight: getRestrictionValue(row, ["maxAxleWeight", "제한축중", "허용축중", "축중제한"]),
+    id: rawId || createRestrictionFacilityId([name, address, lat, lng]),
+    name,
+    type,
+    lat,
+    lng,
+    maxLength: parseRestrictionNumber(getRestrictionValue(row, ["maxLength", "제한길이", "허용길이", "길이제한"])),
+    maxWidth: parseRestrictionNumber(getRestrictionValue(row, ["maxWidth", "제한너비", "허용너비", "폭제한", "가로(미터)", "가로", "폭원", "유효폭"])),
+    maxHeight: parseRestrictionNumber(getRestrictionValue(row, ["maxHeight", "제한높이", "허용높이", "높이제한", "통과높이(미터)", "통행제한높이(미터)", "통과높이", "통행제한높이"])),
+    maxTotalWeight: parseRestrictionNumber(getRestrictionValue(row, ["maxTotalWeight", "제한총중량", "허용총중량", "총중량제한", "제한중량", "운행제한하중"])),
+    maxAxleWeight: parseRestrictionNumber(getRestrictionValue(row, ["maxAxleWeight", "제한축중", "허용축중", "축중제한"])),
     permitRequired: parseRestrictionBoolean(getRestrictionValue(row, ["permitRequired", "허가필요", "허가여부"])),
-    source: getRestrictionValue(row, ["source", "출처", "자료출처"]),
+    source: getRestrictionValue(row, ["source", "출처", "자료출처", "관리기관", "제공기관"]) || fileName,
+    address,
     note: getRestrictionValue(row, ["note", "메모", "비고"]),
-    updatedAt: getRestrictionValue(row, ["updatedAt", "기준일", "갱신일"]),
+    updatedAt: getRestrictionValue(row, ["updatedAt", "기준일", "기준일자", "데이터기준일", "갱신일", "수정일"]),
   };
-  return normalizeRestrictionFacility(normalized, index);
+  const facility = normalizeRestrictionFacility(normalized, index);
+  return {
+    facility,
+    unresolved: facility ? null : normalizeUnresolvedRestrictionFacility(normalized, index),
+  };
+}
+
+function parseRestrictionNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const match = String(value ?? "").replaceAll(",", "").match(/-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
+}
+
+function createRestrictionFacilityId(parts) {
+  const source = parts.map((value) => String(value ?? "").trim().toLowerCase()).join("|");
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `restriction-${(hash >>> 0).toString(16)}`;
+}
+
+function getRestrictionFacilityKey(facility) {
+  const name = String(facility?.name || "").trim().toLowerCase().replace(/\s+/g, "");
+  const lat = Number(facility?.lat).toFixed(5);
+  const lng = Number(facility?.lng).toFixed(5);
+  return `${name}|${lat}|${lng}`;
+}
+
+function mergeRestrictionFacilities(existing, incoming) {
+  const facilities = (Array.isArray(existing) ? existing : []).map((facility) => ({ ...facility }));
+  const indexes = new Map(facilities.map((facility, index) => [getRestrictionFacilityKey(facility), index]));
+  let duplicateRows = 0;
+  incoming.forEach((facility) => {
+    const key = getRestrictionFacilityKey(facility);
+    const existingIndex = indexes.get(key);
+    if (existingIndex == null) {
+      indexes.set(key, facilities.length);
+      facilities.push(facility);
+      return;
+    }
+    duplicateRows += 1;
+    const previous = facilities[existingIndex];
+    facilities[existingIndex] = Object.fromEntries(Object.entries({ ...previous, ...facility }).map(([field, value]) => [
+      field,
+      value === "" || value == null ? previous[field] ?? value : value,
+    ]));
+  });
+  return { facilities, duplicateRows };
+}
+
+function getUnresolvedRestrictionKey(facility) {
+  const name = String(facility?.name || "").trim().toLowerCase().replace(/\s+/g, "");
+  const address = String(facility?.address || "").trim().toLowerCase().replace(/\s+/g, "");
+  return `${name}|${address}`;
+}
+
+function mergeUnresolvedRestrictionFacilities(existing, incoming, resolvedIncoming = []) {
+  const resolvedKeys = new Set(resolvedIncoming.map(getUnresolvedRestrictionKey));
+  const merged = new Map();
+  [...(existing || []), ...(incoming || [])].forEach((facility) => {
+    const key = getUnresolvedRestrictionKey(facility);
+    if (!resolvedKeys.has(key)) merged.set(key, facility);
+  });
+  return [...merged.values()].slice(0, 10000);
+}
+
+function hasRestrictionLimit(facility) {
+  return [facility.maxLength, facility.maxWidth, facility.maxHeight, facility.maxTotalWeight, facility.maxAxleWeight]
+    .some((value) => value != null);
 }
 
 function parseRestrictionBoolean(value) {
@@ -6417,10 +6626,26 @@ function parseRestrictionBoolean(value) {
 
 function downloadRestrictionTemplate() {
   const rows = [
-    ["시설명", "시설유형", "위도", "경도", "제한길이", "제한너비", "제한높이", "제한총중량", "제한축중", "허가필요", "출처", "기준일", "메모"],
-    ["예시교량", "교량", "35.95000", "126.72000", "", "4.0", "5.0", "100", "10", "필요", "기관자료", "2026-10-15", "현장 재확인"],
+    ["시설ID", "시설명", "시설유형", "위도", "경도", "주소", "제한길이", "제한너비", "제한높이", "제한총중량", "제한축중", "허가필요", "출처", "기준일", "메모"],
+    ["BR-001", "예시교량", "교량", "35.95000", "126.72000", "전북특별자치도 예시주소", "", "4.0", "5.0", "100", "10", "필요", "기관자료", "2026-10-15", "현장 재확인"],
   ];
   downloadTextFile(`제한시설-자료양식-${new Date().toISOString().slice(0, 10)}.csv`, `\uFEFF${rows.map((row) => row.map(escapeCsvCell).join(",")).join("\r\n")}`, "text/csv;charset=utf-8");
+}
+
+function exportNormalizedRestrictionCsv() {
+  const route = getRestrictionReviewRoute();
+  const review = route ? ensureRestrictionReview(route) : null;
+  if (!review || (!review.facilities.length && !review.unresolvedFacilities.length)) {
+    setRestrictionReviewStatus("정리해서 저장할 제한시설 자료가 없습니다.", "warning");
+    return;
+  }
+  const rows = [["시설ID", "시설명", "시설유형", "위도", "경도", "주소", "제한길이", "제한너비", "제한높이", "제한총중량", "제한축중", "허가필요", "출처", "기준일", "메모"]];
+  [...review.facilities, ...(review.unresolvedFacilities || [])].forEach((facility) => rows.push([
+    facility.id, facility.name, facility.type, facility.lat, facility.lng, facility.address,
+    facility.maxLength, facility.maxWidth, facility.maxHeight, facility.maxTotalWeight, facility.maxAxleWeight,
+    facility.permitRequired ? "필요" : "", facility.source, facility.updatedAt, facility.note,
+  ]));
+  downloadTextFile(`제한시설-정리자료-${new Date().toISOString().slice(0, 10)}.csv`, `\uFEFF${rows.map((row) => row.map(escapeCsvCell).join(",")).join("\r\n")}`, "text/csv;charset=utf-8");
 }
 
 function runRestrictionReview() {
@@ -6431,7 +6656,12 @@ function runRestrictionReview() {
   }
   const review = ensureRestrictionReview(route);
   if (!review.facilities.length) {
-    setRestrictionReviewStatus("제한시설 CSV 또는 JSON 자료를 먼저 불러와 주세요.", "warning");
+    setRestrictionReviewStatus(
+      review.unresolvedFacilities.length
+        ? `좌표를 보완해야 하는 시설이 ${review.unresolvedFacilities.length}건 있습니다. 정리된 자료 CSV에서 위도·경도를 입력한 뒤 다시 불러와 주세요.`
+        : "제한시설 CSV 또는 JSON 자료를 먼저 불러와 주세요.",
+      "warning",
+    );
     return;
   }
   const vehicleSpec = readPlannedRouteVehicleSpec();
@@ -6528,7 +6758,7 @@ function clearRestrictionReviewData() {
   const route = getRestrictionReviewRoute();
   if (!route) return;
   const review = ensureRestrictionReview(route);
-  if ((review.facilities.length || review.results.length || review.memo) && !window.confirm("불러온 제한시설 자료와 검토결과를 초기화할까요?")) return;
+  if ((review.facilities.length || review.unresolvedFacilities.length || review.results.length || review.memo) && !window.confirm("불러온 제한시설 자료와 검토결과를 초기화할까요?")) return;
   route.restrictionReview = normalizeRestrictionReview(null);
   route.updatedAt = Date.now();
   if (els.restrictionRouteSelect) els.restrictionRouteSelect.dataset.loadedRouteId = "";
@@ -6546,14 +6776,24 @@ function exportRestrictionReviewCsv() {
     return;
   }
   const facilityMap = new Map(review.facilities.map((facility) => [facility.id, facility]));
-  const rows = [["후보노선", "검토일시", "시설명", "시설유형", "노선거리(m)", "판정", "초과·검토사항", "허가필요", "위도", "경도", "출처", "기준일", "메모"]];
+  const spec = route.vehicleSpec || {};
+  const stopSummary = orderPlannedRouteStops(route.stops || [])
+    .map((stop) => `${stop.label || (stop.kind === "start" ? "출발지" : stop.kind === "goal" ? "도착지" : "경유지")}(${Number(stop.lat).toFixed(6)},${Number(stop.lng).toFixed(6)})`)
+    .join(" → ");
+  const rows = [[
+    "후보노선", "출발·경유·도착", "노선거리(km)", "예상시간(분)", "검토일시", "차량길이(m)", "차량너비(m)", "차량높이(m)", "차량총중량(t)", "차량축중(t)",
+    "시설명", "시설유형", "노선거리(m)", "판정", "초과·검토사항", "허가필요", "위도", "경도", "주소", "출처", "기준일", "메모",
+  ]];
   review.results.forEach((result) => {
     const facility = facilityMap.get(result.facilityId);
     if (!facility) return;
     rows.push([
-      route.name, review.reviewedAt || "", facility.name, facility.type, result.distanceMeters,
+      route.name, stopSummary, route.routeSummary?.distance != null ? Math.round(route.routeSummary.distance) / 1000 : "",
+      route.routeSummary?.duration != null ? Math.round(route.routeSummary.duration / 60000) : "",
+      review.reviewedAt || "", spec.length, spec.width, spec.height, spec.totalWeight, spec.axleWeight,
+      facility.name, facility.type, result.distanceMeters,
       getRestrictionStatusLabel(result.status), result.issues.join(" / "), facility.permitRequired ? "필요" : "", facility.lat, facility.lng,
-      facility.source, facility.updatedAt, facility.note,
+      facility.address, facility.source, facility.updatedAt, facility.note,
     ]);
   });
   downloadTextFile(`제한차량-조건검토-${route.name}-${new Date().toISOString().slice(0, 10)}.csv`, `\uFEFF${rows.map((row) => row.map(escapeCsvCell).join(",")).join("\r\n")}`, "text/csv;charset=utf-8");
@@ -6623,16 +6863,23 @@ function renderRestrictionReview() {
   const readOnly = !route || Boolean(state.shareView);
   [
     els.restrictionVehicleLength, els.restrictionVehicleWidth, els.restrictionVehicleHeight, els.restrictionVehicleTotalWeight, els.restrictionVehicleAxleWeight,
-    els.restrictionDataInput, els.restrictionCorridor, els.restrictionWorkflowStatus, els.restrictionReviewMemo,
+    els.restrictionDataInput, els.restrictionImportMode, els.restrictionCorridor, els.restrictionWorkflowStatus, els.restrictionReviewMemo,
     els.restrictionReviewRunBtn, els.restrictionReviewClearBtn,
   ].forEach((control) => { if (control) control.disabled = readOnly; });
   els.restrictionReviewExportBtn.disabled = !review?.results?.length;
+  els.restrictionNormalizedExportBtn.disabled = !review || (!review.facilities.length && !review.unresolvedFacilities.length);
   els.restrictionRouteSelect.disabled = !state.plannedRoutes.length;
   if (els.restrictionDataStatus) {
-    els.restrictionDataStatus.textContent = review?.facilities?.length
-      ? `${review.dataName || "불러온 자료"} · 제한시설 ${review.facilities.length}건`
+    els.restrictionDataStatus.textContent = review && (review.facilities.length || review.unresolvedFacilities.length)
+      ? `${review.dataName || "불러온 자료"} · 좌표 유효 ${review.facilities.length}건${review.unresolvedFacilities.length ? ` · 좌표 보완 ${review.unresolvedFacilities.length}건` : ""}`
       : "CSV 또는 JSON으로 교량·터널·도로 제한자료를 불러오세요.";
   }
+  const importStats = normalizeRestrictionImportStats(review?.importStats);
+  if (els.restrictionDataQuality) els.restrictionDataQuality.hidden = !importStats.importedAt;
+  if (els.restrictionImportedCount) els.restrictionImportedCount.textContent = String(importStats.importedRows);
+  if (els.restrictionDuplicateCount) els.restrictionDuplicateCount.textContent = String(importStats.duplicateRows);
+  if (els.restrictionExcludedCount) els.restrictionExcludedCount.textContent = String(importStats.excludedRows);
+  if (els.restrictionMissingLimitCount) els.restrictionMissingLimitCount.textContent = String(importStats.missingLimitRows);
   const counts = { risk: 0, permit: 0, pass: 0, unknown: 0 };
   (review?.results || []).forEach((result) => { counts[result.status] = (counts[result.status] || 0) + 1; });
   els.restrictionReviewSummary.hidden = !review?.reviewedAt;
@@ -6641,7 +6888,9 @@ function renderRestrictionReview() {
   els.restrictionPermitCount.textContent = String(counts.permit);
   els.restrictionUnknownCount.textContent = String(counts.unknown);
   if (els.restrictionReviewBadge) {
-    els.restrictionReviewBadge.textContent = !review?.facilities?.length ? "자료 준비" : !review.reviewedAt ? "검토 대기" : counts.risk ? `초과 ${counts.risk}` : counts.permit ? `허가 ${counts.permit}` : "검토 완료";
+    els.restrictionReviewBadge.textContent = !review?.facilities?.length
+      ? review?.unresolvedFacilities?.length ? `좌표 보완 ${review.unresolvedFacilities.length}` : "자료 준비"
+      : !review.reviewedAt ? "검토 대기" : counts.risk ? `초과 ${counts.risk}` : counts.permit ? `허가 ${counts.permit}` : "검토 완료";
   }
   els.restrictionReviewList.replaceChildren();
   const facilityMap = new Map((review?.facilities || []).map((facility) => [facility.id, facility]));

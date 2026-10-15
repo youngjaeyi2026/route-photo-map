@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20261015-restriction-review-v2" />
+    <link rel="stylesheet" href="/styles.css?v=20261015-restriction-import-v1" />
   </head>
   <body>
     <script>
@@ -185,11 +185,28 @@
                 <label><span>축중(t)</span><input id="restrictionVehicleAxleWeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="4.1" /></label>
               </div>
               <div class="restriction-data-tools">
-                <input id="restrictionDataInput" type="file" accept=".csv,.json,text/csv,application/json" />
+                <input id="restrictionDataInput" type="file" accept=".csv,.json,.txt,text/csv,text/plain,application/json" multiple />
                 <label class="restriction-data-upload" for="restrictionDataInput">제한시설 자료 불러오기</label>
                 <button id="restrictionTemplateBtn" type="button">CSV 양식 받기</button>
               </div>
               <p id="restrictionDataStatus" class="status-text">CSV 또는 JSON으로 교량·터널·도로 제한자료를 불러오세요.</p>
+              <div class="restriction-import-options">
+                <label class="route-review-field">
+                  <span>불러오기 방식</span>
+                  <select id="restrictionImportMode">
+                    <option value="merge">기존 자료와 합치기</option>
+                    <option value="replace">기존 자료 교체</option>
+                  </select>
+                </label>
+                <button id="restrictionNormalizedExportBtn" type="button">정리된 자료 CSV</button>
+              </div>
+              <div id="restrictionDataQuality" class="restriction-data-quality" hidden>
+                <div><strong id="restrictionImportedCount">0</strong><span>좌표 유효</span></div>
+                <div><strong id="restrictionDuplicateCount">0</strong><span>중복 정리</span></div>
+                <div><strong id="restrictionExcludedCount">0</strong><span>좌표 없음</span></div>
+                <div><strong id="restrictionMissingLimitCount">0</strong><span>제한값 없음</span></div>
+              </div>
+              <p class="hint">주소만 있고 좌표가 없는 행은 자동 좌표변환 API를 연결하기 전까지 제외되며, 정리된 자료 CSV에서 확인·보완할 수 있습니다.</p>
               <div class="restriction-review-options">
                 <label class="route-review-field">
                   <span>노선 주변 검색범위(m)</span>
@@ -464,6 +481,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20261015-restriction-review-v2"></script>
+    <script src="/app.js?v=20261015-restriction-import-v1"></script>
   </body>
 </html>
