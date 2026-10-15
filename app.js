@@ -6186,16 +6186,30 @@ async function savePlannedRoute() {
   state.plannedRouteSearching = false;
   state.plannedRouteFeedback = null;
   writePlannedRouteForm();
-  persist();
-  saveProjectRecoveryBackup("planned-route");
   renderPlannedRoutes();
-  const serverSaved = await syncProjectState("planned-route");
+  const localSaved = persist();
   setStatus(
-    serverSaved
-      ? "후보노선을 프로젝트에 저장했습니다. PC와 모바일에서 함께 확인할 수 있습니다."
-      : "후보노선을 이 기기에 보관했습니다. 서버 연결 후 다시 동기화해 주세요.",
-    serverSaved ? "success" : "warning",
+    localSaved
+      ? "후보노선을 기기에 저장했습니다. 서버 동기화를 시작합니다."
+      : "후보노선 화면은 반영했지만 기기 저장공간이 부족합니다. 서버 동기화를 확인해 주세요.",
+    localSaved ? "active" : "warning",
   );
+  window.setTimeout(() => {
+    try {
+      saveProjectRecoveryBackup("planned-route");
+      void syncProjectState("planned-route").then((serverSaved) => {
+        setStatus(
+          serverSaved
+            ? "후보노선을 프로젝트에 저장했습니다. PC와 모바일에서 함께 확인할 수 있습니다."
+            : "후보노선을 이 기기에 보관했습니다. 서버 연결 후 다시 동기화해 주세요.",
+          serverSaved ? "success" : "warning",
+        );
+      });
+    } catch (error) {
+      console.warn("Planned route background sync failed", error);
+      setStatus("후보노선을 이 기기에 보관했습니다. 서버 연결 후 다시 동기화해 주세요.", "warning");
+    }
+  }, 50);
 }
 
 function updatePlannedRouteStop(stopId, changes) {
