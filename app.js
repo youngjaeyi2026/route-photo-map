@@ -6627,7 +6627,11 @@ function parseRestrictionBoolean(value) {
 function downloadRestrictionTemplate() {
   const rows = [
     ["시설ID", "시설명", "시설유형", "위도", "경도", "주소", "제한길이", "제한너비", "제한높이", "제한총중량", "제한축중", "허가필요", "출처", "기준일", "메모"],
-    ["BR-001", "예시교량", "교량", "35.95000", "126.72000", "전북특별자치도 예시주소", "", "4.0", "5.0", "100", "10", "필요", "기관자료", "2026-10-15", "현장 재확인"],
+    [
+      "BR-001", "예시교량", "교량", formatCsvFixedNumber(35.95, 6), formatCsvFixedNumber(126.72, 6),
+      "전북특별자치도 예시주소", "", formatCsvFixedNumber(4), formatCsvFixedNumber(5),
+      formatCsvFixedNumber(100), formatCsvFixedNumber(10), "필요", "기관자료", "2026-10-15", "현장 재확인",
+    ],
   ];
   downloadTextFile(`제한시설-자료양식-${new Date().toISOString().slice(0, 10)}.csv`, `\uFEFF${rows.map((row) => row.map(escapeCsvCell).join(",")).join("\r\n")}`, "text/csv;charset=utf-8");
 }
@@ -6641,8 +6645,9 @@ function exportNormalizedRestrictionCsv() {
   }
   const rows = [["시설ID", "시설명", "시설유형", "위도", "경도", "주소", "제한길이", "제한너비", "제한높이", "제한총중량", "제한축중", "허가필요", "출처", "기준일", "메모"]];
   [...review.facilities, ...(review.unresolvedFacilities || [])].forEach((facility) => rows.push([
-    facility.id, facility.name, facility.type, facility.lat, facility.lng, facility.address,
-    facility.maxLength, facility.maxWidth, facility.maxHeight, facility.maxTotalWeight, facility.maxAxleWeight,
+    facility.id, facility.name, facility.type, formatCsvFixedNumber(facility.lat, 6), formatCsvFixedNumber(facility.lng, 6), facility.address,
+    formatCsvFixedNumber(facility.maxLength), formatCsvFixedNumber(facility.maxWidth), formatCsvFixedNumber(facility.maxHeight),
+    formatCsvFixedNumber(facility.maxTotalWeight), formatCsvFixedNumber(facility.maxAxleWeight),
     facility.permitRequired ? "필요" : "", facility.source, facility.updatedAt, facility.note,
   ]));
   downloadTextFile(`제한시설-정리자료-${new Date().toISOString().slice(0, 10)}.csv`, `\uFEFF${rows.map((row) => row.map(escapeCsvCell).join(",")).join("\r\n")}`, "text/csv;charset=utf-8");
@@ -6788,15 +6793,24 @@ function exportRestrictionReviewCsv() {
     const facility = facilityMap.get(result.facilityId);
     if (!facility) return;
     rows.push([
-      route.name, stopSummary, route.routeSummary?.distance != null ? Math.round(route.routeSummary.distance) / 1000 : "",
-      route.routeSummary?.duration != null ? Math.round(route.routeSummary.duration / 60000) : "",
-      review.reviewedAt || "", spec.length, spec.width, spec.height, spec.totalWeight, spec.axleWeight,
-      facility.name, facility.type, result.distanceMeters,
-      getRestrictionStatusLabel(result.status), result.issues.join(" / "), facility.permitRequired ? "필요" : "", facility.lat, facility.lng,
+      route.name, stopSummary, formatCsvFixedNumber(route.routeSummary?.distance != null ? route.routeSummary.distance / 1000 : null),
+      formatCsvFixedNumber(route.routeSummary?.duration != null ? route.routeSummary.duration / 60000 : null),
+      review.reviewedAt || "", formatCsvFixedNumber(spec.length), formatCsvFixedNumber(spec.width), formatCsvFixedNumber(spec.height),
+      formatCsvFixedNumber(spec.totalWeight), formatCsvFixedNumber(spec.axleWeight),
+      facility.name, facility.type, formatCsvFixedNumber(result.distanceMeters),
+      getRestrictionStatusLabel(result.status), result.issues.join(" / "), facility.permitRequired ? "필요" : "",
+      formatCsvFixedNumber(facility.lat, 6), formatCsvFixedNumber(facility.lng, 6),
       facility.address, facility.source, facility.updatedAt, facility.note,
     ]);
   });
   downloadTextFile(`제한차량-조건검토-${route.name}-${new Date().toISOString().slice(0, 10)}.csv`, `\uFEFF${rows.map((row) => row.map(escapeCsvCell).join(",")).join("\r\n")}`, "text/csv;charset=utf-8");
+}
+
+function formatCsvFixedNumber(value, digits = 2) {
+  if (value == null || String(value).trim() === "") return "";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "";
+  return `="${number.toFixed(digits)}"`;
 }
 
 function escapeCsvCell(value) {
