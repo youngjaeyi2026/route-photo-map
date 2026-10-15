@@ -110,8 +110,8 @@
             <button id="plannedRouteToggleBtn" class="section-toggle" type="button">펼치기</button>
           </div>
           <div id="plannedRouteControls" class="planned-route-controls" hidden>
-            <p class="hint">1차 기본검토 · 출발지·경유지(최대 15개)·도착지를 지정해 일반 자동차 기준의 후보노선을 만들고 비교합니다.</p>
-            <p class="planned-route-notice">이 노선은 제한차량의 통과 가능성이나 운행허가를 판정하지 않는 사전검토용입니다.</p>
+            <p class="hint">1차 노선작성·확정 · 출발지·경유지(최대 15개)·도착지를 지정해 후보노선을 만들고, 기존 운행 이력 또는 검토 결과에 따라 확정합니다.</p>
+            <p class="planned-route-notice">노선 확정은 앱 안의 기준노선 지정이며 제한차량의 통과 가능성이나 운행허가 완료를 의미하지 않습니다.</p>
             <div class="planned-route-form">
               <input id="plannedRouteName" type="text" maxlength="120" placeholder="후보노선명 (예: 후보 A · 국도21호선)" />
               <div class="planned-route-methods" role="group" aria-label="후보노선 작성 방식">
@@ -145,10 +145,10 @@
                   <option value="draft">미검토</option>
                   <option value="surveying">답사 중</option>
                   <option value="review">수정 필요</option>
-                  <option value="approved">답사 검토 완료</option>
+                  <option value="approved">노선 확정</option>
                 </select>
               </label>
-              <textarea id="plannedRouteMemo" rows="2" maxlength="2000" placeholder="출발지·도착지, 주요 경유축과 검토사항"></textarea>
+              <textarea id="plannedRouteMemo" rows="2" maxlength="2000" placeholder="확정 근거(기존 운행·답사 완료·관계자 확인)와 주요 검토사항"></textarea>
               <div class="planned-route-actions">
                 <button id="plannedRouteStartBtn" class="primary-action" type="button">새 후보노선</button>
                 <button id="plannedRouteUndoBtn" type="button" disabled>마지막 점 취소</button>

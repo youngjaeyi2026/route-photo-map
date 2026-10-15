@@ -5889,7 +5889,7 @@ function getCandidateStatusLabel(status) {
     draft: "미검토",
     surveying: "답사 중",
     review: "수정 필요",
-    approved: "답사 검토 완료",
+    approved: "노선 확정",
   }[status] || "미검토";
 }
 

@@ -126,7 +126,11 @@ try {
   assert.match(pageHtml, /id="plannedRouteGoalPointBtn"/);
   assert.match(pageHtml, /id="plannedRouteSearchBtn"/);
   assert.match(pageHtml, /경유지\(최대 15개\)/);
-  assert.match(pageHtml, /제한차량의 통과 가능성이나 운행허가를 판정하지 않는 사전검토용/);
+  assert.match(
+    pageHtml,
+    /노선 확정은 앱 안의 기준노선 지정이며 제한차량의 통과 가능성이나 운행허가 완료를 의미하지 않습니다/,
+  );
+  assert.match(pageHtml, /<option value="approved">노선 확정<\/option>/);
   assert.match(pageHtml, /id="addObstaclePhotoBtn"/);
   assert.match(pageHtml, /id="obstaclePhotoInput"[^>]+multiple/);
   assert.doesNotMatch(pageHtml, /지도 이미지\/PDF 업로드/);
