@@ -6155,7 +6155,10 @@ function cancelPlannedRouteEditing() {
   state.plannedRouteSelection = "";
   state.plannedRouteSelectionStopId = "";
   state.plannedRouteSearching = false;
-  state.plannedRouteFeedback = null;
+  state.plannedRouteFeedback = {
+    message: "저장 완료 · 후보노선 편집을 종료했습니다. 다시 변경하려면 아래 노선의 수정 버튼을 누르세요.",
+    type: "success",
+  };
   writePlannedRouteForm();
   renderPlannedRoutes();
   setStatus("후보노선 편집을 취소했습니다.", "warning");
@@ -7103,6 +7106,7 @@ function renderPlannedRoutes() {
   els.plannedRouteStartBtn.disabled = state.planningMode || state.mapAlignmentMode || state.mapColorExtractionMode || Boolean(state.shareView);
   const editableCount = state.plannedRouteMode === "auto" ? draft?.stops?.length || 0 : draft?.points?.length || 0;
   els.plannedRouteUndoBtn.disabled = !state.planningMode || editableCount === 0 || state.plannedRouteSearching;
+  els.plannedRouteSaveBtn.textContent = state.planningMode ? "후보노선 저장" : state.activePlannedRouteId ? "저장 완료" : "후보노선 저장";
   els.plannedRouteSaveBtn.disabled = !state.planningMode || (draft?.points.length || 0) < 2;
   els.plannedRouteCancelBtn.disabled = !state.planningMode;
   els.plannedRouteName.disabled = !state.planningMode;
