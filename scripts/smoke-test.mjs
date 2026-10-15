@@ -90,7 +90,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261015-delete-safety-v4/);
+  assert.match(pageHtml, /20261015-session-overlay-v5/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -129,6 +129,8 @@ try {
   assert.match(pageHtml, /id="segmentRerouteWaypointBtn"/);
   assert.match(pageHtml, /id="segmentRerouteSearchBtn"/);
   assert.match(pageHtml, /id="segmentRerouteApplyBtn"/);
+  assert.match(pageHtml, /id="clearHistoryOverlaysBtn"/);
+  assert.match(pageHtml, /id="historyOverlayStatus"/);
   assert.match(pageHtml, /경유지\(최대 15개\)/);
   assert.match(
     pageHtml,
@@ -270,6 +272,9 @@ try {
   assert.match(appSource, /function startConfirmedRouteRevision\(routeId\)/);
   assert.match(appSource, /function searchSegmentReroute\(\)/);
   assert.match(appSource, /function applySegmentReroute\(\)/);
+  assert.match(appSource, /function toggleSessionOverlay\(sessionId\)/);
+  assert.match(appSource, /function clearSessionOverlays\(\)/);
+  assert.match(appSource, /function renderSessionOverlays\(\)/);
   assert.match(appSource, /다음 단계에서 '삭제'를 입력해야 최종 삭제됩니다/);
   assert.match(appSource, /verification\?\.trim\(\) !== "삭제"/);
   assert.match(appSource, /더 이상 사전노선 검토와 후보노선 수정을 진행할 수 없습니다/);

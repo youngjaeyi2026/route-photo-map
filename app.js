@@ -35,6 +35,7 @@ const REPRESENTATIVE_COLORS = [
   { name: "회색", value: "#3f4a46" },
 ];
 const OVERLAY_COLORS = ["#315f9e", "#c34236", "#1f7a57", "#6d4aa2", "#d96c1f", "#3f4a46", BRIGHT_YELLOW_COLOR, "#8b5a2b"];
+const SESSION_OVERLAY_COLORS = ["#315f9e", "#d96c1f", "#6d4aa2", "#c34236", "#8b5a2b", BRIGHT_YELLOW_COLOR, "#3f4a46"];
 const initialShareToken = getShareTokenFromPath();
 
 if (!window.L) {
@@ -124,6 +125,7 @@ const state = {
   mapColorExtractionMode: false,
   mapColorExtractionReferenceId: null,
   overlayProjects: [],
+  overlaySessionIds: [],
   sessions: [],
   pendingSessionDeletes: [],
   primarySessionId: null,
@@ -255,6 +257,8 @@ const els = {
   overlayProjectCode: document.querySelector("#overlayProjectCode"),
   addOverlayProjectBtn: document.querySelector("#addOverlayProjectBtn"),
   overlayProjectList: document.querySelector("#overlayProjectList"),
+  historyOverlayStatus: document.querySelector("#historyOverlayStatus"),
+  clearHistoryOverlaysBtn: document.querySelector("#clearHistoryOverlaysBtn"),
   colorPickerModal: document.querySelector("#colorPickerModal"),
   colorPickerTitle: document.querySelector("#colorPickerTitle"),
   colorPickerOptions: document.querySelector("#colorPickerOptions"),
@@ -367,6 +371,7 @@ const currentMarker = L.circleMarker([37.5665, 126.978], {
 const photoLayer = L.layerGroup().addTo(map);
 const milestoneLayer = L.layerGroup().addTo(map);
 const projectOverlayLayer = L.layerGroup().addTo(map);
+const sessionOverlayLayer = L.layerGroup().addTo(map);
 const pointLayer = L.layerGroup().addTo(map);
 const plannedRouteLayer = L.layerGroup().addTo(map);
 const segmentRerouteLayer = L.layerGroup().addTo(map);
@@ -772,6 +777,7 @@ els.overlayProjectCode?.addEventListener("keydown", (event) => {
     addOverlayProject();
   }
 });
+els.clearHistoryOverlaysBtn?.addEventListener("click", clearSessionOverlays);
 els.pointAddBtn?.addEventListener("click", addManualRoutePointFromSelection);
 els.pointConnectBtn?.addEventListener("click", connectSelectedRoutePoints);
 els.pointDeleteBtn?.addEventListener("click", deleteSelectedPoint);
@@ -2121,6 +2127,7 @@ function loadSession(sessionId) {
   if (!session) {
     return;
   }
+  removeSessionOverlay(sessionId);
 
   if (state.tracking) {
     stopTracking({ save: false });
@@ -2146,6 +2153,7 @@ function resumeSession(sessionId) {
   if (!session) {
     return;
   }
+  removeSessionOverlay(sessionId);
 
   if (state.tracking) {
     stopTracking({ save: false });
@@ -2183,6 +2191,7 @@ function setPrimarySession(sessionId) {
   if (!session) {
     return;
   }
+  removeSessionOverlay(sessionId);
   stopRouteFollowWatcher();
   state.destinationFollow = false;
   state.followProgressIndex = 0;
@@ -2235,6 +2244,8 @@ async function deleteSession(sessionId) {
   if (!ok) {
     return;
   }
+  removeSessionOverlay(sessionId);
+  renderSessionOverlays();
   queuePendingSessionDelete(state.projectCode, sessionId);
   persist();
   renderSessions();
@@ -2300,6 +2311,7 @@ async function performPendingSessionDelete(projectCode, sessionId) {
 
 function applyConfirmedSessionDeletion(project, sessionId, wasCurrentRecord) {
   state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
+  state.overlaySessionIds = state.overlaySessionIds.filter((id) => id !== sessionId);
   state.primarySessionId = project.primarySessionId || state.sessions[0]?.id || null;
   if (state.continuingSessionId === sessionId) {
     state.continuingSessionId = null;
@@ -2412,6 +2424,7 @@ function resetForNewProject() {
   state.constructionPinsVisible = true;
   state.photoPinsVisible = true;
   state.sessions = [];
+  state.overlaySessionIds = [];
   state.primarySessionId = null;
   state.continuingSessionId = null;
   state.selectedPosition = state.initialPosition || null;
@@ -2785,6 +2798,7 @@ function applyProject(project) {
   resetSegmentRerouteState();
   milestoneLayer.clearLayers();
   state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
+  state.overlaySessionIds = [];
   const liveSharedSession = state.shareView
     ? state.sessions.find(isRecentlyActiveSharedSession)
     : null;
@@ -3452,6 +3466,7 @@ function resetWorkspaceForSignedOut() {
   state.mapReferenceDraft = null;
   state.pendingMapReferenceImagePoint = null;
   state.sessions = [];
+  state.overlaySessionIds = [];
   state.primarySessionId = null;
   state.continuingSessionId = null;
   state.selectedPosition = null;
@@ -3766,6 +3781,7 @@ async function deleteMyProject(project) {
       state.mapReferenceDraft = null;
       state.pendingMapReferenceImagePoint = null;
       state.sessions = [];
+      state.overlaySessionIds = [];
       state.primarySessionId = null;
       state.shareLinks = [];
       persist();
@@ -4092,6 +4108,8 @@ async function verifyShareView(token) {
 function refreshSharedProject(project) {
   const lastState = project.lastState || {};
   state.sessions = Array.isArray(project.sessions) ? project.sessions : [];
+  state.overlaySessionIds = state.overlaySessionIds.filter((sessionId) =>
+    state.sessions.some((session) => session.id === sessionId));
   const liveSession = state.sessions.find(isRecentlyActiveSharedSession);
   state.primarySessionId = liveSession?.id || project.primarySessionId || state.sessions[0]?.id || null;
   state.milestones = normalizeMilestones(
@@ -4147,6 +4165,7 @@ function endSharedView(message) {
   state.mapReferenceDraft = null;
   state.pendingMapReferenceImagePoint = null;
   state.sessions = [];
+  state.overlaySessionIds = [];
   state.primarySessionId = null;
   state.selectedPosition = null;
   state.projectCode = "";
@@ -4449,11 +4468,22 @@ function renderNaverNativeOverlays() {
   if (activeMapProvider !== "naver" || !activeNaverBaseMap || !naverMaps) return;
 
   renderNaverNativeRoute(naverMaps);
+  renderNaverNativeSessionOverlays(naverMaps);
   renderNaverNativeCurrentPosition(naverMaps);
   renderNaverNativePhotos(naverMaps);
   renderNaverNativeMilestones(naverMaps);
   renderNaverNativeProjectOverlays(naverMaps);
   renderNaverNativeEditPoints(naverMaps);
+}
+
+function renderNaverNativeSessionOverlays(naverMaps) {
+  getVisibleSessionOverlays().forEach(({ session, color }) => {
+    createNaverNativePolyline(
+      session.points,
+      { color, weight: 5, opacity: 0.82, zIndex: 17 },
+      naverMaps,
+    );
+  });
 }
 
 function createNaverLatLngPath(points, naverMaps) {
@@ -4732,6 +4762,7 @@ function clearData() {
   state.photoPinsVisible = true;
   state.overlayProjects = [];
   state.sessions = [];
+  state.overlaySessionIds = [];
   state.primarySessionId = null;
   state.continuingSessionId = null;
   state.selectedPosition = state.initialPosition || null;
@@ -7499,6 +7530,7 @@ function renderPlannedRoutes() {
 
 function render() {
   renderRouteLines();
+  renderSessionOverlays();
   renderMapReferenceTools();
   scheduleMapReferenceRender();
   renderPlannedRoutes();
@@ -10732,12 +10764,21 @@ function renderSessions() {
   }
 
   els.historyList.innerHTML = "";
+  state.overlaySessionIds = state.overlaySessionIds.filter((sessionId) =>
+    state.sessions.some((session) => session.id === sessionId));
+  if (els.historyOverlayStatus) {
+    els.historyOverlayStatus.textContent = `겹쳐보기 ${state.overlaySessionIds.length}개`;
+  }
+  if (els.clearHistoryOverlaysBtn) {
+    els.clearHistoryOverlaysBtn.disabled = state.overlaySessionIds.length === 0;
+  }
   const pendingSessionIds = new Set(
     state.pendingSessionDeletes
       .filter((item) => item.projectCode === state.projectCode && (!item.userId || item.userId === state.user?.id))
       .map((item) => item.sessionId),
   );
   const visibleSessions = state.sessions.filter((session) => !pendingSessionIds.has(session.id));
+  const currentRecordSignature = getCurrentRecordSignature();
   if (visibleSessions.length === 0) {
     const empty = document.createElement("p");
     empty.className = "status-text";
@@ -10747,10 +10788,15 @@ function renderSessions() {
 
   visibleSessions.forEach((session) => {
     const isPrimary = state.primarySessionId === session.id;
+    const isCurrentRecord = Boolean(session.signature && currentRecordSignature === session.signature);
+    const isOverlay = state.overlaySessionIds.includes(session.id);
+    const overlayColor = isOverlay ? getSessionOverlayColor(session.id) : "";
     const item = document.createElement("article");
     item.className = "history-item";
     item.classList.toggle("is-continuing", state.continuingSessionId === session.id);
     item.classList.toggle("is-primary", isPrimary);
+    item.classList.toggle("is-overlay", isOverlay);
+    if (isOverlay) item.style.setProperty("--history-overlay-color", overlayColor);
 
     const body = document.createElement("div");
     body.className = "history-info";
@@ -10790,6 +10836,14 @@ function renderSessions() {
     loadButton.type = "button";
     loadButton.textContent = "보기";
     loadButton.addEventListener("click", () => loadSession(session.id));
+    const overlayButton = document.createElement("button");
+    overlayButton.type = "button";
+    overlayButton.textContent = isCurrentRecord ? "현재 동선" : isOverlay ? "겹쳐보기 해제" : "겹쳐보기";
+    overlayButton.className = "history-overlay-action";
+    overlayButton.classList.toggle("is-active", isOverlay);
+    if (isOverlay) overlayButton.style.setProperty("--history-overlay-color", overlayColor);
+    overlayButton.disabled = isCurrentRecord || (session.points || []).length < 2;
+    overlayButton.addEventListener("click", () => toggleSessionOverlay(session.id));
     const editButton = document.createElement("button");
     editButton.type = "button";
     editButton.textContent = "수정";
@@ -10798,7 +10852,7 @@ function renderSessions() {
     deleteButton.type = "button";
     deleteButton.textContent = "삭제";
     deleteButton.addEventListener("click", () => deleteSession(session.id));
-    actions.append(primaryButton, resumeButton, loadButton, editButton, deleteButton);
+    actions.append(primaryButton, resumeButton, loadButton, overlayButton, editButton, deleteButton);
 
     item.append(body, actions);
     els.historyList.append(item);
@@ -10810,6 +10864,75 @@ function renderSessions() {
     pendingStatus.textContent = `삭제 대기 중 ${pendingSessionIds.size}건 · 온라인 연결 시 자동 확인합니다.`;
     els.historyList.append(pendingStatus);
   }
+}
+
+function getSessionOverlayColor(sessionId) {
+  const sessionIndex = Math.max(0, state.sessions.findIndex((session) => session.id === sessionId));
+  return SESSION_OVERLAY_COLORS[sessionIndex % SESSION_OVERLAY_COLORS.length];
+}
+
+function getVisibleSessionOverlays() {
+  return state.overlaySessionIds
+    .map((sessionId) => {
+      const session = state.sessions.find((item) => item.id === sessionId);
+      return session && (session.points || []).length >= 2
+        ? { session, color: getSessionOverlayColor(sessionId) }
+        : null;
+    })
+    .filter(Boolean);
+}
+
+function toggleSessionOverlay(sessionId) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session || (session.points || []).length < 2) {
+    setStatus("위치점이 2개 이상인 기록만 겹쳐 볼 수 있습니다.", "warning");
+    return;
+  }
+  if (state.overlaySessionIds.includes(sessionId)) {
+    removeSessionOverlay(sessionId);
+    renderSessionOverlays();
+    renderSessions();
+    setStatus(`'${session.name || "저장 기록"}' 겹쳐보기를 해제했습니다.`);
+    return;
+  }
+  if (getCurrentRecordSignature() === session.signature) {
+    setStatus("이 기록은 현재 기본 동선으로 표시되고 있습니다. 다른 기록을 겹쳐보기로 선택해 주세요.", "warning");
+    return;
+  }
+  state.overlaySessionIds.push(sessionId);
+  renderSessionOverlays();
+  renderSessions();
+  setStatus(`'${session.name || "저장 기록"}' 동선을 겹쳐 표시했습니다.`, "success");
+}
+
+function removeSessionOverlay(sessionId) {
+  state.overlaySessionIds = state.overlaySessionIds.filter((id) => id !== sessionId);
+}
+
+function clearSessionOverlays() {
+  if (!state.overlaySessionIds.length) return;
+  state.overlaySessionIds = [];
+  renderSessionOverlays();
+  renderSessions();
+  setStatus("모든 기록 겹쳐보기를 초기화했습니다.");
+}
+
+function renderSessionOverlays() {
+  sessionOverlayLayer.clearLayers();
+  getVisibleSessionOverlays().forEach(({ session, color }) => {
+    const points = session.points.filter((point) =>
+      Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)));
+    if (points.length < 2) return;
+    const line = L.polyline(points.map((point) => [Number(point.lat), Number(point.lng)]), {
+      color,
+      weight: 5,
+      opacity: 0.76,
+      lineCap: "round",
+      lineJoin: "round",
+    }).addTo(sessionOverlayLayer);
+    line.bringToBack?.();
+  });
+  scheduleNaverNativeOverlayRender();
 }
 
 function getSessionUpdatedTime(session) {
@@ -10859,6 +10982,9 @@ function fitToData() {
           .forEach((pin) => bounds.extend([pin.lat, pin.lng]));
       }
     });
+  getVisibleSessionOverlays().forEach(({ session }) => {
+    session.points.forEach((point) => bounds.extend([point.lat, point.lng]));
+  });
 
   if (bounds.isValid()) {
     map.fitBounds(bounds, { padding: [42, 42], maxZoom: 17 });
@@ -11475,6 +11601,7 @@ function loadState() {
     state.plannedRouteDraft = null;
     state.overlayProjects = [];
     state.sessions = [];
+    state.overlaySessionIds = [];
     state.primarySessionId = null;
     state.selectedPosition = null;
     state.initialPosition = null;

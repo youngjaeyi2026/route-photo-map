@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20261015-delete-safety-v4" />
+    <link rel="stylesheet" href="/styles.css?v=20261015-session-overlay-v5" />
   </head>
   <body>
     <script>
@@ -393,7 +393,11 @@
         <section class="panel-section history-section">
           <div class="section-title">
             <h2>기록 보기</h2>
-            <span class="hint">저장된 동선을 다시 불러옵니다.</span>
+            <span class="hint">저장된 동선을 다시 불러오거나 함께 비교합니다.</span>
+          </div>
+          <div class="history-overlay-controls">
+            <span id="historyOverlayStatus">겹쳐보기 0개</span>
+            <button id="clearHistoryOverlaysBtn" type="button" disabled>겹쳐보기 초기화</button>
           </div>
           <div id="historyList" class="history-list"></div>
         </section>
@@ -497,6 +501,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20261015-delete-safety-v4"></script>
+    <script src="/app.js?v=20261015-session-overlay-v5"></script>
   </body>
 </html>
