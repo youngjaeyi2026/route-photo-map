@@ -7062,7 +7062,7 @@ function renderPlannedRoutes() {
     const actionItems = [
       [route.visible === false ? "보기" : "숨기기", () => togglePlannedRouteVisibility(route.id), false],
       [route.id === state.activePlannedRouteId ? "기준" : "기준 지정", () => setActivePlannedRoute(route.id), route.id === state.activePlannedRouteId],
-      ["지도 보기", () => fitPlannedRoute(route.points), false],
+      ["지도\n보기", () => fitPlannedRoute(route.points), false],
       ["수정", () => startPlannedRouteEditing(route.id), false],
       ["삭제", () => deletePlannedRoute(route.id), false],
     ];
@@ -7070,6 +7070,7 @@ function renderPlannedRoutes() {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
+      button.classList.toggle("is-two-line", label.includes("\n"));
       button.classList.toggle("is-active", active);
       button.disabled = Boolean(state.shareView);
       button.addEventListener("click", handler);

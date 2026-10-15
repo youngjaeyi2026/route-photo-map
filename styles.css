@@ -2137,6 +2137,13 @@ body.is-map-point-selection #map .leaflet-interactive {
   background: #db8a2b;
 }
 
+.planned-route-item__actions button.is-two-line {
+  min-height: 40px;
+  padding-block: 4px;
+  line-height: 1.2;
+  white-space: pre-line;
+}
+
 .planned-route-point-icon {
   border: 0;
   background: transparent;
