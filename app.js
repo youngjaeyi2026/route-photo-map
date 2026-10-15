@@ -6634,7 +6634,25 @@ function togglePlannedRouteVisibility(routeId) {
 
 function deletePlannedRoute(routeId) {
   const route = state.plannedRoutes.find((item) => item.id === routeId);
-  if (!route || !window.confirm(`'${route.name}' 후보노선을 삭제할까요?`)) {
+  if (!route) {
+    return;
+  }
+  if (isPlannedRouteConfirmed(route)) {
+    setStatus("확정노선은 삭제할 수 없습니다. 필요한 경우 확정노선 수정으로 새 수정본을 만들어 주세요.", "warning");
+    return;
+  }
+  const pointCount = route.points?.length || 0;
+  const waypointCount = route.stops?.filter((stop) => stop.kind === "waypoint").length || 0;
+  const activeWarning = state.activePlannedRouteId === routeId
+    ? "\n\n현재 기준 노선입니다. 삭제하면 남아 있는 다른 후보노선이 새 기준으로 지정됩니다."
+    : "";
+  const accepted = window.confirm(
+    `'${route.name}' 후보노선을 삭제하시겠습니까?\n\n위치점: ${pointCount}개\n경유지: ${waypointCount}개${activeWarning}\n\n노선과 검토 정보가 서버에서도 삭제되며 복구할 수 없습니다. 다음 단계에서 '삭제'를 입력해야 최종 삭제됩니다.`,
+  );
+  if (!accepted) return;
+  const verification = window.prompt(`최종 확인\n\n'${route.name}'을 삭제하려면 아래 입력란에 삭제를 입력하세요.`);
+  if (verification?.trim() !== "삭제") {
+    setStatus("후보노선 삭제를 취소했습니다. 자료는 그대로 유지됩니다.", "warning");
     return;
   }
   state.plannedRoutes = state.plannedRoutes.filter((item) => item.id !== routeId);
@@ -6644,6 +6662,7 @@ function deletePlannedRoute(routeId) {
   persist();
   renderPlannedRoutes();
   void syncProjectState("delete-planned-route");
+  setStatus(`'${route.name}' 후보노선을 삭제했습니다.`, "success");
 }
 
 function getRestrictionReviewRoute() {

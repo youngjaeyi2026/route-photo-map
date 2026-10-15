@@ -90,7 +90,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261015-route-revision-v3/);
+  assert.match(pageHtml, /20261015-delete-safety-v4/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -270,6 +270,8 @@ try {
   assert.match(appSource, /function startConfirmedRouteRevision\(routeId\)/);
   assert.match(appSource, /function searchSegmentReroute\(\)/);
   assert.match(appSource, /function applySegmentReroute\(\)/);
+  assert.match(appSource, /다음 단계에서 '삭제'를 입력해야 최종 삭제됩니다/);
+  assert.match(appSource, /verification\?\.trim\(\) !== "삭제"/);
   assert.match(appSource, /더 이상 사전노선 검토와 후보노선 수정을 진행할 수 없습니다/);
   assert.match(appSource, /reason: "planned-route-confirmed"/);
   assert.match(appSource, /state\.primarySessionId = session\.id/);
