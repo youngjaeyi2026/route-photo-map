@@ -5896,6 +5896,7 @@ function getCandidateStatusLabel(status) {
 function writePlannedRouteForm(route = null) {
   if (!els.plannedRouteName) return;
   els.plannedRouteName.value = route?.name || "";
+  els.plannedRouteName.dataset.routeId = route?.id || "";
   els.plannedRouteMemo.value = route?.memo || "";
   els.plannedRouteStatusSelect.value = route?.status || "draft";
   if (els.plannedRouteOption) els.plannedRouteOption.value = normalizePlannedRouteOption(route?.routeOption);
@@ -6156,17 +6157,36 @@ function cancelPlannedRouteEditing() {
   state.plannedRouteSelectionStopId = "";
   state.plannedRouteSearching = false;
   state.plannedRouteFeedback = {
-    message: "저장 완료 · 후보노선 편집을 종료했습니다. 다시 변경하려면 아래 노선의 수정 버튼을 누르세요.",
-    type: "success",
+    message: "후보노선 편집을 취소했습니다.",
+    type: "warning",
   };
-  writePlannedRouteForm();
+  writePlannedRouteForm(getActivePlannedRoute());
   renderPlannedRoutes();
   setStatus("후보노선 편집을 취소했습니다.", "warning");
 }
 
 async function savePlannedRoute() {
+  if (!state.planningMode) {
+    const activeRoute = getActivePlannedRoute();
+    if (!activeRoute || state.shareView) {
+      setStatus("저장할 후보노선을 먼저 선택해 주세요.", "warning");
+      return;
+    }
+    activeRoute.name = els.plannedRouteName.value.trim() || activeRoute.name || "후보노선";
+    activeRoute.memo = els.plannedRouteMemo.value.trim();
+    activeRoute.status = els.plannedRouteStatusSelect.value;
+    activeRoute.updatedAt = Date.now();
+    state.plannedRouteFeedback = {
+      message: "후보노선명·검토 상태·검토사항을 저장했습니다. 노선 선형을 바꾸려면 아래 수정 버튼을 누르세요.",
+      type: "success",
+    };
+    writePlannedRouteForm(activeRoute);
+    renderPlannedRoutes();
+    finishPlannedRouteSave(persist());
+    return;
+  }
   const draft = state.plannedRouteDraft;
-  if (!state.planningMode || !draft || draft.points.length < 2) {
+  if (!draft || draft.points.length < 2) {
     setStatus("후보노선은 출발지와 도착지를 포함해 위치점을 2개 이상 지정해야 저장할 수 있습니다.", "warning");
     return;
   }
@@ -6187,10 +6207,16 @@ async function savePlannedRoute() {
   state.plannedRouteSelection = "";
   state.plannedRouteSelectionStopId = "";
   state.plannedRouteSearching = false;
-  state.plannedRouteFeedback = null;
-  writePlannedRouteForm();
+  state.plannedRouteFeedback = {
+    message: "후보노선을 저장했습니다. 노선명·검토 상태·검토사항은 위 입력란에서 계속 변경할 수 있습니다.",
+    type: "success",
+  };
+  writePlannedRouteForm(getActivePlannedRoute());
   renderPlannedRoutes();
-  const localSaved = persist();
+  finishPlannedRouteSave(persist());
+}
+
+function finishPlannedRouteSave(localSaved) {
   setStatus(
     localSaved
       ? "후보노선을 기기에 저장했습니다. 서버 동기화를 시작합니다."
@@ -7049,6 +7075,10 @@ function renderPlannedRoutes() {
   }
 
   if (!els.plannedRouteList) return;
+  const activeRoute = getActivePlannedRoute();
+  if (!state.planningMode && (els.plannedRouteName.dataset.routeId || "") !== (activeRoute?.id || "")) {
+    writePlannedRouteForm(activeRoute);
+  }
   els.plannedRouteList.replaceChildren();
   state.plannedRoutes.forEach((route) => {
     const item = document.createElement("article");
@@ -7106,12 +7136,15 @@ function renderPlannedRoutes() {
   els.plannedRouteStartBtn.disabled = state.planningMode || state.mapAlignmentMode || state.mapColorExtractionMode || Boolean(state.shareView);
   const editableCount = state.plannedRouteMode === "auto" ? draft?.stops?.length || 0 : draft?.points?.length || 0;
   els.plannedRouteUndoBtn.disabled = !state.planningMode || editableCount === 0 || state.plannedRouteSearching;
-  els.plannedRouteSaveBtn.textContent = state.planningMode ? "후보노선 저장" : state.activePlannedRouteId ? "저장 완료" : "후보노선 저장";
-  els.plannedRouteSaveBtn.disabled = !state.planningMode || (draft?.points.length || 0) < 2;
+  els.plannedRouteSaveBtn.textContent = state.planningMode ? "후보노선 저장" : activeRoute ? "정보 저장" : "후보노선 저장";
+  els.plannedRouteSaveBtn.disabled = state.planningMode
+    ? (draft?.points.length || 0) < 2
+    : !activeRoute || Boolean(state.shareView);
   els.plannedRouteCancelBtn.disabled = !state.planningMode;
-  els.plannedRouteName.disabled = !state.planningMode;
-  els.plannedRouteMemo.disabled = !state.planningMode;
-  els.plannedRouteStatusSelect.disabled = !state.planningMode;
+  const canEditRouteInfo = !state.shareView && Boolean(state.planningMode || activeRoute);
+  els.plannedRouteName.disabled = !canEditRouteInfo;
+  els.plannedRouteMemo.disabled = !canEditRouteInfo;
+  els.plannedRouteStatusSelect.disabled = !canEditRouteInfo;
   if (els.plannedRouteAutoBtn) {
     els.plannedRouteAutoBtn.disabled = !state.planningMode || state.plannedRouteSearching;
     els.plannedRouteAutoBtn.classList.toggle("is-active", state.plannedRouteMode === "auto");
