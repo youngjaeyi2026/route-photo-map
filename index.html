@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20261015-route-discovery-v3" />
+    <link rel="stylesheet" href="/styles.css?v=20261015-route-confirmation-v2" />
   </head>
   <body>
     <script>
@@ -138,22 +138,6 @@
                   </label>
                   <button id="plannedRouteSearchBtn" class="primary-action" type="button">후보노선 검색</button>
                 </div>
-                <div class="route-discovery-box">
-                  <div class="route-discovery-heading">
-                    <strong>자동 노선 발굴</strong>
-                    <span>출발지와 도착지만으로 여러 방향의 노선을 탐색합니다.</span>
-                  </div>
-                  <div class="planned-route-spec-grid">
-                    <label><span>길이(m)</span><input id="discoveryVehicleLength" type="number" min="0" step="0.1" inputmode="decimal" placeholder="38.9" /></label>
-                    <label><span>너비(m)</span><input id="discoveryVehicleWidth" type="number" min="0" step="0.1" inputmode="decimal" placeholder="4.5" /></label>
-                    <label><span>높이(m)</span><input id="discoveryVehicleHeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="5.6" /></label>
-                    <label><span>총중량(t)</span><input id="discoveryVehicleTotalWeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="147.5" /></label>
-                    <label><span>축중(t)</span><input id="discoveryVehicleAxleWeight" type="number" min="0" step="0.1" inputmode="decimal" placeholder="4.1" /></label>
-                  </div>
-                  <button id="routeDiscoveryBtn" class="route-discovery-action" type="button">여러 후보노선 자동 발굴</button>
-                  <p id="routeDiscoveryStatus" class="status-text">차량제원을 입력하고 지도에서 출발지·도착지를 선택하세요.</p>
-                  <p class="hint">자동 발굴은 일반 도로망에서 비교할 후보를 넓게 찾는 기능입니다. 제한차량 통행 가능·허가 여부는 확정하지 않습니다.</p>
-                </div>
               </div>
               <label class="planned-route-status-field">
                 <span>검토 상태</span>
@@ -184,7 +168,7 @@
         <section class="panel-section route-review-phase-two">
           <details id="restrictionReviewDetails">
             <summary>
-              <span>제한조건 검증 (선택)</span>
+              <span>2차 제한차량 조건검토</span>
               <span id="restrictionReviewBadge" class="badge">자료 준비</span>
             </summary>
             <div class="route-review-phase-two__body">
@@ -497,6 +481,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20261015-route-discovery-v3"></script>
+    <script src="/app.js?v=20261015-route-confirmation-v2"></script>
   </body>
 </html>
