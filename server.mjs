@@ -773,6 +773,10 @@ function sanitizePlannedRoutes(routes) {
     status: ["draft", "surveying", "review", "approved"].includes(route?.status)
       ? route.status
       : "draft",
+    confirmedAt: route?.confirmedAt || null,
+    confirmedProjectName: String(route?.confirmedProjectName || "").trim().slice(0, 120),
+    confirmedPointCount: Math.max(0, Number(route?.confirmedPointCount) || 0),
+    confirmationSessionId: String(route?.confirmationSessionId || "").slice(0, 100),
     vehicleSpec: {
       length: sanitizePositiveNumber(route?.vehicleSpec?.length),
       width: sanitizePositiveNumber(route?.vehicleSpec?.width),

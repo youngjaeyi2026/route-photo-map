@@ -5721,6 +5721,10 @@ function normalizePlannedRoutes(routes) {
         searchedAt: route?.routeSummary?.searchedAt || null,
       },
       status: ["draft", "surveying", "review", "approved"].includes(route?.status) ? route.status : "draft",
+      confirmedAt: route?.confirmedAt || null,
+      confirmedProjectName: String(route?.confirmedProjectName || "").trim().slice(0, 120),
+      confirmedPointCount: Math.max(0, Number(route?.confirmedPointCount) || 0),
+      confirmationSessionId: String(route?.confirmationSessionId || ""),
       vehicleSpec: {
         length: normalizePositiveNumber(route?.vehicleSpec?.length),
         width: normalizePositiveNumber(route?.vehicleSpec?.width),
@@ -5893,6 +5897,10 @@ function getCandidateStatusLabel(status) {
   }[status] || "미검토";
 }
 
+function isPlannedRouteConfirmed(route) {
+  return route?.status === "approved" && Number(route?.confirmedPointCount) >= 2;
+}
+
 function writePlannedRouteForm(route = null) {
   if (!els.plannedRouteName) return;
   els.plannedRouteName.value = route?.name || "";
@@ -5927,6 +5935,10 @@ async function startPlannedRouteEditing(routeId = null) {
     return;
   }
   const existing = state.plannedRoutes.find((route) => route.id === routeId);
+  if (isPlannedRouteConfirmed(existing)) {
+    setStatus("확정된 노선은 후보노선에서 다시 수정하지 않습니다. 위치 편집에서 위치점을 보정해 주세요.", "warning");
+    return;
+  }
   state.planningMode = true;
   state.plannedRouteDraft = existing
     ? structuredClone(existing)
@@ -6172,9 +6184,22 @@ async function savePlannedRoute() {
       setStatus("저장할 후보노선을 먼저 선택해 주세요.", "warning");
       return;
     }
-    activeRoute.name = els.plannedRouteName.value.trim() || activeRoute.name || "후보노선";
-    activeRoute.memo = els.plannedRouteMemo.value.trim();
-    activeRoute.status = els.plannedRouteStatusSelect.value;
+    const nextName = els.plannedRouteName.value.trim() || activeRoute.name || "후보노선";
+    const nextMemo = els.plannedRouteMemo.value.trim();
+    const nextStatus = els.plannedRouteStatusSelect.value;
+    if (!isPlannedRouteConfirmed(activeRoute) && nextStatus === "approved") {
+      const confirmed = confirmPlannedRoute(activeRoute, { name: nextName, memo: nextMemo });
+      if (!confirmed) {
+        writePlannedRouteForm(activeRoute);
+        renderPlannedRoutes();
+        return;
+      }
+      finishPlannedRouteSave(persist(), { confirmed: true, pointCount: state.points.length });
+      return;
+    }
+    activeRoute.name = nextName;
+    activeRoute.memo = nextMemo;
+    activeRoute.status = nextStatus;
     activeRoute.updatedAt = Date.now();
     state.plannedRouteFeedback = {
       message: "후보노선명·검토 상태·검토사항을 저장했습니다. 노선 선형을 바꾸려면 아래 수정 버튼을 누르세요.",
@@ -6192,7 +6217,9 @@ async function savePlannedRoute() {
   }
   draft.name = els.plannedRouteName.value.trim() || `후보 ${String.fromCharCode(65 + Math.min(25, state.plannedRoutes.length))}`;
   draft.memo = els.plannedRouteMemo.value.trim();
-  draft.status = els.plannedRouteStatusSelect.value;
+  const nextStatus = els.plannedRouteStatusSelect.value;
+  const previousStatus = draft.status;
+  draft.status = nextStatus === "approved" ? previousStatus : nextStatus;
   draft.routeOption = normalizePlannedRouteOption(els.plannedRouteOption?.value);
   draft.updatedAt = Date.now();
   const existingIndex = state.plannedRoutes.findIndex((route) => route.id === draft.id);
@@ -6207,6 +6234,22 @@ async function savePlannedRoute() {
   state.plannedRouteSelection = "";
   state.plannedRouteSelectionStopId = "";
   state.plannedRouteSearching = false;
+  if (nextStatus === "approved") {
+    const savedRoute = state.plannedRoutes.find((route) => route.id === draft.id);
+    const confirmed = confirmPlannedRoute(savedRoute, { name: draft.name, memo: draft.memo });
+    if (!confirmed) {
+      writePlannedRouteForm(savedRoute);
+      state.plannedRouteFeedback = {
+        message: "후보노선은 저장했고 노선 확정은 취소했습니다. 검토를 계속할 수 있습니다.",
+        type: "warning",
+      };
+      renderPlannedRoutes();
+      finishPlannedRouteSave(persist());
+      return;
+    }
+    finishPlannedRouteSave(persist(), { confirmed: true, pointCount: state.points.length });
+    return;
+  }
   state.plannedRouteFeedback = {
     message: "후보노선을 저장했습니다. 노선명·검토 상태·검토사항은 위 입력란에서 계속 변경할 수 있습니다.",
     type: "success",
@@ -6216,20 +6259,141 @@ async function savePlannedRoute() {
   finishPlannedRouteSave(persist());
 }
 
-function finishPlannedRouteSave(localSaved) {
+function confirmPlannedRoute(route, updates = {}) {
+  if (!route || route.points.length < 2) return false;
+  const routeName = String(updates.name || route.name || "후보노선").trim();
+  const projectName = String(state.projectName || els.projectName?.value || "프로젝트").trim();
+  const existingPointCount = state.points.length;
+  const replacementNotice = existingPointCount
+    ? `\n현재 위치점 ${existingPointCount}개는 새 기준동선으로 교체되며, 기존 동선은 저장 기록으로 보관됩니다.\n`
+    : "\n";
+  const accepted = window.confirm(
+    `노선을 확정할까요?\n\n프로젝트명: ${projectName}\n사전노선명: ${routeName}\n전환 위치점: ${route.points.length}개\n${replacementNotice}\n확정하면 더 이상 사전노선 검토와 후보노선 수정을 진행할 수 없습니다.\n후보노선은 프로젝트 위치점으로 전환되며, 이후에는 '위치 편집'에서 수정합니다.`,
+  );
+  if (!accepted) {
+    setStatus("노선 확정을 취소했습니다. 후보노선 검토를 계속할 수 있습니다.", "warning");
+    return false;
+  }
+
+  preserveCurrentRecordBeforeRouteConfirmation(projectName);
+  const confirmedAt = Date.now();
+  const confirmedPoints = createConfirmedRoutePoints(route, confirmedAt);
+  route.name = routeName;
+  route.memo = String(updates.memo ?? route.memo ?? "").trim();
+  route.status = "approved";
+  route.confirmedAt = new Date(confirmedAt).toISOString();
+  route.confirmedProjectName = projectName;
+  route.confirmedPointCount = confirmedPoints.length;
+  route.visible = false;
+  route.updatedAt = confirmedAt;
+
+  state.points = confirmedPoints;
+  state.selectedPosition = confirmedPoints.at(-1) || state.initialPosition || null;
+  state.activeStartedAt = null;
+  state.continuingSessionId = null;
+  state.liveSyncSessionId = null;
+  state.lastSyncedPointCount = confirmedPoints.length;
+  state.undoRouteEdit = null;
+  state.selectedPointIndex = null;
+  state.lastRoutePointIndex = null;
+  state.segmentStartIndex = null;
+  state.segmentEndIndex = null;
+
+  const session = createConfirmedRouteSession(route, projectName, confirmedAt);
+  route.confirmationSessionId = session.id;
+  state.sessions = [session, ...state.sessions.filter((item) => item.id !== session.id)].slice(0, 50);
+  state.primarySessionId = session.id;
+  state.plannedRouteFeedback = {
+    message: `노선을 확정해 위치점 ${confirmedPoints.length}개로 전환했습니다. 이후 수정은 위치 편집에서 진행하세요.`,
+    type: "success",
+  };
+  writePlannedRouteForm(route);
+  render();
+  fitPlannedRoute(confirmedPoints);
+  return true;
+}
+
+function preserveCurrentRecordBeforeRouteConfirmation(projectName) {
+  if (!state.points.length && !state.photos.length) return;
+  const signature = getCurrentRecordSignature();
+  if (state.sessions.some((session) => session.signature === signature)) return;
+  const savedAt = Date.now();
+  const startedAt = state.points[0]?.timestamp || savedAt;
+  state.sessions.unshift({
+    id: crypto.randomUUID(),
+    name: `${projectName} · 노선 확정 전 기록`,
+    memo: "후보노선을 기준동선으로 전환하기 전에 자동 보관한 기록",
+    reason: "before-planned-route-confirmation",
+    startedAt,
+    endedAt: state.points.at(-1)?.timestamp || savedAt,
+    updatedAt: savedAt,
+    distanceMeters: getTotalDistance(),
+    points: structuredClone(state.points),
+    photos: structuredClone(state.photos),
+    signature,
+    recordingActive: false,
+  });
+}
+
+function createConfirmedRoutePoints(route, confirmedAt) {
+  const pointCount = route.points.length;
+  const duration = Math.max(0, Number(route.routeSummary?.duration) || 0);
+  const fallbackDuration = Math.max(0, pointCount - 1) * 1000;
+  const timelineDuration = duration || fallbackDuration;
+  const startedAt = confirmedAt - timelineDuration;
+  const interval = pointCount > 1 ? timelineDuration / (pointCount - 1) : 0;
+  return route.points.map((point, index) => ({
+    lat: Number(point.lat),
+    lng: Number(point.lng),
+    accuracy: 0,
+    timestamp: Math.round(startedAt + interval * index),
+    source: "planned-route",
+    plannedRouteId: route.id,
+  }));
+}
+
+function createConfirmedRouteSession(route, projectName, confirmedAt) {
+  const distanceMeters = route.routeSummary?.distance ?? state.points.reduce((total, point, index, points) =>
+    index ? total + getDistanceMeters(points[index - 1], point) : total, 0);
+  const session = {
+    id: crypto.randomUUID(),
+    name: `${route.name} · 확정노선`,
+    memo: `프로젝트: ${projectName}${route.memo ? ` · ${route.memo}` : ""}`,
+    reason: "planned-route-confirmed",
+    plannedRouteId: route.id,
+    routeConfirmation: true,
+    startedAt: state.points[0]?.timestamp || confirmedAt,
+    endedAt: state.points.at(-1)?.timestamp || confirmedAt,
+    updatedAt: confirmedAt,
+    distanceMeters,
+    points: structuredClone(state.points),
+    photos: structuredClone(state.photos),
+    recordingActive: false,
+  };
+  session.signature = getRecordSignature(session.points, session.photos);
+  return session;
+}
+
+function finishPlannedRouteSave(localSaved, options = {}) {
+  const confirmed = Boolean(options.confirmed);
+  const pointCount = Math.max(0, Number(options.pointCount) || 0);
   setStatus(
     localSaved
-      ? "후보노선을 기기에 저장했습니다. 서버 동기화를 시작합니다."
+      ? confirmed
+        ? `확정노선을 위치점 ${pointCount}개로 전환해 기기에 저장했습니다. 서버 동기화를 시작합니다.`
+        : "후보노선을 기기에 저장했습니다. 서버 동기화를 시작합니다."
       : "후보노선 화면은 반영했지만 기기 저장공간이 부족합니다. 서버 동기화를 확인해 주세요.",
     localSaved ? "active" : "warning",
   );
   window.setTimeout(() => {
     try {
       saveProjectRecoveryBackup("planned-route");
-      void syncProjectState("planned-route").then((serverSaved) => {
+      void syncProjectState(confirmed ? "planned-route-confirmed" : "planned-route").then((serverSaved) => {
         setStatus(
           serverSaved
-            ? "후보노선을 프로젝트에 저장했습니다. PC와 모바일에서 함께 확인할 수 있습니다."
+            ? confirmed
+              ? `노선을 확정했습니다. 위치점 ${pointCount}개를 위치 편집에서 수정할 수 있습니다.`
+              : "후보노선을 프로젝트에 저장했습니다. PC와 모바일에서 함께 확인할 수 있습니다."
             : "후보노선을 이 기기에 보관했습니다. 서버 연결 후 다시 동기화해 주세요.",
           serverSaved ? "success" : "warning",
         );
@@ -7102,7 +7266,17 @@ function renderPlannedRoutes() {
     const waypointCount = route.stops?.filter((stop) => stop.kind === "waypoint").length || 0;
     const routeMethod = route.source === "naver-directions" ? `자동검색${waypointCount ? ` · 경유 ${waypointCount}` : ""}` : "수동노선";
     const durationText = route.routeSummary?.duration != null ? ` · ${formatRouteDuration(route.routeSummary.duration)}` : "";
-    meta.textContent = `${getCandidateStatusLabel(route.status)} · ${routeMethod} · ${formatDistance(distance)}${durationText}${specParts.length ? ` · ${specParts.join(" / ")}` : ""}${route.memo ? ` · ${route.memo}` : ""}`;
+    const routeConfirmed = isPlannedRouteConfirmed(route);
+    const statusLabel = route.status === "approved" && !routeConfirmed
+      ? "노선 확정 대기"
+      : getCandidateStatusLabel(route.status);
+    const confirmedProject = routeConfirmed && route.confirmedProjectName
+      ? ` · 프로젝트 ${route.confirmedProjectName}`
+      : "";
+    const confirmedPoints = routeConfirmed
+      ? ` · 위치점 ${route.confirmedPointCount}개`
+      : "";
+    meta.textContent = `${statusLabel}${confirmedProject}${confirmedPoints} · ${routeMethod} · ${formatDistance(distance)}${durationText}${specParts.length ? ` · ${specParts.join(" / ")}` : ""}${route.memo ? ` · ${route.memo}` : ""}`;
     info.append(title, meta);
     const actions = document.createElement("div");
     actions.className = "planned-route-item__actions";
@@ -7110,16 +7284,16 @@ function renderPlannedRoutes() {
       [route.visible === false ? "보기" : "숨기기", () => togglePlannedRouteVisibility(route.id), false],
       [route.id === state.activePlannedRouteId ? "기준" : "기준 지정", () => setActivePlannedRoute(route.id), route.id === state.activePlannedRouteId],
       ["지도\n보기", () => fitPlannedRoute(route.points), false],
-      ["수정", () => startPlannedRouteEditing(route.id), false],
-      ["삭제", () => deletePlannedRoute(route.id), false],
+      [routeConfirmed ? "확정됨" : "수정", () => startPlannedRouteEditing(route.id), routeConfirmed, routeConfirmed],
+      ["삭제", () => deletePlannedRoute(route.id), false, routeConfirmed],
     ];
-    actionItems.forEach(([label, handler, active]) => {
+    actionItems.forEach(([label, handler, active, disabled]) => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
       button.classList.toggle("is-two-line", label.includes("\n"));
       button.classList.toggle("is-active", active);
-      button.disabled = Boolean(state.shareView);
+      button.disabled = Boolean(state.shareView) || Boolean(disabled);
       button.addEventListener("click", handler);
       actions.append(button);
     });
@@ -7136,12 +7310,19 @@ function renderPlannedRoutes() {
   els.plannedRouteStartBtn.disabled = state.planningMode || state.mapAlignmentMode || state.mapColorExtractionMode || Boolean(state.shareView);
   const editableCount = state.plannedRouteMode === "auto" ? draft?.stops?.length || 0 : draft?.points?.length || 0;
   els.plannedRouteUndoBtn.disabled = !state.planningMode || editableCount === 0 || state.plannedRouteSearching;
-  els.plannedRouteSaveBtn.textContent = state.planningMode ? "후보노선 저장" : activeRoute ? "정보 저장" : "후보노선 저장";
+  const activeRouteConfirmed = isPlannedRouteConfirmed(activeRoute);
+  els.plannedRouteSaveBtn.textContent = state.planningMode
+    ? "후보노선 저장"
+    : activeRouteConfirmed
+      ? "노선 확정 완료"
+      : activeRoute
+        ? "정보 저장"
+        : "후보노선 저장";
   els.plannedRouteSaveBtn.disabled = state.planningMode
     ? (draft?.points.length || 0) < 2
-    : !activeRoute || Boolean(state.shareView);
+    : !activeRoute || activeRouteConfirmed || Boolean(state.shareView);
   els.plannedRouteCancelBtn.disabled = !state.planningMode;
-  const canEditRouteInfo = !state.shareView && Boolean(state.planningMode || activeRoute);
+  const canEditRouteInfo = !state.shareView && Boolean(state.planningMode || (activeRoute && !activeRouteConfirmed));
   els.plannedRouteName.disabled = !canEditRouteInfo;
   els.plannedRouteMemo.disabled = !canEditRouteInfo;
   els.plannedRouteStatusSelect.disabled = !canEditRouteInfo;

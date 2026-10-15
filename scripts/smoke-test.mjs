@@ -235,6 +235,7 @@ try {
   assert.match(serverSource, /include_construction/);
   assert.match(serverSource, /function sanitizeSharedPhotos/);
   assert.match(serverSource, /function sanitizeRestrictionReview/);
+  assert.match(serverSource, /confirmedPointCount: Math\.max\(0, Number\(route\?\.confirmedPointCount\)/);
   assert.match(serverSource, /projectTransferMatch[\s\S]+?\/transfer[\s\S]+?transferProjectCopy/);
   assert.match(serverSource, /error: "project_conflict"/);
   assert.match(serverSource, /status: isAdminEmail\(email\) \? "active" : "pending"/);
@@ -261,6 +262,10 @@ try {
   assert.equal(appResponse.status, 200);
   assert.match(appSource, /void applyMapProvider\(desiredMapProvider, \{ quiet: true \}\);/);
   assert.match(appSource, /function renderNaverNativeOverlays\(\)/);
+  assert.match(appSource, /function confirmPlannedRoute\(route, updates = \{\}\)/);
+  assert.match(appSource, /더 이상 사전노선 검토와 후보노선 수정을 진행할 수 없습니다/);
+  assert.match(appSource, /reason: "planned-route-confirmed"/);
+  assert.match(appSource, /state\.primarySessionId = session\.id/);
   assert.match(appSource, /new naverMaps\.Polyline/);
   assert.match(appSource, /new naverMaps\.Marker/);
   const affineSolverSource = appSource.match(/function solveLeastSquares3\(rows, values\) \{[\s\S]+?\n\}/)?.[0];
