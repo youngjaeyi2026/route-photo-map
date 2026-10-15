@@ -1639,7 +1639,8 @@ body.is-follow-mode .control-panel {
   clip: rect(0, 0, 0, 0);
 }
 
-.restriction-data-upload {
+.restriction-data-upload,
+.restriction-data-tools > button {
   display: grid;
   min-height: 38px;
   place-items: center;
