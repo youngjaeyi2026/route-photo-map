@@ -94,7 +94,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261016-confirmed-route-delete-v10/);
+  assert.match(pageHtml, /20261016-route-visibility-v11/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -288,6 +288,9 @@ try {
   assert.match(appSource, /function renderNaverNativeOverlays\(\)/);
   assert.match(appSource, /function confirmPlannedRoute\(route, updates = \{\}\)/);
   assert.match(appSource, /function startConfirmedRouteRevision\(routeId\)/);
+  assert.match(appSource, /function getVisibleActivePlannedRoute\(\)/);
+  assert.match(appSource, /const followsCandidate = Boolean\(getVisibleActivePlannedRoute\(\)\?\.points\?\.length >= 2\)/);
+  assert.match(appSource, /const candidateRoute = getVisibleActivePlannedRoute\(\)/);
   assert.match(appSource, /function searchSegmentReroute\(\)/);
   assert.match(appSource, /function applySegmentReroute\(\)/);
   assert.match(appSource, /function toggleSessionOverlay\(sessionId\)/);

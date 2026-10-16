@@ -4549,7 +4549,7 @@ function createNaverNativePolyline(points, options, naverMaps) {
 
 function renderNaverNativeRoute(naverMaps) {
   const points = getRoutePathPoints(state.points);
-  const followsCandidate = Boolean(getActivePlannedRoute()?.points?.length >= 2);
+  const followsCandidate = Boolean(getVisibleActivePlannedRoute()?.points?.length >= 2);
   if (!state.destinationFollow || followsCandidate || points.length < 2) {
     createNaverNativePolyline(points, { color: ROUTE_COMPLETED_COLOR, weight: 6, zIndex: 20 }, naverMaps);
   } else {
@@ -4560,7 +4560,7 @@ function renderNaverNativeRoute(naverMaps) {
 
   const activePlan = state.planningMode
     ? state.plannedRouteDraft
-    : state.plannedRoutes.find((route) => route.id === state.activePlannedRouteId);
+    : getVisibleActivePlannedRoute();
   const outlinePreview = state.planningMode && state.plannedRouteMode === "manual"
     ? state.plannedRouteOutlinePreview
     : null;
@@ -6040,6 +6040,11 @@ function getActivePlannedRoute() {
   return state.plannedRoutes.find((route) => route.id === state.activePlannedRouteId)
     || state.plannedRoutes[0]
     || null;
+}
+
+function getVisibleActivePlannedRoute() {
+  const route = getActivePlannedRoute();
+  return route?.visible !== false ? route : null;
 }
 
 function getCandidateStatusLabel(status) {
@@ -9535,7 +9540,7 @@ async function toggleRouteFollow() {
   state.routeOffTrack = false;
   state.routeDeviationSamples = 0;
   state.routeRecoverySamples = 0;
-  const activeRoute = getActivePlannedRoute();
+  const activeRoute = getVisibleActivePlannedRoute();
   if (activeRoute && activeRoute.status === "draft") {
     activeRoute.status = "surveying";
     activeRoute.updatedAt = Date.now();
@@ -9552,8 +9557,13 @@ async function toggleRouteFollow() {
     startRouteFollowWatcher();
   }
   renderPlannedRoutes();
-  void syncProjectState("candidate-route-surveying");
-  setStatus("후보노선 따라가기를 시작했습니다. 실제 이동기록을 동시에 저장할 수 있습니다.", "active");
+  void syncProjectState(activeRoute ? "candidate-route-surveying" : "record-route-following");
+  setStatus(
+    activeRoute
+      ? "후보노선 따라가기를 시작했습니다. 실제 이동기록을 동시에 저장할 수 있습니다."
+      : "기록 동선 따라가기를 시작했습니다. 실제 이동기록을 동시에 저장할 수 있습니다.",
+    "active",
+  );
 }
 
 function toggleConstructionVisibility() {
@@ -9691,7 +9701,7 @@ function stopRouteFollowing(message = "답사 따라가기를 종료했습니다
 function renderRouteLines() {
   scheduleNaverNativeOverlayRender();
   const points = getRoutePathPoints(state.points);
-  const followsCandidate = Boolean(getActivePlannedRoute()?.points?.length >= 2);
+  const followsCandidate = Boolean(getVisibleActivePlannedRoute()?.points?.length >= 2);
   if (!state.destinationFollow || followsCandidate || points.length < 2) {
     routeLine.setLatLngs(points.map((point) => [point.lat, point.lng]));
     routeRemainingLine.setLatLngs([]);
@@ -11490,7 +11500,7 @@ function getRoutePathPoints(points = []) {
 }
 
 function getRouteFollowPoints() {
-  const candidateRoute = getActivePlannedRoute();
+  const candidateRoute = getVisibleActivePlannedRoute();
   if (candidateRoute?.points?.length >= 2) {
     return getRoutePathPoints(candidateRoute.points);
   }
@@ -11498,7 +11508,7 @@ function getRouteFollowPoints() {
 }
 
 function hasCandidateRouteForFollow() {
-  return Boolean(getActivePlannedRoute()?.points?.length >= 2);
+  return Boolean(getVisibleActivePlannedRoute()?.points?.length >= 2);
 }
 
 function formatDistance(meters) {
