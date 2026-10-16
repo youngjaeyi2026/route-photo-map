@@ -363,6 +363,11 @@ h2 {
   gap: 14px;
 }
 
+.route-workflow-section {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
 .planned-route-section[hidden],
 #followRouteBtn[hidden],
 #routeFollowStatus[hidden] {
@@ -1648,7 +1653,8 @@ body.is-follow-mode .control-panel {
   font-weight: 800;
 }
 
-.route-review-phase-two details > summary {
+.route-review-phase-two details > summary,
+.deep-route-discovery-section details > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1659,11 +1665,20 @@ body.is-follow-mode .control-panel {
   font-weight: 900;
 }
 
-.route-review-phase-two details > summary::-webkit-details-marker {
+.route-review-phase-two details > summary::-webkit-details-marker,
+.deep-route-discovery-section details > summary::-webkit-details-marker {
   display: none;
 }
 
 .route-review-phase-two__body {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.deep-route-discovery-section__body {
   display: grid;
   gap: 10px;
   margin-top: 12px;

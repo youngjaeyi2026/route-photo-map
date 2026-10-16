@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20261015-session-overlay-v5" />
+    <link rel="stylesheet" href="/styles.css?v=20261016-route-discovery-labels-v6" />
   </head>
   <body>
     <script>
@@ -104,13 +104,13 @@
           </div>
         </section>
 
-        <section id="plannedRouteSection" class="panel-section planned-route-section">
+        <section id="plannedRouteSection" class="panel-section planned-route-section route-workflow-section">
           <div class="section-title">
-            <h2>후보노선</h2>
+            <h2>간편 노선 발굴</h2>
             <button id="plannedRouteToggleBtn" class="section-toggle" type="button">펼치기</button>
           </div>
           <div id="plannedRouteControls" class="planned-route-controls" hidden>
-            <p class="hint">1차 노선작성·확정 · 출발지·경유지(최대 15개)·도착지를 지정해 후보노선을 만들고, 기존 운행 이력 또는 검토 결과에 따라 확정합니다.</p>
+            <p class="hint">출발지·경유지(최대 15개)·도착지를 지정하거나 직접 그려 후보노선을 빠르게 발굴합니다.</p>
             <p class="planned-route-notice">노선 확정은 앱 안의 기준노선 지정이며 제한차량의 통과 가능성이나 운행허가 완료를 의미하지 않습니다.</p>
             <div class="planned-route-form">
               <input id="plannedRouteName" type="text" maxlength="120" placeholder="후보노선명 (예: 후보 A · 국도21호선)" />
@@ -165,14 +165,27 @@
           </div>
         </section>
 
-        <section class="panel-section route-review-phase-two">
+        <section class="panel-section deep-route-discovery-section route-workflow-section">
+          <details>
+            <summary>
+              <span>심층 노선 발굴</span>
+              <span class="badge">개발 준비</span>
+            </summary>
+            <div class="deep-route-discovery-section__body">
+              <p class="hint">차량제원과 제한시설 자료를 이용해 간편 노선과 별개로 새로운 대안노선을 발굴하는 독립 기능입니다.</p>
+              <p class="planned-route-notice">심층 노선 발굴은 제한차량 조건검토와 분리하여 개발합니다. 완성 전까지 간편 노선 발굴과 수동 구간 재검색을 이용해 주세요.</p>
+            </div>
+          </details>
+        </section>
+
+        <section class="panel-section route-review-phase-two route-workflow-section">
           <details id="restrictionReviewDetails">
             <summary>
-              <span>2차 제한차량 조건검토</span>
+              <span>제한차량 조건검토</span>
               <span id="restrictionReviewBadge" class="badge">자료 준비</span>
             </summary>
             <div class="route-review-phase-two__body">
-              <p class="hint">저장한 후보노선과 차량제원을 교량·터널·도로 제한자료에 대조해 사전검토합니다.</p>
+              <p class="hint">간편 또는 심층 방식으로 발굴한 노선과 차량제원을 교량·터널·도로 제한자료에 대조해 검토합니다.</p>
               <label class="route-review-field">
                 <span>검토할 후보노선</span>
                 <select id="restrictionRouteSelect"></select>
@@ -242,7 +255,7 @@
           </details>
         </section>
 
-        <section id="recordSection" class="panel-section record-section">
+        <section id="recordSection" class="panel-section record-section route-workflow-section">
           <div class="section-title">
             <h2 id="recordTitle">기록</h2>
             <div class="section-title-actions">
@@ -501,6 +514,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20261015-session-overlay-v5"></script>
+    <script src="/app.js?v=20261016-route-discovery-labels-v6"></script>
   </body>
 </html>

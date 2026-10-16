@@ -6739,7 +6739,7 @@ async function importRestrictionData(event) {
   if (!files.length) return;
   const route = getRestrictionReviewRoute();
   if (!route) {
-    setRestrictionReviewStatus("먼저 1차 후보노선을 저장해 주세요.", "warning");
+    setRestrictionReviewStatus("먼저 간편 노선 발굴에서 후보노선을 저장해 주세요.", "warning");
     return;
   }
   try {
@@ -7025,7 +7025,7 @@ function exportNormalizedRestrictionCsv() {
 function runRestrictionReview() {
   const route = getRestrictionReviewRoute();
   if (!route?.points?.length || route.points.length < 2) {
-    setRestrictionReviewStatus("검토할 1차 후보노선을 먼저 저장해 주세요.", "warning");
+    setRestrictionReviewStatus("검토할 후보노선을 간편 또는 심층 노선 발굴에서 먼저 저장해 주세요.", "warning");
     return;
   }
   const review = ensureRestrictionReview(route);
@@ -7311,7 +7311,7 @@ function renderRestrictionReview() {
     els.restrictionReviewList.append(empty);
   }
   if (!review?.reviewedAt) {
-    setRestrictionReviewStatus(route ? "차량제원과 제한자료를 준비한 뒤 조건검토를 실행하세요." : "먼저 1차 후보노선을 저장해 주세요.", route ? "info" : "warning");
+    setRestrictionReviewStatus(route ? "차량제원과 제한자료를 준비한 뒤 조건검토를 실행하세요." : "먼저 간편 노선 발굴에서 후보노선을 저장해 주세요.", route ? "info" : "warning");
   } else {
     setRestrictionReviewStatus(`최근 검토 ${formatDate(review.reviewedAt)} · ${review.results.length}건 확인`, counts.risk ? "error" : counts.permit ? "warning" : "success");
   }

@@ -90,7 +90,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261015-session-overlay-v5/);
+  assert.match(pageHtml, /20261016-route-discovery-labels-v6/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -131,6 +131,9 @@ try {
   assert.match(pageHtml, /id="segmentRerouteApplyBtn"/);
   assert.match(pageHtml, /id="clearHistoryOverlaysBtn"/);
   assert.match(pageHtml, /id="historyOverlayStatus"/);
+  assert.match(pageHtml, /간편 노선 발굴/);
+  assert.match(pageHtml, /심층 노선 발굴/);
+  assert.match(pageHtml, /제한차량 조건검토/);
   assert.match(pageHtml, /경유지\(최대 15개\)/);
   assert.match(
     pageHtml,
