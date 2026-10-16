@@ -7060,17 +7060,17 @@ function deletePlannedRoute(routeId) {
   if (!route) {
     return;
   }
-  if (isPlannedRouteConfirmed(route)) {
-    setStatus("확정노선은 삭제할 수 없습니다. 필요한 경우 확정노선 수정으로 새 수정본을 만들어 주세요.", "warning");
-    return;
-  }
+  const routeConfirmed = isPlannedRouteConfirmed(route);
   const pointCount = route.points?.length || 0;
   const waypointCount = route.stops?.filter((stop) => stop.kind === "waypoint").length || 0;
   const activeWarning = state.activePlannedRouteId === routeId
     ? "\n\n현재 기준 노선입니다. 삭제하면 남아 있는 다른 후보노선이 새 기준으로 지정됩니다."
     : "";
+  const confirmedWarning = routeConfirmed
+    ? `\n\n이 노선은 프로젝트 위치점 ${route.confirmedPointCount || pointCount}개로 이미 확정되었습니다. 후보노선 카드와 검토 정보만 삭제되며, 프로젝트 위치점과 저장된 확정 기록은 보존됩니다.`
+    : "";
   const accepted = window.confirm(
-    `'${route.name}' 후보노선을 삭제하시겠습니까?\n\n위치점: ${pointCount}개\n경유지: ${waypointCount}개${activeWarning}\n\n노선과 검토 정보가 서버에서도 삭제되며 복구할 수 없습니다. 다음 단계에서 '삭제'를 입력해야 최종 삭제됩니다.`,
+    `'${route.name}' 후보노선을 삭제하시겠습니까?\n\n위치점: ${pointCount}개\n경유지: ${waypointCount}개${confirmedWarning}${activeWarning}\n\n후보노선 카드와 검토 정보가 서버에서도 삭제되며 복구할 수 없습니다. 다음 단계에서 '삭제'를 입력해야 최종 삭제됩니다.`,
   );
   if (!accepted) return;
   const verification = window.prompt(`최종 확인\n\n'${route.name}'을 삭제하려면 아래 입력란에 삭제를 입력하세요.`);
@@ -7085,7 +7085,12 @@ function deletePlannedRoute(routeId) {
   persist();
   renderPlannedRoutes();
   void syncProjectState("delete-planned-route");
-  setStatus(`'${route.name}' 후보노선을 삭제했습니다.`, "success");
+  setStatus(
+    routeConfirmed
+      ? `'${route.name}' 후보노선 카드를 삭제했습니다. 프로젝트 위치점과 확정 기록은 보존했습니다.`
+      : `'${route.name}' 후보노선을 삭제했습니다.`,
+    "success",
+  );
 }
 
 function getRestrictionReviewRoute() {
@@ -7861,7 +7866,7 @@ function renderPlannedRoutes() {
       ["지도\n보기", () => fitPlannedRoute(route.points), false],
       [routeConfirmed ? "확정노선\n수정" : "수정", () => routeConfirmed ? startConfirmedRouteRevision(route.id) : startPlannedRouteEditing(route.id), false],
       ["새 후보\n복제", () => startPlannedRouteClone(route.id), false],
-      ["삭제", () => deletePlannedRoute(route.id), false, routeConfirmed],
+      ["삭제", () => deletePlannedRoute(route.id), false, false],
     ];
     actionItems.forEach(([label, handler, active, disabled]) => {
       const button = document.createElement("button");
