@@ -759,7 +759,7 @@ function sanitizePlannedRoutes(routes) {
     id: String(route?.id || `planned-${index + 1}`).slice(0, 100),
     name: String(route?.name || `후보 ${index + 1}`).trim().slice(0, 120),
     memo: String(route?.memo || "").slice(0, 2000),
-    source: ["image", "naver-manual", "naver-directions"].includes(route?.source)
+    source: ["image", "naver-manual", "naver-directions", "naver-outline"].includes(route?.source)
       ? route.source
       : "naver-manual",
     routeOption: sanitizeRouteOption(route?.routeOption),
@@ -790,6 +790,10 @@ function sanitizePlannedRoutes(routes) {
     updatedAt: route?.updatedAt || route?.createdAt || Date.now(),
     points: (Array.isArray(route?.points) ? route.points : [])
       .slice(0, 100000)
+      .map((point) => ({ lat: Number(point?.lat), lng: Number(point?.lng) }))
+      .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
+    outlinePoints: (Array.isArray(route?.outlinePoints) ? route.outlinePoints : [])
+      .slice(0, 10000)
       .map((point) => ({ lat: Number(point?.lat), lng: Number(point?.lng) }))
       .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
     stops: sanitizeRouteStops(route?.stops),

@@ -6,7 +6,7 @@
     <title>동선 사진 지도</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=20261016-route-section-lines-v7" />
+    <link rel="stylesheet" href="/styles.css?v=20261016-outline-routing-v8" />
   </head>
   <body>
     <script>
@@ -115,8 +115,8 @@
             <div class="planned-route-form">
               <input id="plannedRouteName" type="text" maxlength="120" placeholder="후보노선명 (예: 후보 A · 국도21호선)" />
               <div class="planned-route-methods" role="group" aria-label="후보노선 작성 방식">
-                <button id="plannedRouteAutoBtn" class="is-active" type="button">출발·경유·도착</button>
-                <button id="plannedRouteManualBtn" type="button">전체 수동 그리기</button>
+                <button id="plannedRouteAutoBtn" class="is-active" type="button">지점 기반 검색</button>
+                <button id="plannedRouteManualBtn" type="button">윤곽 기반 검색</button>
               </div>
               <div id="plannedRouteAutoControls" class="planned-route-auto-controls">
                 <div class="planned-route-stop-actions">
@@ -139,6 +139,27 @@
                   <button id="plannedRouteSearchBtn" class="primary-action" type="button">후보노선 검색</button>
                 </div>
               </div>
+              <div id="plannedRouteOutlineControls" class="planned-route-outline-controls" hidden>
+                <p class="hint">지도에서 도로를 따라 대략적인 윤곽을 순서대로 그린 뒤 검색하세요. 핵심 지점을 자동 추출하고, 15개 경유지 제한을 넘으면 여러 구간으로 나누어 도로 노선을 연결합니다.</p>
+                <div class="planned-route-search-row">
+                  <label>
+                    <span>일반 경로 옵션</span>
+                    <select id="plannedRouteOutlineOption">
+                      <option value="traoptimal">실시간 최적</option>
+                      <option value="trafast">실시간 빠른 길</option>
+                      <option value="tracomfort">편한 길</option>
+                      <option value="traavoidtoll">무료도로 우선</option>
+                      <option value="traavoidcaronly">자동차전용도로 회피</option>
+                    </select>
+                  </label>
+                  <button id="plannedRouteOutlineSearchBtn" class="primary-action" type="button">윤곽으로 노선 검색</button>
+                </div>
+                <div class="planned-route-outline-actions">
+                  <button id="plannedRouteOutlineApplyBtn" class="primary-action" type="button" disabled>검색 결과 적용</button>
+                  <button id="plannedRouteOutlineCancelBtn" type="button" disabled>미리보기 취소</button>
+                </div>
+                <p id="plannedRouteOutlineStatus" class="planned-route-outline-status">윤곽점을 2개 이상 지정하면 도로 노선을 검색할 수 있습니다.</p>
+              </div>
               <label class="planned-route-status-field">
                 <span>검토 상태</span>
                 <select id="plannedRouteStatusSelect">
@@ -156,7 +177,7 @@
                 <button id="plannedRouteCancelBtn" type="button" disabled>편집 취소</button>
               </div>
             </div>
-            <p id="plannedRouteStatus" class="status-text">새 후보노선을 누르고 출발지·경유지·도착지를 지도에서 지정하세요.</p>
+            <p id="plannedRouteStatus" class="status-text">새 후보노선을 누르고 지점 기반 검색 또는 윤곽 기반 검색을 선택하세요.</p>
             <div class="candidate-follow-block">
               <button id="followRouteBtn" type="button">후보노선 따라가기</button>
               <p id="routeFollowStatus" class="route-follow-status">저장된 후보노선을 기준으로 답사를 시작할 수 있습니다.</p>
@@ -514,6 +535,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js?v=20261016-route-section-lines-v7"></script>
+    <script src="/app.js?v=20261016-outline-routing-v8"></script>
   </body>
 </html>

@@ -1552,7 +1552,8 @@ body.is-follow-mode .control-panel {
   background: var(--green);
 }
 
-.planned-route-auto-controls {
+.planned-route-auto-controls,
+.planned-route-outline-controls {
   display: grid;
   gap: 8px;
   border: 1px solid #cddfd6;
@@ -1561,8 +1562,48 @@ body.is-follow-mode .control-panel {
   background: #f6faf7;
 }
 
-.planned-route-auto-controls[hidden] {
+.planned-route-auto-controls[hidden],
+.planned-route-outline-controls[hidden] {
   display: none;
+}
+
+.planned-route-outline-controls .hint {
+  margin: 0;
+}
+
+.planned-route-outline-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.planned-route-outline-actions button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 8px;
+  color: var(--green-dark);
+  background: #ffffff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.planned-route-outline-actions .primary-action {
+  color: #ffffff;
+  border-color: #315f9e;
+  background: #315f9e;
+}
+
+.planned-route-outline-actions button:disabled {
+  opacity: 0.45;
+}
+
+.planned-route-outline-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .planned-route-stop-list {

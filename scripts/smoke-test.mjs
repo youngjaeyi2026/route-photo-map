@@ -90,7 +90,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261016-route-section-lines-v7/);
+  assert.match(pageHtml, /20261016-outline-routing-v8/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -125,6 +125,11 @@ try {
   assert.match(pageHtml, /id="plannedRouteWaypointBtn"/);
   assert.match(pageHtml, /id="plannedRouteGoalPointBtn"/);
   assert.match(pageHtml, /id="plannedRouteSearchBtn"/);
+  assert.match(pageHtml, /id="plannedRouteOutlineControls"[^>]+hidden/);
+  assert.match(pageHtml, /id="plannedRouteOutlineSearchBtn"/);
+  assert.match(pageHtml, /id="plannedRouteOutlineApplyBtn"/);
+  assert.match(pageHtml, /지점 기반 검색/);
+  assert.match(pageHtml, /윤곽 기반 검색/);
   assert.match(pageHtml, /id="segmentRerouteStartBtn"/);
   assert.match(pageHtml, /id="segmentRerouteWaypointBtn"/);
   assert.match(pageHtml, /id="segmentRerouteSearchBtn"/);
@@ -244,6 +249,7 @@ try {
   assert.match(serverSource, /include_construction/);
   assert.match(serverSource, /function sanitizeSharedPhotos/);
   assert.match(serverSource, /function sanitizeRestrictionReview/);
+  assert.match(serverSource, /outlinePoints: \(Array\.isArray\(route\?\.outlinePoints\)/);
   assert.match(serverSource, /confirmedPointCount: Math\.max\(0, Number\(route\?\.confirmedPointCount\)/);
   assert.match(serverSource, /projectTransferMatch[\s\S]+?\/transfer[\s\S]+?transferProjectCopy/);
   assert.match(serverSource, /error: "project_conflict"/);
@@ -397,6 +403,10 @@ try {
   assert.match(appSource, /NAVER_MAP_CLIENT_ID = "pie7hw0qho"/);
   assert.match(appSource, /function loadNaverMapsApi\(\)/);
   assert.match(appSource, /async function searchPlannedRoute\(\)/);
+  assert.match(appSource, /async function searchPlannedRouteOutline\(\)/);
+  assert.match(appSource, /function extractOutlineRouteAnchors\(points\)/);
+  assert.match(appSource, /function createOutlineRouteChunks\(anchors\)/);
+  assert.match(appSource, /function applyPlannedRouteOutlinePreview\(\)/);
   assert.match(appSource, /function normalizeRestrictionReview\(/);
   assert.match(appSource, /function parseRestrictionCsv\(/);
   assert.match(appSource, /function readRestrictionFileText\(/);
