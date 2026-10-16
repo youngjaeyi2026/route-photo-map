@@ -81,6 +81,10 @@ try {
   assert.equal(routePreviewResponse.status, 503);
   assert.equal((await routePreviewResponse.json()).error, "directions_not_configured");
 
+  const locationSearchResponse = await fetch(`${baseUrl}/api/locations/search?q=전주시청`);
+  assert.equal(locationSearchResponse.status, 503);
+  assert.equal((await locationSearchResponse.json()).error, "geocoding_not_configured");
+
   const legacyProjectResponse = await fetch(`${baseUrl}/api/projects/${legacyProjectCode}`);
   const legacyProject = await legacyProjectResponse.json();
   assert.equal(legacyProjectResponse.status, 200);
@@ -90,7 +94,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261016-outline-routing-v8/);
+  assert.match(pageHtml, /20261016-place-search-v9/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -125,6 +129,9 @@ try {
   assert.match(pageHtml, /id="plannedRouteWaypointBtn"/);
   assert.match(pageHtml, /id="plannedRouteGoalPointBtn"/);
   assert.match(pageHtml, /id="plannedRouteSearchBtn"/);
+  assert.match(pageHtml, /id="plannedRoutePlaceQuery"/);
+  assert.match(pageHtml, /id="plannedRoutePlaceSearchBtn"/);
+  assert.match(pageHtml, /id="plannedRoutePlaceResults"/);
   assert.match(pageHtml, /id="plannedRouteOutlineControls"[^>]+hidden/);
   assert.match(pageHtml, /id="plannedRouteOutlineSearchBtn"/);
   assert.match(pageHtml, /id="plannedRouteOutlineApplyBtn"/);
@@ -250,6 +257,8 @@ try {
   assert.match(serverSource, /function sanitizeSharedPhotos/);
   assert.match(serverSource, /function sanitizeRestrictionReview/);
   assert.match(serverSource, /outlinePoints: \(Array\.isArray\(route\?\.outlinePoints\)/);
+  assert.match(serverSource, /async function searchNaverLocations\(rawQuery\)/);
+  assert.match(serverSource, /maps\.apigw\.ntruss\.com\/map-geocode\/v2\/geocode/);
   assert.match(serverSource, /confirmedPointCount: Math\.max\(0, Number\(route\?\.confirmedPointCount\)/);
   assert.match(serverSource, /projectTransferMatch[\s\S]+?\/transfer[\s\S]+?transferProjectCopy/);
   assert.match(serverSource, /error: "project_conflict"/);
@@ -403,6 +412,8 @@ try {
   assert.match(appSource, /NAVER_MAP_CLIENT_ID = "pie7hw0qho"/);
   assert.match(appSource, /function loadNaverMapsApi\(\)/);
   assert.match(appSource, /async function searchPlannedRoute\(\)/);
+  assert.match(appSource, /async function searchPlannedRoutePlace\(\)/);
+  assert.match(appSource, /function renderPlannedRoutePlaceResults\(\)/);
   assert.match(appSource, /async function searchPlannedRouteOutline\(\)/);
   assert.match(appSource, /function extractOutlineRouteAnchors\(points\)/);
   assert.match(appSource, /function createOutlineRouteChunks\(anchors\)/);

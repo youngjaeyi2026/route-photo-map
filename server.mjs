@@ -22,6 +22,8 @@ const maxPhotoBytes = Number(process.env.MAX_PHOTO_BYTES || 12 * 1024 * 1024);
 const databaseUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.TIDB_DATABASE_URL || "";
 const naverDirectionsClientId = process.env.NAVER_DIRECTIONS_CLIENT_ID || process.env.NAVER_MAP_CLIENT_ID || "";
 const naverDirectionsClientSecret = process.env.NAVER_DIRECTIONS_CLIENT_SECRET || process.env.NAVER_MAP_CLIENT_SECRET || "";
+const naverGeocodingClientId = process.env.NAVER_GEOCODING_CLIENT_ID || naverDirectionsClientId;
+const naverGeocodingClientSecret = process.env.NAVER_GEOCODING_CLIENT_SECRET || naverDirectionsClientSecret;
 const isProduction = process.env.NODE_ENV === "production" || Boolean(process.env.RAILWAY_ENVIRONMENT);
 const sessionCookieName = "rpm_session";
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 30;
@@ -105,6 +107,20 @@ async function handleApi(request, response, url) {
   }
 
   currentUser = await getCurrentUser(request);
+
+  if (request.method === "GET" && url.pathname === "/api/locations/search") {
+    if (!currentUser && databaseUrl) {
+      sendJson(response, 401, { error: "login_required" });
+      return;
+    }
+    const result = await searchNaverLocations(url.searchParams.get("q"));
+    if (!result.ok) {
+      sendJson(response, result.status, { error: result.error, message: result.message || result.error });
+      return;
+    }
+    sendJson(response, 200, { results: result.results });
+    return;
+  }
 
   if (request.method === "POST" && url.pathname === "/api/routes/preview") {
     if (!currentUser && databaseUrl) {
@@ -893,6 +909,54 @@ function sanitizeRouteStops(stops) {
       lng: Number(stop?.lng),
     }))
     .filter((stop) => isKoreanRouteCoordinate(stop.lat, stop.lng));
+}
+
+async function searchNaverLocations(rawQuery) {
+  if (!naverGeocodingClientId || !naverGeocodingClientSecret) {
+    return { ok: false, status: 503, error: "geocoding_not_configured" };
+  }
+  const query = String(rawQuery || "").trim().replace(/\s+/g, " ").slice(0, 120);
+  if (query.length < 2) {
+    return { ok: false, status: 400, error: "invalid_location_query" };
+  }
+  const url = new URL("https://maps.apigw.ntruss.com/map-geocode/v2/geocode");
+  url.searchParams.set("query", query);
+  url.searchParams.set("count", "10");
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "x-ncp-apigw-api-key-id": naverGeocodingClientId,
+        "x-ncp-apigw-api-key": naverGeocodingClientSecret,
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) {
+      log(`NAVER_GEOCODING_ERROR status=${response.status}`);
+      if (response.status === 401 || response.status === 403) {
+        return { ok: false, status: 502, error: "geocoding_auth_failed" };
+      }
+      if (response.status === 429) {
+        return { ok: false, status: 429, error: "geocoding_rate_limited" };
+      }
+      return { ok: false, status: 502, error: "geocoding_request_failed" };
+    }
+    const payload = await response.json();
+    const results = (Array.isArray(payload?.addresses) ? payload.addresses : [])
+      .slice(0, 10)
+      .map((address) => ({
+        name: String(address?.roadAddress || address?.jibunAddress || address?.englishAddress || query).trim().slice(0, 160),
+        roadAddress: String(address?.roadAddress || "").trim().slice(0, 240),
+        jibunAddress: String(address?.jibunAddress || "").trim().slice(0, 240),
+        englishAddress: String(address?.englishAddress || "").trim().slice(0, 240),
+        lat: Number(address?.y),
+        lng: Number(address?.x),
+      }))
+      .filter((item) => isKoreanRouteCoordinate(item.lat, item.lng));
+    return { ok: true, results };
+  } catch (error) {
+    log(`NAVER_GEOCODING_ERROR ${error?.message || "request_failed"}`);
+    return { ok: false, status: 502, error: "geocoding_request_failed" };
+  }
 }
 
 async function findNaverCandidateRoute(body) {

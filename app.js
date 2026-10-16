@@ -117,6 +117,8 @@ const state = {
   plannedRouteSearching: false,
   plannedRouteOutlinePoints: [],
   plannedRouteOutlinePreview: null,
+  plannedRoutePlaceResults: [],
+  plannedRoutePlaceSearching: false,
   plannedRouteFeedback: null,
   restrictionReviewRouteId: "",
   mapReferences: [],
@@ -273,6 +275,10 @@ const els = {
   plannedRouteAutoBtn: document.querySelector("#plannedRouteAutoBtn"),
   plannedRouteManualBtn: document.querySelector("#plannedRouteManualBtn"),
   plannedRouteAutoControls: document.querySelector("#plannedRouteAutoControls"),
+  plannedRoutePlaceQuery: document.querySelector("#plannedRoutePlaceQuery"),
+  plannedRoutePlaceSearchBtn: document.querySelector("#plannedRoutePlaceSearchBtn"),
+  plannedRoutePlaceTarget: document.querySelector("#plannedRoutePlaceTarget"),
+  plannedRoutePlaceResults: document.querySelector("#plannedRoutePlaceResults"),
   plannedRouteOutlineControls: document.querySelector("#plannedRouteOutlineControls"),
   plannedRouteOutlineOption: document.querySelector("#plannedRouteOutlineOption"),
   plannedRouteOutlineSearchBtn: document.querySelector("#plannedRouteOutlineSearchBtn"),
@@ -731,6 +737,12 @@ els.plannedRouteStartPointBtn?.addEventListener("click", () => setPlannedRouteSe
 els.plannedRouteWaypointBtn?.addEventListener("click", () => setPlannedRouteSelection("waypoint"));
 els.plannedRouteGoalPointBtn?.addEventListener("click", () => setPlannedRouteSelection("goal"));
 els.plannedRouteSearchBtn?.addEventListener("click", searchPlannedRoute);
+els.plannedRoutePlaceSearchBtn?.addEventListener("click", searchPlannedRoutePlace);
+els.plannedRoutePlaceQuery?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  searchPlannedRoutePlace();
+});
 els.plannedRouteOutlineSearchBtn?.addEventListener("click", searchPlannedRouteOutline);
 els.plannedRouteOutlineApplyBtn?.addEventListener("click", applyPlannedRouteOutlinePreview);
 els.plannedRouteOutlineCancelBtn?.addEventListener("click", cancelPlannedRouteOutlinePreview);
@@ -750,6 +762,8 @@ els.plannedRouteOutlineOption?.addEventListener("change", () => {
   if (!state.planningMode || state.plannedRouteMode !== "manual" || !draft) return;
   draft.routeOption = normalizePlannedRouteOption(els.plannedRouteOutlineOption.value);
   state.plannedRouteOutlinePreview = null;
+  state.plannedRoutePlaceResults = [];
+  state.plannedRoutePlaceSearching = false;
   if (draft.source === "naver-outline") {
     draft.points = state.plannedRouteOutlinePoints.map((point) => ({ ...point }));
     draft.source = "naver-manual";
@@ -6129,6 +6143,9 @@ async function startPlannedRouteEditing(routeId = null, options = {}) {
     ? (sourceRoute?.outlinePoints?.length ? sourceRoute.outlinePoints : sourceRoute?.points || []).map((point) => ({ ...point }))
     : [];
   state.plannedRouteOutlinePreview = null;
+  state.plannedRoutePlaceResults = [];
+  state.plannedRoutePlaceSearching = false;
+  if (els.plannedRoutePlaceQuery) els.plannedRoutePlaceQuery.value = "";
   state.plannedRouteFeedback = null;
   writePlannedRouteForm(state.plannedRouteDraft);
   await applyMapProvider("naver");
@@ -6204,7 +6221,7 @@ function addPlannedRoutePoint(latlng) {
 
 function addPlannedRouteStop(latlng, kind) {
   const draft = state.plannedRouteDraft;
-  if (!draft) return;
+  if (!draft) return false;
   const existing = state.plannedRouteSelectionStopId
     ? draft.stops.find((stop) => stop.id === state.plannedRouteSelectionStopId)
     : draft.stops.find((stop) => stop.kind === kind && kind !== "waypoint");
@@ -6214,7 +6231,7 @@ function addPlannedRouteStop(latlng, kind) {
     && draft.stops.filter((stop) => stop.kind === "waypoint").length >= MAX_PLANNED_ROUTE_WAYPOINTS
   ) {
     setStatus(`경유지는 최대 ${MAX_PLANNED_ROUTE_WAYPOINTS}개까지 지정할 수 있습니다.`, "warning");
-    return;
+    return false;
   }
   const nextStop = {
     id: existing?.id || crypto.randomUUID(),
@@ -6231,11 +6248,14 @@ function addPlannedRouteStop(latlng, kind) {
   draft.routeSummary = { distance: null, duration: null, tollFare: null, provider: "", searchedAt: null };
   draft.updatedAt = Date.now();
   state.plannedRouteFeedback = null;
+  state.plannedRoutePlaceResults = [];
+  if (els.plannedRoutePlaceQuery) els.plannedRoutePlaceQuery.value = "";
   state.plannedRouteSelection = kind === "start" ? "goal" : kind;
   state.plannedRouteSelectionStopId = "";
   renderPlannedRoutes();
   const label = kind === "start" ? "출발지" : kind === "goal" ? "도착지" : nextStop.label;
   setStatus(`${label}를 지정했습니다.${kind === "start" ? " 이제 도착지를 선택하거나 경유지를 추가하세요." : " 후보노선 검색을 눌러 경로를 계산하세요."}`, "active");
+  return true;
 }
 
 function setPlannedRouteMode(mode) {
@@ -6260,6 +6280,8 @@ function setPlannedRouteMode(mode) {
   state.plannedRouteSelectionStopId = "";
   state.plannedRouteOutlinePoints = [];
   state.plannedRouteOutlinePreview = null;
+  state.plannedRoutePlaceResults = [];
+  state.plannedRoutePlaceSearching = false;
   renderPlannedRoutes();
   setStatus(
     mode === "auto"
@@ -6275,7 +6297,104 @@ function setPlannedRouteSelection(kind, stopId = "") {
   state.plannedRouteSelectionStopId = stopId;
   state.plannedRouteFeedback = null;
   renderPlannedRoutes();
-  setStatus(`${kind === "start" ? "출발지" : kind === "goal" ? "도착지" : "추가할 경유지"}를 지도에서 선택하세요.`, "active");
+  setStatus(`${kind === "start" ? "출발지" : kind === "goal" ? "도착지" : "추가할 경유지"}를 지도에서 선택하거나 주소·지명으로 검색하세요.`, "active");
+}
+
+function getPlannedRouteSelectionLabel() {
+  if (state.plannedRouteSelectionStopId) {
+    const stop = state.plannedRouteDraft?.stops?.find((item) => item.id === state.plannedRouteSelectionStopId);
+    if (stop) return `${stop.label || "선택 지점"} 재지정`;
+  }
+  return state.plannedRouteSelection === "goal"
+    ? "도착지"
+    : state.plannedRouteSelection === "waypoint"
+      ? "새 경유지"
+      : "출발지";
+}
+
+async function searchPlannedRoutePlace() {
+  const query = String(els.plannedRoutePlaceQuery?.value || "").trim();
+  if (!state.planningMode || state.plannedRouteMode !== "auto" || state.plannedRoutePlaceSearching) return;
+  if (query.length < 2) {
+    setStatus("검색할 주소나 지명을 두 글자 이상 입력해 주세요.", "warning");
+    els.plannedRoutePlaceQuery?.focus();
+    return;
+  }
+  state.plannedRoutePlaceSearching = true;
+  state.plannedRoutePlaceResults = [];
+  renderPlannedRoutePlaceResults();
+  setStatus(`‘${query}’ 위치를 검색하는 중입니다.`, "active");
+  try {
+    const result = await requestJson(`/api/locations/search?q=${encodeURIComponent(query)}`);
+    state.plannedRoutePlaceResults = Array.isArray(result.results) ? result.results : [];
+    if (state.plannedRoutePlaceResults.length) {
+      setStatus(`검색 결과 ${state.plannedRoutePlaceResults.length}건을 찾았습니다. ${getPlannedRouteSelectionLabel()}로 등록할 위치를 선택하세요.`, "success");
+    } else {
+      setStatus("검색 결과가 없습니다. 건물명과 함께 도로명·지번 주소를 더 자세히 입력해 주세요.", "warning");
+    }
+  } catch (error) {
+    const code = error?.payload?.error;
+    const message = code === "geocoding_not_configured"
+      ? "주소 검색 API 설정이 필요합니다. Railway의 네이버 Client ID·Secret을 확인해 주세요."
+      : code === "geocoding_auth_failed"
+        ? "네이버 주소 검색 인증에 실패했습니다. 네이버클라우드의 Geocoding 사용 설정을 확인해 주세요."
+        : code === "login_required"
+          ? "로그인 상태가 만료되었습니다. 다시 로그인한 뒤 검색해 주세요."
+          : "주소·지명 검색에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+    setStatus(message, "warning");
+  } finally {
+    state.plannedRoutePlaceSearching = false;
+    renderPlannedRoutePlaceResults();
+    renderPlannedRoutes();
+  }
+}
+
+function selectPlannedRoutePlace(result) {
+  if (!state.planningMode || state.plannedRouteMode !== "auto" || !hasPhotoPosition(result)) return;
+  const kind = ["start", "waypoint", "goal"].includes(state.plannedRouteSelection)
+    ? state.plannedRouteSelection
+    : "start";
+  const selectionStopId = state.plannedRouteSelectionStopId;
+  if (!addPlannedRouteStop({ lat: result.lat, lng: result.lng }, kind)) return;
+  const draft = state.plannedRouteDraft;
+  const target = selectionStopId
+    ? draft?.stops?.find((stop) => stop.id === selectionStopId)
+    : null;
+  const selectedStop = target || (kind === "waypoint"
+    ? draft?.stops?.filter((stop) => stop.kind === "waypoint").at(-1)
+    : draft?.stops?.find((stop) => stop.kind === kind));
+  if (selectedStop) selectedStop.label = String(result.name || result.roadAddress || result.jibunAddress || selectedStop.label).slice(0, 120);
+  map.setView([Number(result.lat), Number(result.lng)], Math.max(map.getZoom(), 15));
+  renderPlannedRoutes();
+}
+
+function renderPlannedRoutePlaceResults() {
+  if (!els.plannedRoutePlaceResults) return;
+  els.plannedRoutePlaceResults.replaceChildren();
+  if (state.plannedRoutePlaceSearching) {
+    const loading = document.createElement("p");
+    loading.className = "planned-route-place-empty";
+    loading.textContent = "검색 중…";
+    els.plannedRoutePlaceResults.append(loading);
+    return;
+  }
+  state.plannedRoutePlaceResults.forEach((result) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "planned-route-place-result";
+    const name = document.createElement("strong");
+    name.textContent = result.name || result.roadAddress || result.jibunAddress || "검색 위치";
+    const address = document.createElement("span");
+    address.textContent = [result.roadAddress, result.jibunAddress]
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .join(" · ");
+    const action = document.createElement("em");
+    action.textContent = `${getPlannedRouteSelectionLabel()}로 등록`;
+    button.append(name, address, action);
+    button.addEventListener("click", () => selectPlannedRoutePlace(result));
+    els.plannedRoutePlaceResults.append(button);
+  });
 }
 
 async function searchPlannedRoute() {
@@ -6575,6 +6694,8 @@ function cancelPlannedRouteEditing() {
   state.plannedRouteSearching = false;
   state.plannedRouteOutlinePoints = [];
   state.plannedRouteOutlinePreview = null;
+  state.plannedRoutePlaceResults = [];
+  state.plannedRoutePlaceSearching = false;
   state.plannedRouteFeedback = {
     message: "후보노선 편집을 취소했습니다.",
     type: "warning",
@@ -6646,6 +6767,8 @@ async function savePlannedRoute() {
   state.plannedRouteSearching = false;
   state.plannedRouteOutlinePoints = [];
   state.plannedRouteOutlinePreview = null;
+  state.plannedRoutePlaceResults = [];
+  state.plannedRoutePlaceSearching = false;
   if (nextStatus === "approved") {
     const savedRoute = state.plannedRoutes.find((route) => route.id === draft.id);
     const confirmed = confirmPlannedRoute(savedRoute, { name: draft.name, memo: draft.memo });
@@ -7789,6 +7912,23 @@ function renderPlannedRoutes() {
   }
   if (els.plannedRouteAutoControls) els.plannedRouteAutoControls.hidden = state.plannedRouteMode !== "auto";
   if (els.plannedRouteOutlineControls) els.plannedRouteOutlineControls.hidden = state.plannedRouteMode !== "manual";
+  if (els.plannedRoutePlaceQuery) {
+    els.plannedRoutePlaceQuery.disabled = !state.planningMode
+      || state.plannedRouteMode !== "auto"
+      || state.plannedRouteSearching
+      || state.plannedRoutePlaceSearching;
+  }
+  if (els.plannedRoutePlaceSearchBtn) {
+    els.plannedRoutePlaceSearchBtn.disabled = !state.planningMode
+      || state.plannedRouteMode !== "auto"
+      || state.plannedRouteSearching
+      || state.plannedRoutePlaceSearching;
+    els.plannedRoutePlaceSearchBtn.textContent = state.plannedRoutePlaceSearching ? "검색 중…" : "검색";
+  }
+  if (els.plannedRoutePlaceTarget) {
+    els.plannedRoutePlaceTarget.textContent = `검색 결과를 ${getPlannedRouteSelectionLabel()}로 등록합니다.`;
+  }
+  renderPlannedRoutePlaceResults();
   [
     [els.plannedRouteStartPointBtn, "start"],
     [els.plannedRouteWaypointBtn, "waypoint"],
