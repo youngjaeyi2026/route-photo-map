@@ -94,7 +94,7 @@ try {
   const pageHtml = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.match(pageHtml, /<script[^>]+app\.js/);
-  assert.match(pageHtml, /20261021-share-member-only-v12/);
+  assert.match(pageHtml, /20261021-share-obstacle-hide-v13/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceInput"/);
   assert.doesNotMatch(pageHtml, /id="mapReferencePreview"/);
   assert.doesNotMatch(pageHtml, /id="mapReferenceSaveBtn"/);
@@ -560,6 +560,7 @@ try {
   assert.match(css, /\.is-share-view \.deep-route-discovery-section/);
   assert.match(css, /\.is-share-view \.route-review-phase-two/);
   assert.match(css, /\.is-share-view \.milestone-tools/);
+  assert.match(css, /\.is-share-view #addObstaclePhotoBtn/);
   assert.match(css, /\.is-share-view #recordControls\s*\{[^}]*display:\s*grid\s*!important/s);
   assert.match(css, /\.is-share-view \.project-section/);
   assert.match(css, /\.is-share-view \.status-strip > div:not\(:first-child\)/);
