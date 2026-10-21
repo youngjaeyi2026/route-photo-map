@@ -1317,6 +1317,9 @@ label[for="autoPhotoInput"] {
 .is-share-view .settings-section,
 .is-share-view .timeline-section,
 .is-share-view .history-section,
+.is-share-view #plannedRouteSection,
+.is-share-view .deep-route-discovery-section,
+.is-share-view .route-review-phase-two,
 .is-share-view .project-section,
 .is-share-view .project-controls,
 .is-share-view .record-section .section-title-actions,
@@ -1325,6 +1328,7 @@ label[for="autoPhotoInput"] {
 .is-share-view #addMapMemoBtn,
 .is-share-view #constructionVisibilityBtn,
 .is-share-view .record-section .hint,
+.is-share-view .milestone-tools,
 .is-share-view #milestoneList,
 .is-share-view #statusText,
 .is-share-view .photo-actions button:not(:first-child),
@@ -1339,6 +1343,10 @@ label[for="autoPhotoInput"] {
 
 .is-share-view #recordControls {
   display: grid !important;
+}
+
+.is-share-view #candidateFollowBlock {
+  margin-top: 4px;
 }
 
 .is-share-view .share-construction-toggle:not([hidden]) {

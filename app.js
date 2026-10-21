@@ -243,6 +243,8 @@ const els = {
   historyList: document.querySelector("#historyList"),
   photoItemTemplate: document.querySelector("#photoItemTemplate"),
   followRouteBtn: document.querySelector("#followRouteBtn"),
+  candidateFollowBlock: document.querySelector("#candidateFollowBlock"),
+  recordControls: document.querySelector("#recordControls"),
   shareInfoControls: document.querySelector("#shareInfoControls"),
   sharePhotoToggleBtn: document.querySelector("#sharePhotoToggleBtn"),
   shareConstructionToggleBtn: document.querySelector("#shareConstructionToggleBtn"),
@@ -3872,6 +3874,7 @@ function setupSharePanel() {
         <label><input id="shareIncludePhotos" type="checkbox" /> 사진 공유</label>
         <label><input id="shareIncludeConstruction" type="checkbox" /> 공사구역 공유</label>
       </div>
+      <p class="hint">노선 확인과 답사 따라가기는 항상 포함되며, 사진과 공사구역만 선택하여 공유합니다.</p>
       <p id="shareStatus" class="status-text">로그인 후 프로젝트를 저장하면 공유 링크를 만들 수 있습니다.</p>
       <div id="shareList" class="share-list"></div>
     </div>
@@ -4039,9 +4042,10 @@ function renderSharePanel() {
     const meta = document.createElement("span");
     title.textContent = isClientShareActive(share) ? "공유 링크" : "종료/만료된 링크";
     const sharedContents = [
-      "동선",
+      "노선 확인",
       share.includePhotos ? "사진" : "",
       share.includeConstruction ? "공사구역" : "",
+      "답사 따라가기",
     ].filter(Boolean).join(" · ");
     meta.textContent = `${getShareMetaText(share)} · ${sharedContents}`;
     body.append(title, meta);
@@ -7998,6 +8002,7 @@ function renderPlannedRoutes() {
 }
 
 function render() {
+  renderShareOnlyLayout();
   renderRouteLines();
   renderSessionOverlays();
   renderMapReferenceTools();
@@ -8022,6 +8027,16 @@ function render() {
   renderProjectState();
   renderSharePanel();
   renderAuthPanel();
+}
+
+function renderShareOnlyLayout() {
+  if (!els.candidateFollowBlock || !els.plannedRouteControls || !els.recordControls) {
+    return;
+  }
+  const target = state.shareView ? els.recordControls : els.plannedRouteControls;
+  if (els.candidateFollowBlock.parentElement !== target) {
+    target.append(els.candidateFollowBlock);
+  }
 }
 
 function toggleRecordPanel() {

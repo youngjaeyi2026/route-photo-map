@@ -1510,19 +1510,6 @@ function createSharedProjectView(project, share) {
         }))
         .filter((pin) => Number.isFinite(pin.lat) && Number.isFinite(pin.lng))
     : [];
-  const plannedRoutes = sanitizePlannedRoutes(project.lastState?.plannedRoutes);
-  const activePlannedRouteId = plannedRoutes.some(
-    (route) => route.id === project.lastState?.activePlannedRouteId,
-  )
-    ? project.lastState.activePlannedRouteId
-    : plannedRoutes[0]?.id || null;
-  const mapReferences = sanitizeMapReferences(project.lastState?.mapReferences);
-  const activeMapReferenceId = mapReferences.some(
-    (reference) => reference.id === project.lastState?.activeMapReferenceId,
-  )
-    ? project.lastState.activeMapReferenceId
-    : mapReferences[0]?.id || null;
-
   return {
     code: "",
     name: project.name || "공유 노선",
@@ -1534,10 +1521,10 @@ function createSharedProjectView(project, share) {
       points: routePoints,
       photos: sharedPhotos,
       milestones,
-      plannedRoutes,
-      activePlannedRouteId,
-      mapReferences,
-      activeMapReferenceId,
+      plannedRoutes: [],
+      activePlannedRouteId: null,
+      mapReferences: [],
+      activeMapReferenceId: null,
       savedAt: project.lastState?.savedAt || project.updatedAt || null,
     },
   };
@@ -1558,7 +1545,6 @@ function sanitizeSharedPhotos(photos) {
       locationSource: photo.locationSource || "map",
       memo: String(photo.memo || ""),
       tags: String(photo.tags || ""),
-      candidateRouteId: String(photo.candidateRouteId || "").slice(0, 100),
       obstacleType: String(photo.obstacleType || "").slice(0, 80),
       timestamp: photo.timestamp || null,
     }))
